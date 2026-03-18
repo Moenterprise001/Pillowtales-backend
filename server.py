@@ -1899,66 +1899,24 @@ Create a magical bedtime adventure told by a caring storyteller — combining im
 
 Respond with ONLY the JSON, no other text."""
 
-        # Initialize chat
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel("gemini-1.5-flash")
 
-prompt = f"""
-You are a calming children's bedtime storyteller.
+        prompt = f"""
+        {system_message}
 
-Create a magical bedtime story for:
-- Name: {request.childName}
-- Age: {request.age}
-- Theme: {request.theme}
-- Moral: {request.moral}
-
-Requirements:
-- Gentle, calming tone
-- Imaginative but not overstimulating
-- Happy, peaceful ending
-- Suitable for bedtime
-- Write entirely in {story_language}
-
-Return ONLY the story text.
-"""
-
-response = model.generate_content(prompt)
-story_text = response.text
-        
-        # Send message and get response with retry logic for transient errors
-        max_retries = 2
-        retry_delay = 2  # seconds
-        last_error = None
-        
-        for attempt in range(max_retries + 1):
-            try:
-                response = await chat.send_message(user_message)
-                break  # Success, exit retry loop
-            except Exception as e:
-                last_error = e
-                error_str = str(e).lower()
-                
-                # Check if this is a retryable error (502, 503, connection issues)
-                is_retryable = any(x in error_str for x in ['502', '503', '504', 'gateway', 'timeout', 'connection', 'temporarily'])
-                
-                if is_retryable and attempt < max_retries:
-                    logger.warning(f"[STORY] Retryable error on attempt {attempt + 1}: {str(e)}")
-                    logger.info(f"[STORY] Retrying in {retry_delay} seconds...")
-                    await asyncio.sleep(retry_delay)
-                    retry_delay *= 2  # Exponential backoff
-                else:
-                    raise e
-        
-        if last_error and 'response' not in locals():
-            raise last_error
-        
-        logger.info(f"OpenAI response: {response}")
+        Generate a bedtime story for {request.childName}, age {request.age}, with theme '{request.theme}' and moral '{request.moral}'. Write entirely in {story_language}.
+        """
+        response = model.generate_content(prompt)
+        response_text = response.text
+               
+        logger.info(f"Gemini response: {response_text}")
         
         # Parse the JSON response
         try:
             # Clean the response - remove markdown code blocks if present
-            cleaned_response = response.strip()
+            cleaned_response = response_text.strip()
             if cleaned_response.startswith("```json"):
                 cleaned_response = cleaned_response[7:]
             if cleaned_response.startswith("```"):
