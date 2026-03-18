@@ -13,8 +13,6 @@ from datetime import datetime, timedelta
 from supabase import create_client, Client
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-##from emergentintegrations.llm.chat import LlmChat, UserMessage
-##from emergentintegrations.llm.openai import OpenAITextToSpeech
 import json
 import google.generativeai as genai
 
@@ -2079,17 +2077,23 @@ CRITICAL RULES:
 4. Ensure the translation is natural and fluent in {target_name}
 5. Output ONLY the translated text, no explanations or notes"""
 
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"translate-{datetime.utcnow().timestamp()}",
-            system_message=system_message
-        ).with_model("openai", "gpt-4o-mini")  # Use faster/cheaper model for translation
-        
-        user_message = UserMessage(text=text)
-        translated_text = await chat.send_message(user_message)
-        
-        logger.info(f"[TRANSLATE] Success: {len(text)} chars -> {len(translated_text)} chars")
-        return translated_text.strip()
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        prompt = f"""
+        Translate the following children's bedtime story from {source_name} to {target_name}.
+
+        Rules:
+        - Preserve the calming, gentle bedtime tone
+        - Keep character names unchanged
+        - Output only the translated text
+
+        Text:
+        {text}
+        """
+
+        response = model.generate_content(prompt)
+        translated_text = response.text
         
     except Exception as e:
         logger.error(f"[TRANSLATE] Failed: {str(e)}")
@@ -2153,18 +2157,34 @@ Return ONLY valid JSON in this exact format:
 
 Keep descriptions brief and child-friendly. Focus on elements that would help continue the story tomorrow."""
 
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"metadata-{datetime.utcnow().timestamp()}",
-            system_message=system_message
-        ).with_model("openai", "gpt-4o-mini")
-        
-        user_message = UserMessage(text=f"Story Title: {title}\n\nStory Text:\n{story_text}")
-        response = await chat.send_message(user_message)
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        model = genai.GenerativeModel("gemini-1.5-flash")
+
+        prompt = f"""
+        Extract metadata from this children's story.
+
+        Return ONLY valid JSON in this format:
+        {{
+          "summary": "2-3 sentence recap",
+          "characters": [
+            {{"name": "Character Name", "description": "brief description", "role": "role"}}
+          ],
+          "setting": "story world/location"
+        }}
+
+        Story Title: {title}
+
+        Story Text:
+        {story_text}
+        """
+
+        response = model.generate_content(prompt)
+        response_text = response.text
+       
         
         # Parse JSON response
         import re
-        json_match = re.search(r'\{[\s\S]*\}', response)
+        json_match = re.search(r'\{[\s\S]*\}', response_text)
         if json_match:
             metadata = json.loads(json_match.group())
             logger.info(f"[METADATA] Extracted: {len(metadata.get('characters', []))} characters, summary length: {len(metadata.get('summary', ''))}")
@@ -3853,30 +3873,13 @@ async def generate_tts_audio_openai(text: str, language_code: str, voice: str = 
     lang_code = language_code.lower()[:2] if language_code else 'en'
     
     # Simple single-call TTS for fallback
-    api_key = os.environ.get('EMERGENT_LLM_KEY')
+    api_key = os.environ.get('GEMINI_API_KEY')
     if not api_key:
         raise HTTPException(status_code=500, detail="TTS configuration error")
     
-    tts = OpenAITextToSpeech(api_key=api_key)
-
-    try:
-            audio_bytes = await tts.generate_speech(...)
-            text=text,
-            model="tts-1-hd",
-            voice="shimmer",
-            speed=0.88,
-            response_format="mp3"
-        )
-        
-        char_count = len(text)
-        estimated_cost = log_tts_metrics(story_id, "openai-hd", char_count, lang_code, "shimmer", True)
-        
-        return (None, "disabled", 0, 0)
-        
-    except Exception as e:
-        logger.error(f"[TTS-OPENAI] ERROR: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"OpenAI TTS failed: {str(e)}")
-
+        # TEMP: OpenAI TTS fallback disabled while removing Emergent dependency
+    logger.info("[TTS-OPENAI] Fallback TTS temporarily disabled")
+    return (None, "disabled", 0, 0)
 
 async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voice_preset: str = None, story_id: str = None, voice_id_override: str = None) -> tuple:
     """
