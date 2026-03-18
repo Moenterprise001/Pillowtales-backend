@@ -13,9 +13,10 @@ from datetime import datetime, timedelta
 from supabase import create_client, Client
 from passlib.context import CryptContext
 from jose import JWTError, jwt
-from emergentintegrations.llm.chat import LlmChat, UserMessage
-from emergentintegrations.llm.openai import OpenAITextToSpeech
+##from emergentintegrations.llm.chat import LlmChat, UserMessage
+##from emergentintegrations.llm.openai import OpenAITextToSpeech
 import json
+import google.generativeai as genai
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -25,6 +26,8 @@ load_dotenv(ROOT_DIR / '.env')
 # ElevenLabs (premium): ~$0.30/1K chars
 
 TTS_PROVIDER_DEFAULT = "openai"  # Default to cheaper OpenAI
+Use Control + Shift + m to toggle the tab key moving focus. Alternatively, use esc then tab to move to the next interactive element on the page.
+
 TTS_PROVIDER_PREMIUM = "elevenlabs"  # Premium option
 
 # ================== DEV MODE - SKIP TTS FOR DEBUGGING ==================
@@ -562,11 +565,11 @@ else:
     print("ELEVEN key prefix: None (not set)")
 
 # Emergent LLM Key for OpenAI TTS
-emergent_key = os.environ.get('EMERGENT_LLM_KEY')
+emergent_key = os.environ.get('GEMINI_API_KEY')
 if emergent_key:
-    print(f"EMERGENT_LLM_KEY prefix: {emergent_key[:12]}...")
+    print(f"GEMINI_API_KEY prefix: {emergent_key[:12]}...")
 else:
-    print("EMERGENT_LLM_KEY: Not set")
+    print("GEMINI_API_KEY: Not set")
 
 # Supabase configuration
 supabase_url = os.environ.get('SUPABASE_URL', 'https://your-project.supabase.co')
@@ -1899,16 +1902,31 @@ Create a magical bedtime adventure told by a caring storyteller — combining im
 Respond with ONLY the JSON, no other text."""
 
         # Initialize chat
-        chat = LlmChat(
-            api_key=api_key,
-            session_id=f"story-gen-{datetime.utcnow().timestamp()}",
-            system_message=system_message
-        ).with_model("openai", "gpt-5.2")
-        
-        # Create user message
-        user_message = UserMessage(
-            text=f"Generate a bedtime story for {request.childName}, age {request.age}, with theme '{request.theme}' and moral '{request.moral}'. Write entirely in {story_language}."
-        )
+genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+
+model = genai.GenerativeModel("gemini-1.5-flash")
+
+prompt = f"""
+You are a calming children's bedtime storyteller.
+
+Create a magical bedtime story for:
+- Name: {request.childName}
+- Age: {request.age}
+- Theme: {request.theme}
+- Moral: {request.moral}
+
+Requirements:
+- Gentle, calming tone
+- Imaginative but not overstimulating
+- Happy, peaceful ending
+- Suitable for bedtime
+- Write entirely in {story_language}
+
+Return ONLY the story text.
+"""
+
+response = model.generate_content(prompt)
+story_text = response.text
         
         # Send message and get response with retry logic for transient errors
         max_retries = 2
@@ -3884,9 +3902,9 @@ async def generate_tts_audio_openai(text: str, language_code: str, voice: str = 
         raise HTTPException(status_code=500, detail="TTS configuration error")
     
     tts = OpenAITextToSpeech(api_key=api_key)
-    
+
     try:
-        audio_bytes = await tts.generate_speech(
+            audio_bytes = await tts.generate_speech(...)
             text=text,
             model="tts-1-hd",
             voice="shimmer",
@@ -3897,7 +3915,7 @@ async def generate_tts_audio_openai(text: str, language_code: str, voice: str = 
         char_count = len(text)
         estimated_cost = log_tts_metrics(story_id, "openai-hd", char_count, lang_code, "shimmer", True)
         
-        return (audio_bytes, "shimmer", char_count, estimated_cost)
+        return (None, "disabled", 0, 0)
         
     except Exception as e:
         logger.error(f"[TTS-OPENAI] ERROR: {str(e)}")
