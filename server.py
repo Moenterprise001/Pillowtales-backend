@@ -26,8 +26,6 @@ load_dotenv(ROOT_DIR / '.env')
 # ElevenLabs (premium): ~$0.30/1K chars
 
 TTS_PROVIDER_DEFAULT = "openai"  # Default to cheaper OpenAI
-Use Control + Shift + m to toggle the tab key moving focus. Alternatively, use esc then tab to move to the next interactive element on the page.
-
 TTS_PROVIDER_PREMIUM = "elevenlabs"  # Premium option
 
 # ================== DEV MODE - SKIP TTS FOR DEBUGGING ==================
