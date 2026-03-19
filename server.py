@@ -2140,10 +2140,8 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
     Returns: {summary, characters, setting}
     """
     logger.info(f"[METADATA] Extracting metadata from story: {title}")
-    
+
     try:
-        api_key = os.environ.get('EMERGENT_LLM_KEY')
-        
         system_message = """You are a story analyst. Extract key information from children's bedtime stories.
 
 Return ONLY valid JSON in this exact format:
@@ -2157,32 +2155,21 @@ Return ONLY valid JSON in this exact format:
 
 Keep descriptions brief and child-friendly. Focus on elements that would help continue the story tomorrow."""
 
-genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
+        genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         model = genai.GenerativeModel("gemini-1.5-flash")
 
         prompt = f"""
-        Extract metadata from this children's story.
+{system_message}
 
-        Return ONLY valid JSON in this format:
-        {{
-          "summary": "2-3 sentence recap",
-          "characters": [
-            {{"name": "Character Name", "description": "brief description", "role": "role"}}
-          ],
-          "setting": "story world/location"
-        }}
+Story Title: {title}
 
-        Story Title: {title}
-
-        Story Text:
-        {story_text}
-        """
+Story Text:
+{story_text}
+"""
 
         response = model.generate_content(prompt)
         response_text = response.text
-       
-        
-        # Parse JSON response
+
         import re
         json_match = re.search(r'\{[\s\S]*\}', response_text)
         if json_match:
@@ -2192,7 +2179,7 @@ genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         else:
             logger.warning("[METADATA] Could not parse JSON from response")
             return {"summary": "", "characters": [], "setting": ""}
-            
+
     except Exception as e:
         logger.error(f"[METADATA] Extraction failed: {str(e)}")
         return {"summary": "", "characters": [], "setting": ""}
