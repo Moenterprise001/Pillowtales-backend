@@ -2137,8 +2137,14 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
         """
 
         response = model.generate_content(prompt)
-        translated_text = response.text
-        return translated_text or text
+        translated_text = getattr(response, "text", None)
+
+# Safety checks
+if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
+    logger.warning("[TRANSLATE] Invalid response, falling back to original text")
+    return text
+
+return translated_text
         
     except Exception as e:
         logger.error(f"[TRANSLATE] Failed: {str(e)}")
@@ -5427,7 +5433,11 @@ async def process_chunked_narration_page1_first(data: dict):
             text_for_tts = clean_text
             if narration_lang != story_language:
                 text_for_tts = await translate_text_for_narration(clean_text, story_language, narration_lang)
-            
+            # SAFETY CHECK (CRITICAL FIX)
+            if not text_for_tts or not isinstance(text_for_tts, str):
+                logger.warning("[CHUNKED-BG] Invalid translated text, using original")
+                text_for_tts = clean_text
+    
             # Apply TTS text normalization for better pacing
             text_for_tts = normalize_text_for_tts(text_for_tts)
             
