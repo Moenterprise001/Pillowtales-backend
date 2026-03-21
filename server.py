@@ -15,7 +15,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import json
 import google.generativeai as genai
-GEMINI_MODEL = "gemini-2.0-flash"
+GEMINI_MODEL = "gemini-3-flash-preview"
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
