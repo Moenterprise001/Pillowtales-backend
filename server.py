@@ -15,6 +15,7 @@ from passlib.context import CryptContext
 from jose import JWTError, jwt
 import json
 import google.generativeai as genai
+GEMINI_MODEL = "gemini-2.0-flash"
 
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
@@ -1899,7 +1900,7 @@ Respond with ONLY the JSON, no other text."""
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
 
-        model = genai.GenerativeModel("gemini-1.5-flash-latest")
+        model = genai.GenerativeModel(GEMINI_MODEL)
 
         prompt = f"""
         {system_message}
@@ -2078,7 +2079,7 @@ CRITICAL RULES:
 5. Output ONLY the translated text, no explanations or notes"""
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel(GEMINI_MODEL)
 
         prompt = f"""
         Translate the following children's bedtime story from {source_name} to {target_name}.
@@ -2156,7 +2157,7 @@ Return ONLY valid JSON in this exact format:
 Keep descriptions brief and child-friendly. Focus on elements that would help continue the story tomorrow."""
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        model = genai.GenerativeModel(GEMINI_MODEL)
 
         prompt = f"""
 {system_message}
