@@ -2138,6 +2138,7 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
 
         response = model.generate_content(prompt)
         translated_text = response.text
+        return translated_text or text
         
     except Exception as e:
         logger.error(f"[TRANSLATE] Failed: {str(e)}")
