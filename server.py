@@ -43,6 +43,33 @@ print(f"[AUDIO] audioop available: {AUDIOOP_AVAILABLE}")
 TTS_PROVIDER_DEFAULT = "openai"  # Default to cheaper OpenAI
 TTS_PROVIDER_PREMIUM = "elevenlabs"  # Premium option
 
+USE_ELEVENLABS = os.getenv("USE_ELEVENLABS", "false").lower() == "true"
+
+
+def elevenlabs_available() -> bool:
+    key = os.getenv("ELEVENLABS_API_KEY")
+    return bool(key and key != "placeholder-elevenlabs-key")
+
+
+def should_use_elevenlabs(voice_preference: Optional[str] = None, voice_preset: Optional[str] = None) -> bool:
+    """
+    Decide whether ElevenLabs should be used.
+    ElevenLabs is only used when:
+    - USE_ELEVENLABS=true
+    - ELEVENLABS_API_KEY is present
+    - the selected narrator/preset is an ElevenLabs one
+    """
+    if not USE_ELEVENLABS:
+        return False
+
+    if not elevenlabs_available():
+        return False
+
+    selected = voice_preference or voice_preset or DEFAULT_NARRATOR
+    preset = VOICE_PRESETS.get(selected, {})
+    preset_provider = preset.get("provider", "openai")
+    return preset_provider == "elevenlabs"
+
 # ================== DEV MODE - SKIP TTS FOR DEBUGGING ==================
 # ================== TTS GENERATION BLOCK ==================
 # CREDIT PROTECTION: Set to True to block ALL new TTS generation
@@ -3828,63 +3855,122 @@ def log_tts_metrics(story_id: str, provider: str, chars: int, language: str, voi
 def compress_audio_for_upload(audio_bytes: bytes, target_bitrate: str = "48k") -> bytes:
     """
     Compress MP3 audio to reduce file size for storage.
-    Long stories (10-15 min) can generate 10+ MB files which exceed Supabase limits.
-    
-    Args:
-        audio_bytes: Raw MP3 audio data
-        target_bitrate: MP3 bitrate (32k, 48k, 64k, 96k). Lower = smaller file.
-                       For spoken word, 48k is sufficient quality.
-    
-    Returns:
-        Compressed MP3 audio bytes
+    If compression tooling is unavailable, return original bytes.
     """
-    import io
-    from pydub import AudioSegment
-    
-    original_size = len(audio_bytes)
-    
-    logger.info(f"[AUDIO] Compressing: {original_size/1024/1024:.1f}MB → target {target_bitrate}")
-    
+    if not audio_bytes:
+        logger.warning("[AUDIO] No audio bytes provided for compression")
+        return audio_bytes
+
     try:
-        # Load audio from bytes
+        import io
+        from pydub import AudioSegment
+    except Exception as e:
+        logger.warning(f"[AUDIO] Compression dependencies unavailable: {e}. Using original audio.")
+        return audio_bytes
+
+    original_size = len(audio_bytes)
+    logger.info(f"[AUDIO] Compressing: {original_size/1024/1024:.1f}MB → target {target_bitrate}")
+
+    try:
         audio = AudioSegment.from_mp3(io.BytesIO(audio_bytes))
-        
-        # Export with lower bitrate
         output_buffer = io.BytesIO()
         audio.export(output_buffer, format="mp3", bitrate=target_bitrate)
         compressed_bytes = output_buffer.getvalue()
-        
+
         compressed_size = len(compressed_bytes)
-        reduction = (1 - compressed_size / original_size) * 100
-        
-        logger.info(f"[AUDIO] Compressed: {original_size/1024/1024:.1f}MB → {compressed_size/1024/1024:.1f}MB ({reduction:.0f}% reduction)")
-        
+        reduction = (1 - compressed_size / original_size) * 100 if original_size else 0
+
+        logger.info(
+            f"[AUDIO] Compressed: {original_size/1024/1024:.1f}MB → "
+            f"{compressed_size/1024/1024:.1f}MB ({reduction:.0f}% reduction)"
+        )
         return compressed_bytes
-        
+
     except Exception as e:
         logger.error(f"[AUDIO] Compression failed: {str(e)} - using original")
         return audio_bytes
 
-async def generate_tts_audio_openai(text: str, language_code: str, voice: str = "nova", story_id: str = None, voice_preset: str = None) -> tuple:
+async def generate_tts_audio_openai(
+    text: str,
+    language_code: str,
+    voice: str = "nova",
+    story_id: str = None,
+    voice_preset: str = None
+) -> tuple:
     """
-    Generate TTS audio using OpenAI TTS API - FALLBACK option only.
-    Used when ElevenLabs is not available.
-    """
-    import re
-    import io
-    from pydub import AudioSegment
-    
-    lang_code = language_code.lower()[:2] if language_code else 'en'
-    
-    # Simple single-call TTS for fallback
-    api_key = os.environ.get('GEMINI_API_KEY')
-    if not api_key:
-        raise HTTPException(status_code=500, detail="TTS configuration error")
-    
-        # TEMP: OpenAI TTS fallback disabled while removing Emergent dependency
-    logger.info("[TTS-OPENAI] Fallback TTS temporarily disabled")
-    return (None, "disabled", 0, 0)
+    Generate TTS audio using OpenAI TTS API.
+    This is the fallback/default path when ElevenLabs is unavailable or disabled.
 
+    Returns: (audio_bytes, voice_used, char_count, estimated_cost)
+    """
+    import httpx
+
+    char_count = len(text)
+    lang_code = language_code.lower()[:2] if language_code else "en"
+    openai_key = os.getenv("OPENAI_API_KEY")
+
+    logger.info("=" * 50)
+    logger.info("[TTS-OPENAI] GENERATION REQUEST")
+    logger.info(f"[TTS-OPENAI]   story_id: {story_id}")
+    logger.info(f"[TTS-OPENAI]   chars: {char_count}")
+    logger.info(f"[TTS-OPENAI]   language: {lang_code}")
+    logger.info(f"[TTS-OPENAI]   voice: {voice}")
+    logger.info("=" * 50)
+
+    if not openai_key:
+        raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
+
+    # Keep voice simple/stable for bedtime
+    selected_voice = voice or "nova"
+
+    try:
+        async with httpx.AsyncClient(timeout=120.0) as client:
+            response = await client.post(
+                "https://api.openai.com/v1/audio/speech",
+                headers={
+                    "Authorization": f"Bearer {openai_key}",
+                    "Content-Type": "application/json",
+                },
+                json={
+                    "model": "gpt-4o-mini-tts",
+                    "voice": selected_voice,
+                    "input": text,
+                    "format": "mp3",
+                },
+            )
+
+        if response.status_code != 200:
+            error_text = response.text[:500]
+            log_tts_metrics(
+                story_id=story_id,
+                provider="openai",
+                chars=char_count,
+                language=lang_code,
+                voice=selected_voice,
+                success=False,
+                error=error_text,
+            )
+            raise HTTPException(status_code=500, detail=f"OpenAI TTS failed: {error_text}")
+
+        audio_bytes = response.content
+        estimated_cost = log_tts_metrics(
+            story_id=story_id,
+            provider="openai",
+            chars=char_count,
+            language=lang_code,
+            voice=selected_voice,
+            success=True,
+        )
+
+        logger.info(f"[TTS-OPENAI] SUCCESS: Generated {len(audio_bytes)} bytes, cost ~${estimated_cost:.4f}")
+        return (audio_bytes, selected_voice, char_count, estimated_cost)
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"[TTS-OPENAI] Exception: {str(e)}")
+        raise HTTPException(status_code=500, detail=f"OpenAI TTS exception: {str(e)}")
+ 
 async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voice_preset: str = None, story_id: str = None, voice_id_override: str = None) -> tuple:
     """
     Generate warm, expressive bedtime narration using ElevenLabs.
@@ -3908,6 +3994,10 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
     from pydub import AudioSegment
     
     lang_code = language_code.lower()[:2] if language_code else 'en'
+        
+    if not USE_ELEVENLABS:
+    logger.info("[TTS-ELEVEN] ElevenLabs disabled by USE_ELEVENLABS=false, using OpenAI fallback")
+    return await generate_tts_audio_openai(text, language_code, "nova", story_id, voice_preset)
     
     # Get narrator personality settings
     preset = VOICE_PRESETS.get(voice_preset, VOICE_PRESETS[DEFAULT_NARRATOR])
@@ -4426,133 +4516,7 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
     
     return (audio_bytes, voice_id, total_chars, estimated_cost)
 
-async def generate_tts_audio_elevenlabs(text: str, language_code: str, voice_id: str = None, story_id: str = None) -> tuple:
-    """
-    Generate TTS audio using ElevenLabs API (premium option, higher quality).
-    
-    Cost: ~$0.30 per 1K characters
-    Quality: Excellent, more natural
-    
-    Returns: (audio_bytes, voice_id_used, char_count, estimated_cost)
-    """
-    import httpx
-    import asyncio
-    
-    lang_code = language_code.lower()[:2] if language_code else 'en'
-    char_count = len(text)
-    
-    # Select appropriate voice for language
-    if voice_id:
-        selected_voice_id = voice_id
-    elif lang_code in ELEVENLABS_VOICES:
-        selected_voice_id = ELEVENLABS_VOICES[lang_code]["voice_id"]
-        logger.info(f"[TTS-ELEVEN] Selected voice for {lang_code}: {ELEVENLABS_VOICES[lang_code]['name']}")
-    else:
-        selected_voice_id = MULTILINGUAL_VOICE["voice_id"]
-        logger.info(f"[TTS-ELEVEN] Using multilingual fallback voice for {lang_code}")
-    
-    eleven_labs_key = os.environ.get('ELEVENLABS_API_KEY')
-    
-    logger.info("=" * 50)
-    logger.info("[TTS-ELEVEN] GENERATION REQUEST (PREMIUM)")
-    logger.info(f"[TTS-ELEVEN]   story_id: {story_id}")
-    logger.info("[TTS-ELEVEN]   provider: elevenlabs")
-    logger.info(f"[TTS-ELEVEN]   chars: {char_count}")
-    logger.info(f"[TTS-ELEVEN]   language: {lang_code}")
-    logger.info(f"[TTS-ELEVEN]   voice_id: {selected_voice_id}")
-    logger.info(f"[TTS-ELEVEN]   text_preview: {text[:80]}...")
-    logger.info("=" * 50)
-    
-    if not eleven_labs_key or eleven_labs_key == 'placeholder-elevenlabs-key':
-        logger.warning("[TTS-ELEVEN] ElevenLabs API key not configured, falling back to OpenAI")
-        return await generate_tts_audio_openai(text, language_code, "nova", story_id)
-    
-    url = f"https://api.elevenlabs.io/v1/text-to-speech/{selected_voice_id}"
-    headers = {
-        "Accept": "audio/mpeg",
-        "Content-Type": "application/json",
-        "xi-api-key": eleven_labs_key
-    }
-    
-    data = {
-        "text": text,
-        "model_id": "eleven_multilingual_v2",
-        "language_code": lang_code,
-        "voice_settings": {
-            "stability": 0.75,
-            "similarity_boost": 0.75,
-            "style": 0.0,
-            "use_speaker_boost": True
-        },
-        "output_format": "mp3_44100_64"
-    }
-    
-    # Retry configuration
-    MAX_RETRIES = 3
-    RETRY_DELAYS = [1, 2, 4]
-    
-    last_error = None
-    
-    for attempt in range(MAX_RETRIES):
-        try:
-            logger.info(f"[TTS-ELEVEN] Attempt {attempt + 1}/{MAX_RETRIES}")
-            
-            async with httpx.AsyncClient(timeout=120.0) as client:
-                response = await client.post(url, json=data, headers=headers)
-                
-                if response.status_code == 200:
-                    estimated_cost = log_tts_metrics(
-                        story_id=story_id,
-                        provider="elevenlabs",
-                        chars=char_count,
-                        language=lang_code,
-                        voice=selected_voice_id,
-                        success=True
-                    )
-                    logger.info(f"[TTS-ELEVEN] SUCCESS: Generated {len(response.content)} bytes, cost ~${estimated_cost:.4f}")
-                    return (response.content, selected_voice_id, char_count, estimated_cost)
-                
-                if response.status_code == 429:
-                    # Check if it's quota exceeded (permanent) vs rate limit (temporary)
-                    error_text = response.text
-                    if "quota_exceeded" in error_text.lower():
-                        logger.error("[TTS-ELEVEN] QUOTA EXCEEDED - falling back to OpenAI")
-                        log_tts_metrics(story_id, "elevenlabs", char_count, lang_code, selected_voice_id, False, "quota_exceeded")
-                        # Fall back to OpenAI
-                        return await generate_tts_audio_openai(text, language_code, "nova", story_id)
-                    
-                    # Rate limit - retry
-                    if attempt < MAX_RETRIES - 1:
-                        await asyncio.sleep(RETRY_DELAYS[attempt])
-                        continue
-                    last_error = "RATE_LIMIT"
-                    break
-                
-                if response.status_code == 401:
-                    logger.error("[TTS-ELEVEN] Auth error - falling back to OpenAI")
-                    return await generate_tts_audio_openai(text, language_code, "nova", story_id)
-                
-                if response.status_code >= 500:
-                    if attempt < MAX_RETRIES - 1:
-                        await asyncio.sleep(RETRY_DELAYS[attempt])
-                        continue
-                    last_error = f"SERVER_ERROR_{response.status_code}"
-                    break
-                
-                last_error = f"HTTP_{response.status_code}"
-                break
-                
-        except Exception as e:
-            logger.error(f"[TTS-ELEVEN] Exception: {str(e)}")
-            if attempt < MAX_RETRIES - 1:
-                await asyncio.sleep(RETRY_DELAYS[attempt])
-                continue
-            last_error = str(e)
-    
-    # All retries failed - fall back to OpenAI
-    log_tts_metrics(story_id, "elevenlabs", char_count, lang_code, selected_voice_id, False, last_error)
-    logger.warning("[TTS-ELEVEN] All retries failed, falling back to OpenAI TTS")
-    return await generate_tts_audio_openai(text, language_code, "nova", story_id)
+
 
 async def generate_tts_audio(text: str, language_code: str, voice_id: str = None, story_id: str = None, provider: str = "elevenlabs", voice_preset: str = None, voice_id_override: str = None) -> tuple:
     """
@@ -5010,10 +4974,12 @@ async def process_narration_background(data: dict):
         text_for_tts = clean_text_for_narration(text_for_tts)
         
         # Determine TTS provider
-        tts_provider = "openai"
-        if voice_preference and voice_preference.startswith("eleven_"):
-            tts_provider = "elevenlabs"
-        
+        tts_provider = "elevenlabs" if should_use_elevenlabs(voice_preference=voice_preference) else "openai"
+
+        logger.info(f"[NARRATION-BG] provider: {tts_provider}")
+        logger.info(f"[NARRATION-BG] elevenlabs_key_present: {elevenlabs_available()}")
+        logger.info(f"[NARRATION-BG] USE_ELEVENLABS: {USE_ELEVENLABS}")
+        logger.info(f"[NARRATION-BG] voice_preference: {voice_preference}")
         logger.info("-" * 60)
         logger.info("[NARRATION-BG] SENDING TO TTS:")
         logger.info(f"[NARRATION-BG]   story_id: {story_id}")
@@ -5470,17 +5436,20 @@ async def process_chunked_narration_page1_first(data: dict):
             logger.info(f"[CHUNKED-BG] Generating Page {page_num}: {len(text_for_tts)} chars")
             
             # Generate TTS
-            tts_provider = "openai"
-            if voice_preference and voice_preference.startswith("eleven_"):
-                tts_provider = "elevenlabs"
-            
+            # Generate TTS
+            tts_provider = "elevenlabs" if should_use_elevenlabs(voice_preference=voice_preference) else "openai"
+
+            logger.info(f"[CHUNKED-BG] TTS provider selected: {tts_provider}")
+            logger.info(f"[CHUNKED-BG] elevenlabs_key_present: {elevenlabs_available()}")
+            logger.info(f"[CHUNKED-BG] USE_ELEVENLABS: {USE_ELEVENLABS}")
+
             audio_bytes, voice_id_used, char_count, estimated_cost = await generate_tts_audio(
-                text=text_for_tts,
-                language_code=narration_lang,
-                voice_preset=voice_preference,
-                story_id=f"{story_id}_page{page_num}",
-                provider=tts_provider,
-                voice_id_override=parent_voice_id_override
+            text=text_for_tts,
+            language_code=narration_lang,
+            voice_preset=voice_preference,
+            story_id=f"{story_id}_page{page_num}",
+            provider=tts_provider,
+            voice_id_override=parent_voice_id_override
             )
             
             logger.info(f"[CHUNKED-BG] Page {page_num} TTS complete: {len(audio_bytes)} bytes, ${estimated_cost:.4f}")
