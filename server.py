@@ -20,6 +20,22 @@ GEMINI_MODEL = "gemini-3-flash-preview"
 ROOT_DIR = Path(__file__).parent
 load_dotenv(ROOT_DIR / '.env')
 
+# --- AUDIOOP SAFE IMPORT (Python 3.13 fix) ---
+AUDIOOP_AVAILABLE = True
+
+try:
+    import audioop
+except ImportError:
+    try:
+        import pyaudioop as audioop  # fallback name
+    except ImportError:
+        AUDIOOP_AVAILABLE = False
+        audioop = None
+
+if not AUDIOOP_AVAILABLE:
+    print("[WARNING] audioop not available - audio compression disabled, will fallback to OpenAI TTS if needed")
+print(f"[AUDIO] audioop available: {AUDIOOP_AVAILABLE}")
+
 # ================== TTS Provider Configuration ==================
 # OpenAI TTS (default - cheaper): ~$0.015/1K chars
 # ElevenLabs (premium): ~$0.30/1K chars
