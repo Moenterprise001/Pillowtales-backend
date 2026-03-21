@@ -137,3 +137,4 @@ pydub==0.25.1
 google-generativeai
 grpcio-status
 protobuf
+audioop-lts
