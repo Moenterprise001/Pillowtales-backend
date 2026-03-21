@@ -3993,16 +3993,16 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
     import io
     from pydub import AudioSegment
     
-    lang_code = language_code.lower()[:2] if language_code else 'en'
-        
-    if not USE_ELEVENLABS:
+   lang_code = language_code.lower()[:2] if language_code else 'en'
+
+if not USE_ELEVENLABS:
     logger.info("[TTS-ELEVEN] ElevenLabs disabled by USE_ELEVENLABS=false, using OpenAI fallback")
     return await generate_tts_audio_openai(text, language_code, "nova", story_id, voice_preset)
-    
-    # Get narrator personality settings
-    preset = VOICE_PRESETS.get(voice_preset, VOICE_PRESETS[DEFAULT_NARRATOR])
-    personality = preset.get("personality", "friendly")
-    voice_id = preset.get("voice_id")
+
+# Get narrator personality settings
+preset = VOICE_PRESETS.get(voice_preset, VOICE_PRESETS[DEFAULT_NARRATOR])
+personality = preset.get("personality", "friendly")
+voice_id = preset.get("voice_id")
     
     # Log the voice selection for debugging
     logger.info(f"[TTS-ELEVEN] Voice selection: preset_requested='{voice_preset}', preset_name='{preset.get('name')}', voice_id='{voice_id}'")
