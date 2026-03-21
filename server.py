@@ -4971,7 +4971,13 @@ async def process_narration_background(data: dict):
         text_for_tts = story_text
         if narration_lang != story_language:
             logger.info(f"[NARRATION-BG] TRANSLATING: {story_language} -> {narration_lang}")
-            text_for_tts = await translate_text_for_narration(story_text, story_language, narration_lang)
+        text_for_tts = await translate_text_for_narration(...)
+
+        if not text_for_tts or not isinstance(text_for_tts, str):
+            logger.warning("[NARRATION-BG] Invalid translated text, using original")
+            text_for_tts = story_text
+            logger.info(f"[NARRATION-BG] Using fallback text: {len(text_for_tts)} chars")
+        else:
             logger.info(f"[NARRATION-BG] Translation complete: {len(text_for_tts)} chars")
         
         # Apply TTS text normalization for better pacing
