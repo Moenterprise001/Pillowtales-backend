@@ -2112,14 +2112,14 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
         api_key = os.environ.get('EMERGENT_LLM_KEY')
         
         system_message = f"""You are a professional translator specializing in children's bedtime stories.
-Translate the following story from {source_name} to {target_name}.
+    Translate the following story from {source_name} to {target_name}.
 
-CRITICAL RULES:
-1. Preserve the calming, gentle tone suitable for bedtime
-2. Keep the story structure and flow intact
-3. Maintain any character names as-is (don't translate names)
-4. Ensure the translation is natural and fluent in {target_name}
-5. Output ONLY the translated text, no explanations or notes"""
+    CRITICAL RULES:
+    1. Preserve the calming, gentle tone suitable for bedtime
+    2. Keep the story structure and flow intact
+    3. Maintain any character names as-is (don't translate names)
+    4. Ensure the translation is natural and fluent in {target_name}
+    5. Output ONLY the translated text, no explanations or notes"""
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         model = genai.GenerativeModel(GEMINI_MODEL)
