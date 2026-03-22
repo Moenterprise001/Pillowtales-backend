@@ -2176,7 +2176,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
     
     logger.info(f"[METADATA] Extracting metadata from story: {title}")
     try:
-                system_message = (
+        system_message = (
             "You are a story analyst. Extract key information from children's bedtime stories.\n\n"
             "Return ONLY valid JSON in this exact format:\n"
             "{\n"
