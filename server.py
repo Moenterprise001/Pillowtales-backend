@@ -5656,12 +5656,11 @@ async def get_page_audio_url(
 
 
 async def get_narration_signed_url(story_id: str, lang: str = None, narrator: str = None, user_id: str = Depends(get_current_user)):
-    """
-    Get a signed URL for audio playback.
-    Language-aware: specify ?lang=es to get Spanish audio.
-    Narrator-aware: specify ?narrator=wise_owl to get that narrator's audio.
-    The URL expires in 1 hour for security.
-    """
+    # Get a signed URL for audio playback.
+    # Language-aware: specify ?lang=es to get Spanish audio.
+    # Narrator-aware: specify ?narrator=wise_owl to get that narrator's audio.
+    # The URL expires in 1 hour for security.
+    
     try:
         # Use default narrator if not specified
         narrator_id = narrator or DEFAULT_NARRATOR
