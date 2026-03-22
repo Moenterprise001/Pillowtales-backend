@@ -3446,7 +3446,7 @@ async def get_voice_status(user_id: str = Depends(get_current_user)):
 
 @api_router.post("/voice/upload")
 async def upload_voice_recording(request: VoiceRecordingUpload, user_id: str = Depends(get_current_user)):
-    """Upload a voice recording sample (requires consent, max 20 samples)"""
+    # Upload a voice recording sample (requires consent, max 20 samples)
     try:
         # Check if user has granted consent and is premium
         user_result = supabase.table('users_profile').select('parent_voice_consent_at, plan').eq('id', user_id).execute()
