@@ -2447,7 +2447,7 @@ async def get_supported_languages():
 
 @api_router.get("/subscription")
 async def get_subscription_status(user_id: str = Depends(get_current_user)):
-    """Get user's subscription status, usage, and available features"""
+    # Get user's subscription status, usage, and available features.
     # Get user's email for tester check
     user_email = None
     try:
