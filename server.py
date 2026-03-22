@@ -2095,62 +2095,48 @@ def normalize_text_for_tts(text: str) -> str:
 
 # ================== Translation Helper ==================
 
-async def translate_text_for_narration(text: str, source_lang: str, target_lang: str) -> str:
+   async def translate_text_for_narration(text: str, source_lang: str, target_lang: str) -> str:
     """
-    Translate story text from source language to target language using OpenAI.
+    Translate story text from source language to target language using Gemini.
     Used when narration language differs from story language.
     """
     if source_lang == target_lang:
         return text
-    
+
     source_name = SUPPORTED_LANGUAGES.get(source_lang, "English")
     target_name = SUPPORTED_LANGUAGES.get(target_lang, target_lang)
-    
+
     logger.info(f"[TRANSLATE] Translating {len(text)} chars from {source_name} to {target_name}")
-    
+
     try:
-        api_key = os.environ.get('EMERGENT_LLM_KEY')
-        
-        system_message = f"""You are a professional translator specializing in children's bedtime stories.
-    Translate the following story from {source_name} to {target_name}.
-
-    CRITICAL RULES:
-    1. Preserve the calming, gentle tone suitable for bedtime
-    2. Keep the story structure and flow intact
-    3. Maintain any character names as-is (don't translate names)
-    4. Ensure the translation is natural and fluent in {target_name}
-    5. Output ONLY the translated text, no explanations or notes"""
-
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel(GEMINI_MODEL)
+        model = genai.GenerativeModel("gemini-1.5-flash")
 
-        prompt = f"""
-        Translate the following children's bedtime story from {source_name} to {target_name}.
+        prompt = f"""Translate the following children's bedtime story from {source_name} to {target_name}.
 
-        Rules:
-        - Preserve the calming, gentle bedtime tone
-        - Keep character names unchanged
-        - Output only the translated text
+        CRITICAL RULES:
+        1. Preserve the calming, gentle tone suitable for bedtime
+        2. Keep the story structure and flow intact
+        3. Maintain any character names as-is (don't translate names)
+        4. Ensure the translation is natural and fluent in {target_name}
+        5. Output ONLY the translated text, no explanations or notes
 
-        Text:
         {text}
         """
 
         response = model.generate_content(prompt)
         translated_text = getattr(response, "text", None)
 
-# Safety checks
-if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
-    logger.warning("[TRANSLATE] Invalid response, falling back to original text")
-    return text
+        if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
+            logger.warning("[TRANSLATE] Invalid response, falling back to original text")
+            return text
 
-return translated_text
-        
-    except Exception as e:
-        logger.error(f"[TRANSLATE] Failed: {str(e)}")
-        # Return original text if translation fails
-        return text
+            logger.info(f"[TRANSLATE] Success: {len(text)} chars -> {len(translated_text)} chars")
+            return translated_text.strip()
 
+        except Exception as e:
+            logger.error(f"[TRANSLATE] Failed: {str(e)}")
+            return text
 
 def clean_text_for_narration(text: str) -> str:
     """
