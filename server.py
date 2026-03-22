@@ -6069,12 +6069,14 @@ async def upload_parent_voice_base64(
     request_data: ParentVoiceBase64Request,
     user_id: str = Depends(get_current_user)
 ):
-    """Upload voice samples as base64 and create a voice clone using ElevenLabs.
+    """
+    Upload voice samples as base64 and create a voice clone using ElevenLabs.
+
     This endpoint is more reliable for React Native clients than multipart form-data.
     """
-    import httpx
-    import base64
-    
+     import httpx
+     import base64
+    """
     try:
         logger.info(f"[PARENT-VOICE] Received base64 upload request from user {user_id}")
         logger.info(f"[PARENT-VOICE] Number of audio samples: {len(request_data.audioData)}")
