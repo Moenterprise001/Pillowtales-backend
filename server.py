@@ -2273,17 +2273,6 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
             "is_favorite": False,
             "created_at": datetime.utcnow().isoformat()
         }
-
-        try:
-            result = supabase.table('stories').insert(test_record).execute()
-
-        # Delete the test record immediately
-        # ...
-
-        return {"status": "ok"}
-
-    except Exception as e:
-        return {"status": "error", "error": str(e)}
     
     try:
         result = supabase.table('stories').insert(test_record).execute()
