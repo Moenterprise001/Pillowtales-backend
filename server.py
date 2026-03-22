@@ -2225,13 +2225,13 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
     async def debug_supabase_role():
         # Debug endpoint to check Supabase connection and role
         try:
-        # Try to read from users_profile to check read access
-        read_result = supabase.table('users_profile').select('id').limit(1).execute()
-        can_read = len(read_result.data) if read_result.data else 0
+            # Try to read from users_profile to check read access
+            read_result = supabase.table('users_profile').select('id').limit(1).execute()
+            can_read = len(read_result.data) if read_result.data else 0
         
-        # Try to check stories table
-        stories_result = supabase.table('stories').select('id').limit(1).execute()
-        can_read_stories = len(stories_result.data) if stories_result.data else 0
+            # Try to check stories table
+            stories_result = supabase.table('stories').select('id').limit(1).execute()
+            can_read_stories = len(stories_result.data) if stories_result.data else 0
         
         return {
             "status": "connected",
