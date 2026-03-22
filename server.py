@@ -2219,11 +2219,11 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
 
     @api_router.get("/")
     async def root():
-    return {"message": "PillowTales API is running"}
+        return {"message": "PillowTales API is running"}
 
     @api_router.get("/debug/supabase-role")
     async def debug_supabase_role():
-    """Debug endpoint to check Supabase connection and role"""
+        # Debug endpoint to check Supabase connection and role
     try:
         # Try to read from users_profile to check read access
         read_result = supabase.table('users_profile').select('id').limit(1).execute()
@@ -2251,7 +2251,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
 
     @api_router.post("/debug/test-insert")
     async def debug_test_insert():
-    """Debug endpoint to test INSERT into stories table"""
+        # Debug endpoint to test INSERT into stories table
     import uuid
     test_user_id = "48b46b9c-8821-458b-9e4b-6f7695ae7767"  # A known user ID
     
@@ -2299,7 +2299,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
 
     @api_router.get("/debug/test-signed-url")
     async def debug_test_signed_url(story_id: str):
-    """Debug endpoint to test signed URL generation WITHOUT auth"""
+        # Debug endpoint to test signed URL generation WITHOUT auth
     try:
         # Get the storage path from the story
         story_result = supabase.table('stories').select('audio_url, user_id').eq('id', story_id).execute()
@@ -2342,7 +2342,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
 
     @api_router.post("/auth/signup", response_model=AuthResponse)
     async def signup(request: SignupRequest):
-    """Sign up a new user"""
+        # Sign up a new user
     try:
         # Create user with Supabase Auth
         auth_response = supabase.auth.sign_up({
@@ -2388,7 +2388,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
 
 @api_router.post("/auth/login", response_model=AuthResponse)
 async def login(request: LoginRequest):
-    """Login an existing user"""
+    # Login an existing user
     try:
         # Use Supabase Auth to login
         auth_response = supabase.auth.sign_in_with_password({
@@ -2427,7 +2427,7 @@ async def login(request: LoginRequest):
 
 @api_router.get("/languages")
 async def get_supported_languages():
-    """Get list of supported languages for story and narration"""
+    # Get list of supported languages for story and narration
     return {
         "languages": [
             {"code": code, "name": name}
@@ -2517,10 +2517,9 @@ async def check_feature(
 
 @api_router.post("/subscription/upgrade")
 async def start_upgrade(user_id: str = Depends(get_current_user)):
-    """
-    Start premium upgrade flow (placeholder for payment integration).
-    In production, this would redirect to Stripe/RevenueCat.
-    """
+    # Start premium upgrade flow (placeholder for payment integration).
+    # In production, this would redirect to Stripe/RevenueCat.
+    
     # For now, return upgrade info
     subscription = await get_user_subscription(user_id)
     
