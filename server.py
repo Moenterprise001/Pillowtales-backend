@@ -6448,7 +6448,7 @@ async def check_and_install_ffmpeg():
         logger.error("[STARTUP] ❌ ffmpeg installation timed out")
         return False
     except Exception as e:
-        logger.error(f"[STARTUP] ❌ ffmpeg installation error: {str(e)}")
+        logger.error(f"[STARTUP] ffmpeg installation error: {str(e)}")
         return False
 
 @app.on_event("shutdown")
