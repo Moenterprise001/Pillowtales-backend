@@ -52,18 +52,16 @@ def elevenlabs_available() -> bool:
 
 
 def should_use_elevenlabs(voice_preference: Optional[str] = None, voice_preset: Optional[str] = None) -> bool:
-    """
-    Decide whether ElevenLabs should be used.
-    ElevenLabs is only used when:
-    - USE_ELEVENLABS=true
-    - ELEVENLABS_API_KEY is present
-    - the selected narrator/preset is an ElevenLabs one
-    """
+    # Decide whether ElevenLabs should be used.
+    # ElevenLabs is only used when:
+    # - USE_ELEVENLABS=True
+    # - ELEVENLABS_API_KEY is present
+    # - the selected narrator/preset is an ElevenLabs one
+
     if not USE_ELEVENLABS:
         return False
-
-    if not elevenlabs_available():
-        return False
+    
+        return True
 
     selected = voice_preference or voice_preset or DEFAULT_NARRATOR
     preset = VOICE_PRESETS.get(selected, {})
@@ -479,16 +477,14 @@ BEDTIME_RITUAL_TEMPLATES = {
 }
 
 def get_bedtime_ritual_ending(child_name: str, language: str = 'en') -> str:
-    """
-    Generate a personalized bedtime ritual ending for the story.
+    # Generate a personalized bedtime ritual ending for the story.
+    # This creates a consistent, comforting ending that children come to expect.
+    # The ritual includes:
+    # - A pause (double newline)
+    # - A soft delivery marker [softly]
+    # - A personalized goodnight message with the child's name
+    # - A closing blessing for sleep
     
-    This creates a consistent, comforting ending that children come to expect.
-    The ritual includes:
-    - A pause (double newline)
-    - A soft delivery marker [softly]
-    - A personalized goodnight message with the child's name
-    - A closing blessing for sleep
-    """
     import random
     
     # Get templates for the language, default to English
@@ -506,11 +502,9 @@ def get_bedtime_ritual_ending(child_name: str, language: str = 'en') -> str:
     return ritual_ending
 
 def append_bedtime_ritual_to_story(pages: list, child_name: str, language: str = 'en') -> list:
-    """
-    Append the bedtime ritual ending to the last page of the story.
+    # Append the bedtime ritual ending to the last page of the story.
+    # This ensures every story ends with a consistent, comforting goodnight message.
     
-    This ensures every story ends with a consistent, comforting goodnight message.
-    """
     if not pages:
         return pages
     
@@ -858,7 +852,7 @@ def create_access_token(data: dict) -> str:
     return encoded_jwt
 
 def verify_token(token: str) -> dict:
-    """Verify a JWT token - supports both backend tokens and Supabase tokens"""
+    # Verify a JWT token - supports both backend tokens and Supabase tokens
     # First try to decode with our backend JWT secret
     try:
         payload = jwt.decode(token, JWT_SECRET, algorithms=[JWT_ALGORITHM])
@@ -893,7 +887,7 @@ async def get_current_user(credentials: HTTPAuthorizationCredentials = Depends(s
 # ================== Helper Functions ==================
 
 async def get_user_profile_with_stats(user_id: str) -> dict:
-    """Get user profile with streak and usage statistics"""
+    # Get user profile with streak and usage statistics
     try:
         # Get user profile
         profile_result = supabase.table('users_profile').select('*').eq('id', user_id).execute()
@@ -942,7 +936,7 @@ async def get_user_profile_with_stats(user_id: str) -> dict:
         return None
 
 async def update_streak(user_id: str) -> int:
-    """Update user's sleep streak after generating a story. Returns new streak count."""
+    # Update user's sleep streak after generating a story. Returns new streak count.
     try:
         today = datetime.utcnow().date()
         
@@ -995,9 +989,9 @@ async def update_streak(user_id: str) -> int:
         return 0
 
 async def check_story_limits(user_id: str, plan: str, user_email: str = None) -> dict:
-    """Check if user can generate and save stories based on their plan.
-    Testers get unlimited access regardless of plan.
-    """
+    # Check if user can generate and save stories based on their plan.
+    # Testers get unlimited access regardless of plan.
+    
     # Check if this is a tester account - they get unlimited access
     if user_email and user_email.lower() in [e.lower() for e in TESTER_EMAILS]:
         logger.info(f"[LIMITS] Tester account detected: {user_email} - granting unlimited access")
@@ -1051,11 +1045,10 @@ async def check_story_limits(user_id: str, plan: str, user_email: str = None) ->
 # ================== SUBSCRIPTION HELPERS ==================
 
 async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
-    """
-    Get user's subscription status and narration usage.
-    Handles daily counter reset automatically.
-    Also handles tester/admin bypass for testing.
-    """
+    # Get user's subscription status and narration usage.
+    # Handles daily counter reset automatically.
+    # Also handles tester/admin bypass for testing.
+    
     try:
         # First, check if this is a tester account (bypass all restrictions)
         if user_email and user_email.lower() in [e.lower() for e in TESTER_EMAILS]:
@@ -1165,7 +1158,7 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
         }
 
 async def increment_narration_usage(user_id: str) -> dict:
-    """Increment daily narration counter after successful narration generation."""
+    # Increment daily narration counter after successful narration generation.
     try:
         # Get current count
         result = supabase.table('users_profile').select('daily_narrations_used').eq('id', user_id).execute()
@@ -1189,10 +1182,9 @@ async def increment_narration_usage(user_id: str) -> dict:
         return {"daily_narrations_used": 0}
 
 def check_feature_access(user_subscription: dict, feature: str, item_id: str = None) -> dict:
-    """
-    Check if user can access a specific feature/item.
-    Returns: {allowed: bool, reason: str, upgrade_required: bool}
-    """
+    # Check if user can access a specific feature/item.
+    # Returns: {allowed: bool, reason: str, upgrade_required: bool}
+    
     is_premium = user_subscription.get("is_premium", False)
     tier = "premium" if is_premium else "free"
     tier_config = SUBSCRIPTION_TIERS.get(tier, SUBSCRIPTION_TIERS["free"])
@@ -1243,7 +1235,7 @@ def check_feature_access(user_subscription: dict, feature: str, item_id: str = N
     return {"allowed": True, "reason": None, "upgrade_required": False}
 
 async def check_weekly_story_limit(user_id: str, is_premium: bool) -> bool:
-    """Check if user has exceeded their weekly story limit (free tier only)"""
+    # Check if user has exceeded their weekly story limit (free tier only)
     if is_premium:
         return True
     
@@ -1265,15 +1257,14 @@ async def check_weekly_story_limit(user_id: str, is_premium: bool) -> bool:
         return True
 
 def select_story_companion(user_id: str, theme: str, is_premium: bool = False) -> dict | None:
-    """
-    Select a companion character for a story based on:
-    - Random chance (30% of stories get a companion)
-    - User's subscription tier (free users get basic companions only)
-    - User's history (prefer returning companions)
-    - Theme matching
+    # Select a companion character for a story based on:
+    # - Random chance (30% of stories get a companion)
+    # - User's subscription tier (free users get basic companions only)
+    # - User's history (prefer returning companions)
+    # - Theme matching
     
     Returns companion dict or None
-    """
+    
     import random
     
     # 30% chance a companion appears
@@ -1362,16 +1353,15 @@ def select_story_companion(user_id: str, theme: str, is_premium: bool = False) -
         }
 
 async def generate_story_with_openai(request: GenerateStoryRequest, continuation_context: dict = None, companion: dict = None) -> dict:
-    """
-    Generate a story using OpenAI via Emergent integrations.
-    Supports story continuation with previous context.
-    Supports story companions (recurring magical characters).
+    # Generate a story using OpenAI via Emergent integrations.
+    # Supports story continuation with previous context.
+    # Supports story companions (recurring magical characters).
+    #
+    # Args:
+    # request: Story generation parameters
+    # continuation_context: Optional dict with {summary, characters, setting, part_number, title} from previous story
+    # companion: Optional dict with companion character to include in the story
     
-    Args:
-        request: Story generation parameters
-        continuation_context: Optional dict with {summary, characters, setting, part_number, title} from previous story
-        companion: Optional dict with companion character to include in the story
-    """
     try:
         api_key = os.environ.get('EMERGENT_LLM_KEY')
         
@@ -1412,7 +1402,7 @@ CONTINUATION RULES:
 7. If this is Part 5 (the final part), create a satisfying conclusion to the story arc
 
 """
-        
+     
         # Build companion prompt if a companion is joining this story
         companion_prompt = ""
         if companion:
@@ -1736,57 +1726,57 @@ Keep the narration smooth and natural while using gender-neutral language.
         
         logger.info(f"[STORY] Age-appropriate guidance for age {age}")
         
-        # ================== MASTER STORY GENERATION PROMPT ==================
-        # Clean, comprehensive prompt for high-quality bedtime storytelling
-        
-        # Build age-specific language guidance with sentence density rules
+# ================== MASTER STORY GENERATION PROMPT ==================
+# Clean, comprehensive prompt for high-quality bedtime storytelling
+      
+    # Build age-specific language guidance with sentence density rules
         if age <= 4:
             age_language = """Age 3-4 LANGUAGE RULES:
-• Use very simple vocabulary (words a 3-year-old knows)
-• 1-2 sentences per page ONLY
-• 5-8 words per sentence maximum
-• Gentle repetition for comfort
-• Clear, simple emotions
-• Concrete, familiar objects (moon, stars, blanket, teddy bear)
-• Soothing, rhythmic phrasing"""
+            • Use very simple vocabulary (words a 3-year-old knows)
+            • 1-2 sentences per page ONLY
+            • 5-8 words per sentence maximum
+            • Gentle repetition for comfort
+            • Clear, simple emotions
+            • Concrete, familiar objects (moon, stars, blanket, teddy bear)
+            • Soothing, rhythmic phrasing"""
         elif age <= 7:
             age_language = """Age 5-7 LANGUAGE RULES:
-• Use simple, familiar vocabulary
-• 2-4 sentences per page
-• 8-12 words per sentence maximum
-• Imaginative but understandable settings
-• Friendly magical characters
-• Clear story progression
-• Avoid abstract concepts - keep descriptions concrete"""
+            • Use simple, familiar vocabulary
+            • 2-4 sentences per page
+            • 8-12 words per sentence maximum
+            • Imaginative but understandable settings
+            • Friendly magical characters
+            • Clear story progression
+            • Avoid abstract concepts - keep descriptions concrete"""
         elif age <= 9:
             age_language = """Age 8-9 LANGUAGE RULES:
-• Use richer but accessible vocabulary
-• 3-5 sentences per page
-• 10-14 words per sentence maximum
-• More developed characters with personality
-• Light adventure and discovery themes
-• Can include gentle problem-solving"""
+            • Use richer but accessible vocabulary
+            • 3-5 sentences per page
+            • 10-14 words per sentence maximum
+            • More developed characters with personality
+            • Light adventure and discovery themes
+            • Can include gentle problem-solving"""
         else:
             age_language = """Age 10-11 LANGUAGE RULES:
-• Use deeper vocabulary while remaining child-friendly
-• 4-6 sentences per page
-• 12-16 words per sentence maximum
-• Stronger story arcs and character development
-• Can include more complex emotions and themes
-• Richer descriptive language"""
+            • Use deeper vocabulary while remaining child-friendly
+            • 4-6 sentences per page    
+            • 12-16 words per sentence maximum
+            • Stronger story arcs and character development
+            • Can include more complex emotions and themes
+            • Richer descriptive language"""
         
         # Log the story generation configuration for quality monitoring
-        logger.info("[STORY] ========== STORY GENERATION CONFIG ==========")
-        logger.info("[STORY] Structure: Hook → Discovery → Companion → Challenge → Hero → Resolution → Gentle Ending")
-        logger.info(f"[STORY] Influencer style: {selected_influencer['name']}")
-        logger.info(f"[STORY] Story arc: {selected_arc}")
-        logger.info(f"[STORY] Setting: {selected_setting}")
-        logger.info(f"[STORY] Magical element: {selected_magical_element}")
-        logger.info(f"[STORY] Age group: {age} ({age_language.split(':')[0].strip()})")
-        logger.info(f"[STORY] Theme: {effective_theme}, Moral: {request.moral}")
-        logger.info(f"[STORY] Gender/Pronouns: {gender} ({'she/her' if gender == 'girl' else 'he/him' if gender == 'boy' else 'they/them'})")
-        logger.info(f"[STORY] Continuity: {'Yes - ' + continuity_prompt.strip() if continuity_prompt else 'No (standalone)'}")
-        logger.info("[STORY] ================================================")
+            logger.info("[STORY] ========== STORY GENERATION CONFIG ==========")
+            logger.info("[STORY] Structure: Hook → Discovery → Companion → Challenge → Hero → Resolution → Gentle Ending")
+            logger.info(f"[STORY] Influencer style: {selected_influencer['name']}")
+            logger.info(f"[STORY] Story arc: {selected_arc}")
+            logger.info(f"[STORY] Setting: {selected_setting}")
+            logger.info(f"[STORY] Magical element: {selected_magical_element}")
+            logger.info(f"[STORY] Age group: {age} ({age_language.split(':')[0].strip()})")
+            logger.info(f"[STORY] Theme: {effective_theme}, Moral: {request.moral}")
+            logger.info(f"[STORY] Gender/Pronouns: {gender} ({'she/her' if gender == 'girl' else 'he/him' if gender == 'boy' else 'they/them'})")
+            logger.info(f"[STORY] Continuity: {'Yes - ' + continuity_prompt.strip() if continuity_prompt else 'No (standalone)'}")
+            logger.info("[STORY] ================================================")
         
         # Create the master system message
         system_message = f"""You are a professional children's storyteller and author who creates magical bedtime stories for children aged 3-11.
@@ -1985,10 +1975,9 @@ Respond with ONLY the JSON, no other text."""
 # ================== TTS Text Normalization ==================
 
 def normalize_text_for_tts(text: str) -> str:
-    """
-    Normalize text for better TTS narration quality.
-    Applies rules to improve pacing and natural flow.
-    """
+    # Normalize text for better TTS narration quality.
+    # Applies rules to improve pacing and natural flow.
+    
     import re
     
     result = text
@@ -2096,10 +2085,9 @@ def normalize_text_for_tts(text: str) -> str:
 # ================== Translation Helper ==================
 
 async def translate_text_for_narration(text: str, source_lang: str, target_lang: str) -> str:
-    """
-    Translate story text from source language to target language using Gemini.
-    Used when narration language differs from story language.
-    """
+    # Translate story text from source language to target language using Gemini.
+    # Used when narration language differs from story language.
+    
     if source_lang == target_lang:
         return text
 
@@ -2138,10 +2126,9 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
         return text
 
 def clean_text_for_narration(text: str) -> str:
-    """
-    Clean up text for smoother TTS narration.
-    Removes unnecessary punctuation that sounds unnatural when spoken.
-    """
+    # Clean up text for smoother TTS narration.
+    # Removes unnecessary punctuation that sounds unnatural when spoken.
+    
     import re
     
     original_len = len(text)
@@ -2509,10 +2496,9 @@ async def check_feature(
     item_id: str = None,
     user_id: str = Depends(get_current_user)
 ):
-    """
-    Check if user can access a specific feature.
-    Features: narrator, companion, parent_voice, narration
-    """
+    # Check if user can access a specific feature.
+    # Features: narrator, companion, parent_voice, narration
+    
     subscription = await get_user_subscription(user_id)
     result = check_feature_access(subscription, feature, item_id)
     return result
@@ -2535,8 +2521,7 @@ async def start_upgrade(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/voices")
 async def get_voice_presets(user_id: str = Depends(get_current_user)):
-    """Get available narrator personalities for bedtime stories"""
-    
+    # Get available narrator personalities for bedtime stories
     # Check if user has parent voice set up
     parent_voice_id = None
     parent_voice_status = 'none'
@@ -2586,8 +2571,7 @@ async def get_voice_presets(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/companions")
 async def get_story_companions(user_id: str = Depends(get_current_user)):
-    """Get story companions - magical recurring characters in the story world"""
-    
+    # Get story companions - magical recurring characters in the story world
     # Get user's subscription and met companions
     met_companions = []
     is_premium = False
@@ -2638,7 +2622,7 @@ async def get_story_companions(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/user/profile", response_model=UserProfileResponse)
 async def get_user_profile(user_id: str = Depends(get_current_user)):
-    """Get user profile with streak and usage statistics"""
+    # Get user profile with streak and usage statistics
     try:
         profile = await get_user_profile_with_stats(user_id)
         
@@ -2665,7 +2649,7 @@ async def get_user_profile(user_id: str = Depends(get_current_user)):
 
 @api_router.post("/generateStory", response_model=StoryResponse)
 async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(get_current_user)):
-    """Generate a personalized bedtime story with optional continuation support"""
+    # Generate a personalized bedtime story with optional continuation support
     print("===========================================")
     print("[STORY] /api/generateStory HIT")
     print(f"[STORY] user_id from auth: {user_id}")
@@ -2974,7 +2958,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
 
 @api_router.post("/tts", response_model=TTSResponse)
 async def generate_tts(request: TTSRequest, user_id: str = Depends(get_current_user)):
-    """Generate narration audio with plan-based limits (Premium: 90/month, Trial: 15 total, Free: 0)"""
+    # Generate narration audio with plan-based limits (Premium: 90/month, Trial: 15 total, Free: 0)
     try:
         logger.info(f"TTS request for story {request.storyId} by user {user_id}")
         
@@ -3145,7 +3129,7 @@ async def generate_tts(request: TTSRequest, user_id: str = Depends(get_current_u
 
 @api_router.get("/stories")
 async def get_user_stories(user_id: str = Depends(get_current_user)):
-    """Get all stories for a user"""
+    # Get all stories for a user
     try:
         result = supabase.table('stories').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
         
@@ -3157,10 +3141,9 @@ async def get_user_stories(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/stories/continuable/latest")
 async def get_latest_continuable_story(user_id: str = Depends(get_current_user)):
-    """
-    Get the most recent story that can be continued.
-    Returns the story if it has less than 5 parts in its arc.
-    """
+    # Get the most recent story that can be continued.
+    # Returns the story if it has less than 5 parts in its arc.
+    
     try:
         # Get the most recent story for this user
         result = supabase.table('stories').select(
@@ -3198,7 +3181,7 @@ async def get_latest_continuable_story(user_id: str = Depends(get_current_user))
 
 @api_router.get("/stories/{story_id}")
 async def get_story(story_id: str, user_id: str = Depends(get_current_user)):
-    """Get a specific story"""
+    # Get a specific story
     try:
         # Try with regular client first
         result = supabase.table('stories').select('*').eq('id', story_id).eq('user_id', user_id).execute()
@@ -3227,7 +3210,7 @@ async def get_story(story_id: str, user_id: str = Depends(get_current_user)):
 
 @api_router.put("/stories/{story_id}")
 async def update_story(story_id: str, request: UpdateStoryRequest, user_id: str = Depends(get_current_user)):
-    """Update a story (e.g., toggle favorite)"""
+    # Update a story (e.g., toggle favorite)
     try:
         update_data = {}
         if request.isFavorite is not None:
@@ -3251,7 +3234,7 @@ async def update_story(story_id: str, request: UpdateStoryRequest, user_id: str 
 
 @api_router.delete("/stories/{story_id}")
 async def delete_story(story_id: str, user_id: str = Depends(get_current_user)):
-    """Delete a story"""
+    # Delete a story
     try:
         # Verify story belongs to user
         check_result = supabase.table('stories').select('id').eq('id', story_id).eq('user_id', user_id).execute()
@@ -3275,13 +3258,12 @@ async def delete_story(story_id: str, user_id: str = Depends(get_current_user)):
 # Used for shared story links - allows anyone to see a preview without logging in
 @api_router.get("/story-preview/{story_id}")
 async def get_story_preview(story_id: str):
-    """
-    Get a public preview of a story for sharing purposes.
+    # Get a public preview of a story for sharing purposes.
     
-    This is a PUBLIC endpoint - no authentication required.
-    Returns limited data: title, child name, first paragraph only.
-    Used by the /story/{id} web page for shared story links.
-    """
+    # This is a PUBLIC endpoint - no authentication required.
+    # Returns limited data: title, child name, first paragraph only.
+    # Used by the /story/{id} web page for shared story links.
+    
     try:
         # Fetch only the necessary fields for preview (no sensitive data)
         result = supabase.table('stories').select(
@@ -3331,7 +3313,7 @@ async def get_story_preview(story_id: str):
 
 @api_router.get("/user/settings")
 async def get_user_settings(user_id: str = Depends(get_current_user)):
-    """Get user settings"""
+    # Get user settings
     try:
         result = supabase.table('users_profile').select('preferred_language, bedtime_mode, plan').eq('id', user_id).execute()
         
@@ -3352,7 +3334,7 @@ async def update_user_settings(
     bedtime_mode: Optional[bool] = None,
     user_id: str = Depends(get_current_user)
 ):
-    """Update user settings"""
+    # Update user settings
     try:
         update_data = {}
         if preferred_language is not None:
@@ -3379,7 +3361,7 @@ CONSENT_TEXT_VERSION = "v1.0"
 
 @api_router.post("/voice/consent")
 async def grant_voice_consent(request: VoiceConsentRequest, user_id: str = Depends(get_current_user)):
-    """Grant or revoke consent for voice recording and cloning"""
+    # Grant or revoke consent for voice recording and cloning
     try:
         if request.consent:
             # Grant consent
@@ -3526,7 +3508,7 @@ async def upload_voice_recording(request: VoiceRecordingUpload, user_id: str = D
 
 @api_router.post("/voice/create-model")
 async def create_voice_model(request: CreateVoiceModelRequest, user_id: str = Depends(get_current_user)):
-    """Create a voice model from uploaded recordings (Premium feature)"""
+    # Create a voice model from uploaded recordings (Premium feature)
     try:
         # Check if user has granted consent
         user_result = supabase.table('users_profile').select('parent_voice_consent_at, plan').eq('id', user_id).execute()
@@ -3666,7 +3648,7 @@ async def delete_single_recording(recording_id: str, user_id: str = Depends(get_
 
 @api_router.delete("/user/account")
 async def delete_user_account(user_id: str = Depends(get_current_user)):
-    """Delete user account and all associated data (GDPR compliance)"""
+    # Delete user account and all associated data (GDPR compliance)
     try:
         logger.info(f"Starting account deletion for user {user_id}")
         
@@ -3816,7 +3798,7 @@ async def get_narration_usage(user_id: str = Depends(get_current_user)):
 
 # Cost metrics logging
 def log_tts_metrics(story_id: str, provider: str, chars: int, language: str, voice: str, success: bool, error: str = None):
-    """Log TTS metrics for cost tracking and analytics"""
+    # Log TTS metrics for cost tracking and analytics
     cost_per_1k = TTS_COST_PER_1K.get(provider, 0.015)
     estimated_cost = (chars / 1000) * cost_per_1k
     
@@ -3841,20 +3823,19 @@ def log_tts_metrics(story_id: str, provider: str, chars: int, language: str, voi
 # can exceed the limit. This compresses audio to a smaller file size.
 
 def compress_audio_for_upload(audio_bytes: bytes, target_bitrate: str = "48k") -> bytes:
-    """
-    Compress audio to smaller file size for faster uploads.
-    Uses pydub for audio processing.
+    # Compress audio to smaller file size for faster uploads.
+    # Uses pydub for audio processing.
 
-    NOTE: Python 3.13+ removed the audioop module that pydub depends on.
-    For Python 3.13+, install: pip install audioop-lts
+    # NOTE: Python 3.13+ removed the audioop module that pydub depends on.
+    # For Python 3.13+, install: pip install audioop-lts
 
-    Args:
-        audio_bytes: Raw audio data
-        target_bitrate: Target MP3 bitrate (e.g., "48k", "64k", "32k")
+    # Args:
+    # audio_bytes: Raw audio data
+    # target_bitrate: Target MP3 bitrate (e.g., "48k", "64k", "32k")
 
-    Returns:
-        Compressed MP3 audio bytes (or original if compression fails)
-    """
+    # Returns:
+    # Compressed MP3 audio bytes (or original if compression fails)
+    
     if not audio_bytes:
         logger.warning("[AUDIO] No audio bytes provided for compression")
         return audio_bytes
@@ -3899,12 +3880,12 @@ async def generate_tts_audio_openai(
     story_id: str = None,
     voice_preset: str = None
 ) -> tuple:
-    """
-    Generate TTS audio using OpenAI TTS API.
-    This is the fallback/default path when ElevenLabs is unavailable or disabled.
+    
+    # Generate TTS audio using OpenAI TTS API.
+    # This is the fallback/default path when ElevenLabs is unavailable or disabled.
 
-    Returns: (audio_bytes, voice_used, char_count, estimated_cost)
-    """
+    # Returns: (audio_bytes, voice_used, char_count, estimated_cost)
+    
     import httpx
 
     char_count = len(text)
@@ -3974,26 +3955,24 @@ async def generate_tts_audio_openai(
         raise HTTPException(status_code=500, detail=f"OpenAI TTS exception: {str(e)}")
  
 async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voice_preset: str = None, story_id: str = None, voice_id_override: str = None) -> tuple:
-    """
-    Generate warm, expressive bedtime narration using ElevenLabs.
+    # Generate warm, expressive bedtime narration using ElevenLabs.
+    # Key features:
+    # - SENTENCE-BY-SENTENCE generation for natural pacing
+    # - Comma pauses for breathing room within sentences
+    # - Expressive markers ([whisper], [softly], [chuckle]) with proper handling
+    # - Paragraph pauses between story pages
+    # - Warm, calm voice settings optimized for bedtime
+    # - LANGUAGE-CONSISTENT PACING: All languages get same calm bedtime speed
+    #
+    # Args:
+    # voice_id_override: For parent voice, use their cloned voice ID directly
+    #
+    # Returns: (audio_bytes, voice_id, char_count, estimated_cost)
     
-    Key features:
-    - SENTENCE-BY-SENTENCE generation for natural pacing
-    - Comma pauses for breathing room within sentences
-    - Expressive markers ([whisper], [softly], [chuckle]) with proper handling
-    - Paragraph pauses between story pages
-    - Warm, calm voice settings optimized for bedtime
-    - LANGUAGE-CONSISTENT PACING: All languages get same calm bedtime speed
-    
-    Args:
-        voice_id_override: For parent voice, use their cloned voice ID directly
-    
-    Returns: (audio_bytes, voice_id, char_count, estimated_cost)
-    """
     import httpx
     import re
     import io
-
+    
     # Try to import pydub - may fail on Python 3.13+ without audioop-lts
     try:
         from pydub import AudioSegment
@@ -4276,11 +4255,10 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
     
     # ==================== PARSE TEXT INTO SEGMENTS ====================
     def parse_story_text(text):
-        """
-        Parse story text into segments with markers and pause information.
-        Handles: [whisper], [softly], [chuckle] markers
-        Returns list of dicts: {text, marker, is_paragraph_start}
-        """
+       # Parse story text into segments with markers and pause information.
+       # Handles: [whisper], [softly], [chuckle] markers
+       # Returns list of dicts: {text, marker, is_paragraph_start}
+        
         segments = []
         
         # First, split by story pages (double newlines indicate paragraph breaks)
@@ -4348,10 +4326,9 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
     total_chars = 0
     
     async def generate_sentence_audio(sentence_text: str, stability: float, style: float) -> AudioSegment:
-        """Generate audio for a single sentence using ElevenLabs API
+        # Generate audio for a single sentence using ElevenLabs API
+        # Applies language-specific speed adjustment for consistent bedtime pacing.
         
-        Applies language-specific speed adjustment for consistent bedtime pacing.
-        """
         url = f"https://api.elevenlabs.io/v1/text-to-speech/{voice_id}"
         headers = {
             "Accept": "audio/mpeg",
@@ -4408,7 +4385,7 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
     
     # Helper function to check for whisper keywords in text (multilingual)
     def contains_whisper_keyword(text: str) -> bool:
-        """Check if text contains whisper/soft delivery keywords in any supported language"""
+        # Check if text contains whisper/soft delivery keywords in any supported language
         text_lower = text.lower()
         for keyword in whisper_keywords:
             if keyword.lower() in text_lower:
@@ -4535,17 +4512,16 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
 
 
 async def generate_tts_audio(text: str, language_code: str, voice_id: str = None, story_id: str = None, provider: str = "elevenlabs", voice_preset: str = None, voice_id_override: str = None) -> tuple:
-    """
-    Main TTS generation function - uses ElevenLabs for expressive bedtime narration.
+    # Main TTS generation function - uses ElevenLabs for expressive bedtime narration.
+    #
+    # Default: ElevenLabs with sentence-by-sentence generation for natural prosody
+    # Fallback: OpenAI if ElevenLabs is unavailable
+    #
+    # Args:
+    #    voice_id_override: If provided (e.g., for parent voice), use this voice ID directly
+    #
+    # Returns: (audio_bytes, voice_used, char_count, estimated_cost)
     
-    Default: ElevenLabs with sentence-by-sentence generation for natural prosody
-    Fallback: OpenAI if ElevenLabs is unavailable
-    
-    Args:
-        voice_id_override: If provided (e.g., for parent voice), use this voice ID directly
-    
-    Returns: (audio_bytes, voice_used, char_count, estimated_cost)
-    """
     char_count = len(text)
     
     # Determine voice preset (narrator personality)
@@ -4573,14 +4549,13 @@ async def generate_tts_audio(text: str, language_code: str, voice_id: str = None
 
 @api_router.post("/narration/request", response_model=NarrationResponse)
 async def request_narration(request: NarrationRequest, user_id: str = Depends(get_current_user)):
-    """
-    Request narration for a story with MULTILINGUAL support.
-    - Checks subscription limits (free: 2/day, premium: unlimited)
-    - Stores audio per language: {userId}/{storyId}/{lang}.mp3
-    - Translates text on-the-fly if narration language differs from story language
-    - Uses ElevenLabs eleven_multilingual_v2 model with language_code parameter
-    - NEVER fails silently - always records error details.
-    """
+    # Request narration for a story with MULTILINGUAL support.
+        # - Checks subscription limits (free: 2/day, premium: unlimited)
+        # - Stores audio per language: {userId}/{storyId}/{lang}.mp3
+        # - Translates text on-the-fly if narration language differs from story language
+        # - Uses ElevenLabs eleven_multilingual_v2 model with language_code parameter
+        # - NEVER fails silently - always records error details.
+    
     story_id = request.storyId
     narration_language_code = request.narrationLanguageCode
     
@@ -4678,7 +4653,7 @@ async def request_narration(request: NarrationRequest, user_id: str = Depends(ge
     logger.info("=" * 60)
     
     def build_error_string(err: Exception, context: str = "") -> str:
-        """Build a readable error string from any exception"""
+        # Build a readable error string from any exception
         status = getattr(err, 'status_code', None) or getattr(err, 'status', None) or 'unknown'
         body = ""
         if hasattr(err, 'response'):
@@ -4696,7 +4671,7 @@ async def request_narration(request: NarrationRequest, user_id: str = Depends(ge
         return full[:1000]
     
     def update_story_error(error_msg: str, lang: str = None):
-        """Update story with failed status and error message"""
+        # Update story with failed status and error message
         try:
             update_data = {'audio_status': 'failed', 'audio_error': error_msg}
             # Also update per-language status if JSONB columns exist
@@ -4924,10 +4899,9 @@ async def request_narration(request: NarrationRequest, user_id: str = Depends(ge
 # Handles the actual TTS generation and upload to avoid proxy timeouts
 
 async def process_narration_background(data: dict):
-    """
-    Process narration generation in the background.
-    This allows the API endpoint to return immediately while TTS runs.
-    """
+    # Process narration generation in the background.
+    # This allows the API endpoint to return immediately while TTS runs.
+    
     story_id = data['story_id']
     user_id = data['user_id']
     story = data['story']
@@ -4943,7 +4917,7 @@ async def process_narration_background(data: dict):
     logger.info(f"[NARRATION-BG] Starting background processing for story {story_id}")
     
     def update_story_error_bg(error_msg: str, lang: str = None):
-        """Update story with failed status and error message"""
+        # Update story with failed status and error message
         try:
             update_data = {'audio_status': 'failed', 'audio_error': error_msg}
             if lang:
@@ -5134,10 +5108,10 @@ async def process_narration_background(data: dict):
 
 @api_router.get("/narration/status")
 async def get_narration_status(story_id: str, user_id: str = Depends(get_current_user)):
-    """
-    Get the current narration status for a story.
-    Works with or without the audio_status column.
-    """
+    
+    # Get the current narration status for a story.
+    # Works with or without the audio_status column.
+    
     try:
         story_result = supabase.table('stories').select('audio_url, audio_status').eq('id', story_id).eq('user_id', user_id).execute()
         
@@ -5170,16 +5144,15 @@ async def get_narration_status(story_id: str, user_id: str = Depends(get_current
 
 @api_router.post("/narration/request-chunked", response_model=ChunkedNarrationResponse)
 async def request_chunked_narration(request: NarrationRequest, user_id: str = Depends(get_current_user)):
-    """
-    PAGE-1-FIRST Narration: Generate narration page-by-page for faster start.
+    # PAGE-1-FIRST Narration: Generate narration page-by-page for faster start.
+    #
+    # Flow:
+    # 1. User taps "Generate Narration"
+    # 2. Page 1 generates immediately (~10-15 sec)
+    # 3. Returns as soon as Page 1 is ready
+    # 4. Remaining pages generate in background
+    # 5. Frontend polls /narration/page-status for progress
     
-    Flow:
-    1. User taps "Generate Narration"
-    2. Page 1 generates immediately (~10-15 sec)
-    3. Returns as soon as Page 1 is ready
-    4. Remaining pages generate in background
-    5. Frontend polls /narration/page-status for progress
-    """
     story_id = request.storyId
     narration_language_code = request.narrationLanguageCode
     
@@ -5387,12 +5360,11 @@ async def request_chunked_narration(request: NarrationRequest, user_id: str = De
 
 
 async def process_chunked_narration_page1_first(data: dict):
-    """
-    PAGE-1-FIRST Background Processor:
-    1. Generate Page 1 audio immediately
-    2. Update DB so frontend can start playback
-    3. Generate remaining pages in sequence
-    """
+    # PAGE-1-FIRST Background Processor:
+    # 1. Generate Page 1 audio immediately
+    # 2. Update DB so frontend can start playback
+    # 3. Generate remaining pages in sequence
+    
     story_id = data['story_id']
     user_id = data['user_id']
     pages = data['pages']
@@ -5412,7 +5384,7 @@ async def process_chunked_narration_page1_first(data: dict):
     logger.info(f"[CHUNKED-BG] Starting Page-1-First generation for {total_pages} pages")
     
     def update_chunked_status(pages_ready: list, pages_generating: list, pages_failed: list):
-        """Update the chunked audio status in DB"""
+        # Update the chunked audio status in DB
         try:
             current = supabase.table('stories').select('chunked_audio_status').eq('id', story_id).execute()
             chunked_status = {}
@@ -5435,7 +5407,7 @@ async def process_chunked_narration_page1_first(data: dict):
             logger.error(f"[CHUNKED-BG] Failed to update status: {e}")
     
     async def generate_page_audio(page_num: int, page_text: str) -> bool:
-        """Generate audio for a single page. Returns True on success."""
+        # Generate audio for a single page. Returns True on success.
         try:
             # Clean page text (remove narration markers)
             clean_text = page_text.replace('[NARRATION_START]', '').replace('[NARRATION_END]', '').strip()
@@ -5558,10 +5530,9 @@ async def get_page_narration_status(
     lang: str = None,
     user_id: str = Depends(get_current_user)
 ):
-    """
-    Get the status of chunked page-by-page narration.
-    Used by frontend to know which pages are ready for playback.
-    """
+    # Get the status of chunked page-by-page narration.
+    # Used by frontend to know which pages are ready for playback.
+    
     try:
         story_result = supabase.table('stories').select(
             'pages, chunked_audio_status'
@@ -5761,11 +5732,9 @@ async def get_narration_signed_url(story_id: str, lang: str = None, narrator: st
 
 @api_router.post("/narration/prewarm")
 async def prewarm_narration(request: NarrationRequest, background_tasks, user_id: str = Depends(get_current_user)):
-    """
-    Background prewarm narration (fire-and-forget).
-    This endpoint returns immediately and generates audio in the background.
-    """
-    
+    # Background prewarm narration (fire-and-forget).
+    # This endpoint returns immediately and generates audio in the background.
+        
     async def generate_in_background(story_id: str, narration_lang: str, voice_pref: str, uid: str):
         # Background task for narration generation
         try:
@@ -5932,7 +5901,7 @@ async def upload_parent_voice(
     request: Request,
     user_id: str = Depends(get_current_user)
 ):
-    """Upload voice samples and create a voice clone using ElevenLabs"""
+    # Upload voice samples and create a voice clone using ElevenLabs
     import httpx
     
     try:
