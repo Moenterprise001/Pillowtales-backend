@@ -2095,7 +2095,7 @@ def normalize_text_for_tts(text: str) -> str:
 
 # ================== Translation Helper ==================
 
-   async def translate_text_for_narration(text: str, source_lang: str, target_lang: str) -> str:
+async def translate_text_for_narration(text: str, source_lang: str, target_lang: str) -> str:
     """
     Translate story text from source language to target language using Gemini.
     Used when narration language differs from story language.
