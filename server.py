@@ -2171,36 +2171,32 @@ def clean_text_for_narration(text: str) -> str:
 
 
 async def extract_story_metadata(story_text: str, title: str) -> dict:
-    """
-    Extract story metadata for continuation feature.
-    Returns: {summary, characters, setting}
-    """
+    # Extract story metadata for continuation feature.
+    # Returns: {summary, characters, setting}
+    
     logger.info(f"[METADATA] Extracting metadata from story: {title}")
     try:
-        system_message = """You are a story analyst. Extract key information from children's bedtime stories."""
-
-    Return ONLY valid JSON in this exact format:
-    {
-    "summary": "2-3 sentence recap of the story plot",
-    "characters": [
-    {"name": "Character Name", "description": "brief description", "role": "protagonist/friend/mentor/etc"}
-     ],
-    "setting": "Description of the story world/location"
-    }
-
-    Keep descriptions brief and child-friendly. Focus on elements that would help continue the story tomorrow."""
+                system_message = (
+            "You are a story analyst. Extract key information from children's bedtime stories.\n\n"
+            "Return ONLY valid JSON in this exact format:\n"
+            "{\n"
+            "\"summary\": \"2-3 sentence recap of the story plot\",\n"
+            "\"characters\": [\n"
+            "{\"name\": \"Character Name\", \"description\": \"brief description\", \"role\": \"protagonist/friend/mentor/etc\"}\n"
+            "],\n"
+            "\"setting\": \"Description of the story world/location\"\n"
+            "}\n\n"
+            "Keep descriptions brief and child-friendly. Focus on elements that would help continue the story tomorrow."
+        )
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         model = genai.GenerativeModel(GEMINI_MODEL)
 
-        prompt = f"""
-    {system_message}
-
-    Story Title: {title}
-
-    Story Text:
-    {story_text}
-    """
+        prompt = (
+            f"{system_message}\n\n"
+            f"Story Title: {title}\n\n"
+            f"Story Text:\n{story_text}"
+        )
 
         response = model.generate_content(prompt)
         response_text = response.text
