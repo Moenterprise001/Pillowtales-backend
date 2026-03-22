@@ -2170,15 +2170,14 @@ def clean_text_for_narration(text: str) -> str:
     return result
 
 
-    async def extract_story_metadata(story_text: str, title: str) -> dict:
+async def extract_story_metadata(story_text: str, title: str) -> dict:
     """
     Extract story metadata for continuation feature.
     Returns: {summary, characters, setting}
     """
     logger.info(f"[METADATA] Extracting metadata from story: {title}")
-
     try:
-        system_message = """You are a story analyst. Extract key information from children's bedtime stories.
+        system_message = """You are a story analyst. Extract key information from children's bedtime stories."""
 
     Return ONLY valid JSON in this exact format:
     {
