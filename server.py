@@ -2114,25 +2114,27 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
 
         prompt = f"""Translate the following children's bedtime story from {source_name} to {target_name}.
 
-    CRITICAL RULES:
-    1. Preserve the calming, gentle tone suitable for bedtime
-    2. Keep the story structure and flow intact
-    3. Maintain any character names as-is (don't translate names)
-    4. Ensure the translation is natural and fluent in {target_name}
-    5. Output ONLY the translated text, no explanations or notes
+CRITICAL RULES:
+1. Preserve the calming, gentle tone suitable for bedtime
+2. Keep the story structure and flow intact
+3. Maintain any character names as-is (don't translate names)
+4. Ensure the translation is natural and fluent in {target_name}
+5. Output ONLY the translated text, no explanations or notes
 
-    {text}
-    """
+{text}
+"""
 
     response = model.generate_content(prompt)
-    translated_text = getattr(response, "text", None)
 
-    if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
+        response = model.generate_content(prompt)
+        translated_text = getattr(response, "text", None)
+
+        if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
             logger.warning("[TRANSLATE] Invalid response, falling back to original text")
             return text
 
-            logger.info(f"[TRANSLATE] Success: {len(text)} chars -> {len(translated_text)} chars")
-            return translated_text.strip()
+        logger.info(f"[TRANSLATE] Success: {len(text)} chars -> {len(translated_text)} chars")
+        return translated_text.strip()
 
     except Exception as e:
         logger.error(f"[TRANSLATE] Failed: {str(e)}")
