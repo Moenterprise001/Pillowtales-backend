@@ -2302,9 +2302,9 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
     @api_router.get("/debug/test-signed-url")
     async def debug_test_signed_url(story_id: str):
         # Debug endpoint to test signed URL generation WITHOUT auth
-    try:
-        # Get the storage path from the story
-        story_result = supabase.table('stories').select('audio_url, user_id').eq('id', story_id).execute()
+        try:
+            # Get the storage path from the story
+            story_result = supabase.table('stories').select('audio_url, user_id').eq('id', story_id).execute()
         
         if not story_result.data:
             return {"error": "Story not found"}
