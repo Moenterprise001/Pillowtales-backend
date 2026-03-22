@@ -2139,7 +2139,7 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
 
     response = model.generate_content(prompt)
 
-        response = model.generate_content(prompt)
+    response = model.generate_content(prompt)
         translated_text = getattr(response, "text", None)
 
         if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
