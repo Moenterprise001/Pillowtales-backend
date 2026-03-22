@@ -2126,9 +2126,9 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
         response = model.generate_content(prompt)
         translated_text = getattr(response, "text", None)
 
-        if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
-            logger.warning("[TRANSLATE] Invalid response, falling back to original text")
-            return text
+    If not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
+        logger.warning("[TRANSLATE] Invalid response, falling back to original text")
+        return text
 
         logger.info(f"[TRANSLATE] Success: {len(text)} chars -> {len(translated_text)} chars")
         return translated_text.strip()
@@ -2142,9 +2142,9 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
     response = model.generate_content(prompt)
     translated_text = getattr(response, "text", None)
 
-        if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
-            logger.warning("[TRANSLATE] Invalid response, falling back to original text")
-            return text
+    if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
+        logger.warning("[TRANSLATE] Invalid response, falling back to original text")
+        return text
 
         logger.info(f"[TRANSLATE] Success: {len(text)} chars -> {len(translated_text)} chars")
         return translated_text.strip()
