@@ -5621,10 +5621,8 @@ async def get_page_audio_url(
     lang: str = None,
     user_id: str = Depends(get_current_user)
 ):
-    """
-    Get signed URL for a specific page's audio.
-    Used by frontend to load individual page audio files.
-    """
+    # Get signed URL for a specific page's audio.
+    # Used by frontend to load individual page audio files.
     try:
         # Build cache key - use the actual language requested
         # (Language restriction removed - we now have language-specific narrators)
@@ -5773,7 +5771,7 @@ async def prewarm_narration(request: NarrationRequest, background_tasks, user_id
     """
     
     async def generate_in_background(story_id: str, narration_lang: str, voice_pref: str, uid: str):
-        """Background task for narration generation"""
+        # Background task for narration generation
         try:
             # Reuse the main request logic
             req = NarrationRequest(
@@ -5804,7 +5802,7 @@ class SleepModeRequest(BaseModel):
 
 @api_router.post("/sleep-mode/start")
 async def start_sleep_mode(request: SleepModeRequest, user_id: str = Depends(get_current_user)):
-    """Start Sleep Mode - queue multiple stories for auto-play (Premium feature)"""
+    # Start Sleep Mode - queue multiple stories for auto-play (Premium feature)
     try:
         # Check if user is premium
         user_result = supabase.table('users_profile').select('plan').eq('id', user_id).execute()
@@ -5909,7 +5907,7 @@ async def start_sleep_mode(request: SleepModeRequest, user_id: str = Depends(get
 
 @api_router.get("/parent-voice/profile")
 async def get_parent_voice_profile(user_id: str = Depends(get_current_user)):
-    """Get the user's parent voice profile status"""
+    # Get the user's parent voice profile status
     try:
         result = supabase.table('users_profile').select('parent_voice_id, parent_voice_status, parent_voice_created_at').eq('id', user_id).execute()
         
@@ -6218,7 +6216,7 @@ async def upload_parent_voice_base64(
 
 @api_router.get("/parent-voice/sample")
 async def get_parent_voice_sample(user_id: str = Depends(get_current_user)):
-    """Generate a short voice sample using the user's cloned voice"""
+    # Generate a short voice sample using the user's cloned voice
     import httpx
     import base64
     
@@ -6318,7 +6316,7 @@ async def get_parent_voice_sample(user_id: str = Depends(get_current_user)):
 
 @api_router.delete("/parent-voice/profile")
 async def delete_parent_voice_profile(user_id: str = Depends(get_current_user)):
-    """Delete the user's parent voice profile"""
+    # Delete the user's parent voice profile
     import httpx
     
     try:
@@ -6358,7 +6356,7 @@ async def delete_parent_voice_profile(user_id: str = Depends(get_current_user)):
 # ================== DOWNLOADS ENDPOINT ==================
 @api_router.get("/downloads/{filename}")
 async def download_file(filename: str):
-    """Serve downloadable files (screenshots, assets, etc.)"""
+    # Serve downloadable files (screenshots, assets, etc.)
     downloads_dir = ROOT_DIR / "downloads"
     file_path = downloads_dir / filename
     
@@ -6389,7 +6387,7 @@ app.add_middleware(
 
 @app.on_event("startup")
 async def startup():
-    """Startup event - check and install required dependencies"""
+    # Startup event - check and install required dependencies
     logger.info("=" * 60)
     logger.info("PillowTales API Starting Up...")
     logger.info("=" * 60)
@@ -6401,7 +6399,7 @@ async def startup():
     logger.info("=" * 60)
 
 async def check_and_install_ffmpeg():
-    """Check if ffmpeg is available, install if missing"""
+    # Check if ffmpeg is available, install if missing
     import shutil
     import subprocess
     
