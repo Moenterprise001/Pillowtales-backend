@@ -3861,24 +3861,32 @@ def log_tts_metrics(story_id: str, provider: str, chars: int, language: str, voi
 
 def compress_audio_for_upload(audio_bytes: bytes, target_bitrate: str = "48k") -> bytes:
     """
-    Compress MP3 audio to reduce file size for storage.
-    If compression tooling is unavailable, return original bytes.
+    Compress audio to smaller file size for faster uploads.
+    Uses pydub for audio processing.
+
+    NOTE: Python 3.13+ removed the audioop module that pydub depends on.
+    For Python 3.13+, install: pip install audioop-lts
+
+    Args:
+        audio_bytes: Raw audio data
+        target_bitrate: Target MP3 bitrate (e.g., "48k", "64k", "32k")
+
+    Returns:
+        Compressed MP3 audio bytes (or original if compression fails)
     """
     if not audio_bytes:
         logger.warning("[AUDIO] No audio bytes provided for compression")
         return audio_bytes
 
-    try:
-        import io
-        from pydub import AudioSegment
-    except Exception as e:
-        logger.warning(f"[AUDIO] Compression dependencies unavailable: {e}. Using original audio.")
-        return audio_bytes
+    import io
 
     original_size = len(audio_bytes)
     logger.info(f"[AUDIO] Compressing: {original_size/1024/1024:.1f}MB → target {target_bitrate}")
 
     try:
+        # Try to import pydub - may fail on Python 3.13+ without audioop-lts
+        from pydub import AudioSegment
+
         audio = AudioSegment.from_mp3(io.BytesIO(audio_bytes))
         output_buffer = io.BytesIO()
         audio.export(output_buffer, format="mp3", bitrate=target_bitrate)
@@ -3892,6 +3900,12 @@ def compress_audio_for_upload(audio_bytes: bytes, target_bitrate: str = "48k") -
             f"{compressed_size/1024/1024:.1f}MB ({reduction:.0f}% reduction)"
         )
         return compressed_bytes
+
+    except ImportError as e:
+        logger.warning(f"[AUDIO] pydub/audioop not available: {str(e)}")
+        logger.warning("[AUDIO] For Python 3.13+, add 'audioop-lts' to requirements.txt")
+        logger.info("[AUDIO] Skipping compression, using original audio")
+        return audio_bytes
 
     except Exception as e:
         logger.error(f"[AUDIO] Compression failed: {str(e)} - using original")
@@ -3998,8 +4012,21 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
     import httpx
     import re
     import io
-    from pydub import AudioSegment
-    
+
+    # Try to import pydub - may fail on Python 3.13+ without audioop-lts
+    try:
+        from pydub import AudioSegment
+        PYDUB_AVAILABLE = True
+    except ImportError as e:
+        logger.warning(f"[TTS-ELEVEN] pydub not available: {e}")
+        logger.warning("[TTS-ELEVEN] For Python 3.13+, add 'audioop-lts' to requirements.txt")
+        PYDUB_AVAILABLE = False
+
+    # If pydub is not available, fall back to OpenAI TTS
+    if not PYDUB_AVAILABLE:
+        logger.warning("[TTS-ELEVEN] pydub not available - falling back to OpenAI TTS")
+        return await generate_tts_audio_openai(text, language_code, "shimmer", story_id, voice_preset)
+
     lang_code = language_code.lower()[:2] if language_code else 'en'
 
     if not USE_ELEVENLABS:
@@ -4477,13 +4504,14 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
                     audio_segments.append(post_silence)
         except Exception as e:
             error_str = str(e)
-            # Check for quota exceeded - stop immediately with clear error
-            if "QUOTA_EXCEEDED" in error_str:
-                logger.error("[TTS-ELEVEN] QUOTA EXCEEDED - stopping narration generation")
-                raise HTTPException(
-                    status_code=402,  # Payment Required
-                    detail="Voice credits exhausted. Please add more ElevenLabs credits to continue generating narrations."
-                )
+            # Check for quota exceeded - fallback to OpenAI gracefully
+            if "QUOTA_EXCEEDED" in error_str or "quota" in error_str.lower() or "credit" in error_str.lower():
+                logger.warning("[TTS-ELEVEN] QUOTA/CREDITS EXHAUSTED - falling back to OpenAI TTS")
+                return await generate_tts_audio_openai(text, language_code, "shimmer", story_id, voice_preset)
+            # Check for rate limiting
+            if "rate" in error_str.lower() or "429" in error_str:
+                logger.warning("[TTS-ELEVEN] Rate limited - falling back to OpenAI TTS")
+                return await generate_tts_audio_openai(text, language_code, "shimmer", story_id, voice_preset)
             logger.error(f"[TTS-ELEVEN] Error on segment {i+1}: {error_str}")
             continue
     
