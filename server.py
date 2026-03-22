@@ -2114,31 +2114,31 @@ def normalize_text_for_tts(text: str) -> str:
 
         prompt = f"""Translate the following children's bedtime story from {source_name} to {target_name}.
 
-        CRITICAL RULES:
-        1. Preserve the calming, gentle tone suitable for bedtime
-        2. Keep the story structure and flow intact
-        3. Maintain any character names as-is (don't translate names)
-        4. Ensure the translation is natural and fluent in {target_name}
-        5. Output ONLY the translated text, no explanations or notes
+    CRITICAL RULES:
+    1. Preserve the calming, gentle tone suitable for bedtime
+    2. Keep the story structure and flow intact
+    3. Maintain any character names as-is (don't translate names)
+    4. Ensure the translation is natural and fluent in {target_name}
+    5. Output ONLY the translated text, no explanations or notes
 
-        {text}
-        """
+    {text}
+    """
 
-        response = model.generate_content(prompt)
-        translated_text = getattr(response, "text", None)
+    response = model.generate_content(prompt)
+    translated_text = getattr(response, "text", None)
 
-        if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
+    if not translated_text or not isinstance(translated_text, str) or not translated_text.strip():
             logger.warning("[TRANSLATE] Invalid response, falling back to original text")
             return text
 
             logger.info(f"[TRANSLATE] Success: {len(text)} chars -> {len(translated_text)} chars")
             return translated_text.strip()
 
-        except Exception as e:
-            logger.error(f"[TRANSLATE] Failed: {str(e)}")
-            return text
+    except Exception as e:
+        logger.error(f"[TRANSLATE] Failed: {str(e)}")
+        return text
 
-def clean_text_for_narration(text: str) -> str:
+    def clean_text_for_narration(text: str) -> str:
     """
     Clean up text for smoother TTS narration.
     Removes unnecessary punctuation that sounds unnatural when spoken.
@@ -2171,7 +2171,7 @@ def clean_text_for_narration(text: str) -> str:
     return result
 
 
-async def extract_story_metadata(story_text: str, title: str) -> dict:
+    async def extract_story_metadata(story_text: str, title: str) -> dict:
     """
     Extract story metadata for continuation feature.
     Returns: {summary, characters, setting}
@@ -2181,28 +2181,28 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
     try:
         system_message = """You are a story analyst. Extract key information from children's bedtime stories.
 
-Return ONLY valid JSON in this exact format:
-{
-  "summary": "2-3 sentence recap of the story plot",
-  "characters": [
+    Return ONLY valid JSON in this exact format:
+    {
+    "summary": "2-3 sentence recap of the story plot",
+    "characters": [
     {"name": "Character Name", "description": "brief description", "role": "protagonist/friend/mentor/etc"}
-  ],
-  "setting": "Description of the story world/location"
-}
+     ],
+    "setting": "Description of the story world/location"
+    }
 
-Keep descriptions brief and child-friendly. Focus on elements that would help continue the story tomorrow."""
+    Keep descriptions brief and child-friendly. Focus on elements that would help continue the story tomorrow."""
 
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
         model = genai.GenerativeModel(GEMINI_MODEL)
 
         prompt = f"""
-{system_message}
+    {system_message}
 
-Story Title: {title}
+    Story Title: {title}
 
-Story Text:
-{story_text}
-"""
+    Story Text:
+    {story_text}
+    """
 
         response = model.generate_content(prompt)
         response_text = response.text
@@ -2221,14 +2221,14 @@ Story Text:
         logger.error(f"[METADATA] Extraction failed: {str(e)}")
         return {"summary": "", "characters": [], "setting": ""}
 
-# ================== API Endpoints ==================
+    # ================== API Endpoints ==================
 
-@api_router.get("/")
-async def root():
+    @api_router.get("/")
+    async def root():
     return {"message": "PillowTales API is running"}
 
-@api_router.get("/debug/supabase-role")
-async def debug_supabase_role():
+    @api_router.get("/debug/supabase-role")
+    async def debug_supabase_role():
     """Debug endpoint to check Supabase connection and role"""
     try:
         # Try to read from users_profile to check read access
@@ -2255,8 +2255,8 @@ async def debug_supabase_role():
             "service_key_prefix": supabase_key[:20] + "..."
         }
 
-@api_router.post("/debug/test-insert")
-async def debug_test_insert():
+    @api_router.post("/debug/test-insert")
+    async def debug_test_insert():
     """Debug endpoint to test INSERT into stories table"""
     import uuid
     test_user_id = "48b46b9c-8821-458b-9e4b-6f7695ae7767"  # A known user ID
@@ -2303,8 +2303,8 @@ async def debug_test_insert():
             "error_type": type(e).__name__
         }
 
-@api_router.get("/debug/test-signed-url")
-async def debug_test_signed_url(story_id: str):
+    @api_router.get("/debug/test-signed-url")
+    async def debug_test_signed_url(story_id: str):
     """Debug endpoint to test signed URL generation WITHOUT auth"""
     try:
         # Get the storage path from the story
@@ -2346,8 +2346,8 @@ async def debug_test_signed_url(story_id: str):
             "error": str(e)
         }
 
-@api_router.post("/auth/signup", response_model=AuthResponse)
-async def signup(request: SignupRequest):
+    @api_router.post("/auth/signup", response_model=AuthResponse)
+    async def signup(request: SignupRequest):
     """Sign up a new user"""
     try:
         # Create user with Supabase Auth
