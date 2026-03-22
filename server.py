@@ -2253,25 +2253,37 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
     @api_router.post("/debug/test-insert")
     async def debug_test_insert():
         # Debug endpoint to test INSERT into stories table
-    import uuid
-    test_user_id = "48b46b9c-8821-458b-9e4b-6f7695ae7767"  # A known user ID
-    
-    test_record = {
-        "user_id": test_user_id,
-        "title": "Test Story - DELETE ME",
-        "child_name": "Test",
-        "age": 5,
-        "theme": "test",
-        "moral": "test",
-        "calm_level": "calm",
-        "duration_min": 3,
-        "language": "en",
-        "pages": ["Page 1", "Page 2"],
-        "full_text": "Page 1 Page 2",
-        "audio_url": None,
-        "is_favorite": False,
-        "created_at": datetime.utcnow().isoformat()
-    }
+        import uuid
+
+        test_user_id = "48b46b9c-8821-458b-9e4b-6f7695ae7767"  # A known user ID
+
+        test_record = {
+            "user_id": test_user_id,
+            "title": "Test Story - DELETE ME",
+            "child_name": "Test",
+            "age": 5,
+            "theme": "test",
+            "moral": "test",
+            "calm_level": "calm",
+            "duration_min": 3,
+            "language": "en",
+            "pages": ["Page 1", "Page 2"],
+            "full_text": "Page 1 Page 2",
+            "audio_url": None,
+            "is_favorite": False,
+            "created_at": datetime.utcnow().isoformat()
+        }
+
+        try:
+            result = supabase.table('stories').insert(test_record).execute()
+
+        # Delete the test record immediately
+        # ...
+
+        return {"status": "ok"}
+
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
     
     try:
         result = supabase.table('stories').insert(test_record).execute()
