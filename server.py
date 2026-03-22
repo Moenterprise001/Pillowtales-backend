@@ -3580,7 +3580,7 @@ async def create_voice_model(request: CreateVoiceModelRequest, user_id: str = De
 
 @api_router.delete("/voice/model")
 async def delete_voice_model(user_id: str = Depends(get_current_user)):
-    """Delete user's voice model (GDPR right to be forgotten)"""
+    # Delete user's voice model (GDPR right to be forgotten)
     try:
         # In production, call ElevenLabs API to delete voice model
         # Get current voice model ID
@@ -3603,7 +3603,7 @@ async def delete_voice_model(user_id: str = Depends(get_current_user)):
 
 @api_router.delete("/voice/recordings")
 async def delete_all_recordings(user_id: str = Depends(get_current_user)):
-    """Delete all voice recordings (GDPR right to be forgotten)"""
+    # Delete all voice recordings (GDPR right to be forgotten)
     try:
         # Get all recordings with storage paths
         recordings_result = supabase.table('voice_recordings').select('id, recording_url, storage_path').eq('user_id', user_id).execute()
@@ -3637,7 +3637,7 @@ async def delete_all_recordings(user_id: str = Depends(get_current_user)):
 
 @api_router.delete("/voice/recordings/{recording_id}")
 async def delete_single_recording(recording_id: str, user_id: str = Depends(get_current_user)):
-    """Delete a single voice recording"""
+    # Delete a single voice recording
     try:
         # Get the recording
         recording_result = supabase.table('voice_recordings').select('id, storage_path').eq('id', recording_id).eq('user_id', user_id).execute()
@@ -3712,7 +3712,7 @@ async def delete_user_account(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/voice/recordings")
 async def get_user_recordings(user_id: str = Depends(get_current_user)):
-    """Get all user's voice recordings"""
+    # Get all user's voice recordings
     try:
         result = supabase.table('voice_recordings').select('*').eq('user_id', user_id).order('created_at', desc=True).execute()
         
@@ -3724,7 +3724,7 @@ async def get_user_recordings(user_id: str = Depends(get_current_user)):
 
 @api_router.get("/narration/usage")
 async def get_narration_usage(user_id: str = Depends(get_current_user)):
-    """Get current narration usage based on plan (Premium: monthly, Trial: total, Free: 0)"""
+    # Get current narration usage based on plan (Premium: monthly, Trial: total, Free: 0)
     try:
         # Get user plan and trial info
         user_result = supabase.table('users_profile').select('plan, trial_end, trial_narrations_used').eq('id', user_id).execute()
