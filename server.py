@@ -3414,7 +3414,7 @@ async def grant_voice_consent(request: VoiceConsentRequest, user_id: str = Depen
 
 @api_router.get("/voice/status")
 async def get_voice_status(user_id: str = Depends(get_current_user)):
-    """Get user's voice consent and model status"""
+    # Get user's voice consent and model status
     try:
         user_result = supabase.table('users_profile').select(
             'parent_voice_id, parent_voice_consent_at, consent_text_version'
