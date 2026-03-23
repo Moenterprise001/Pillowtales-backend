@@ -1048,7 +1048,7 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
     # Get user's subscription status and narration usage.
     # Handles daily counter reset automatically.
     # Also handles tester/admin bypass for testing.
-    
+
     try:
         # First, check if this is a tester account (bypass all restrictions)
         if user_email and user_email.lower() in [e.lower() for e in TESTER_EMAILS]:
@@ -1063,12 +1063,12 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
                 "narrations_remaining": None,
                 "trial_used": False,
             }
-        
+
         # Try to get email from user profile if not provided
         result = supabase.table('users_profile').select(
-            'email, subscription_status, daily_narrations_used, last_narration_reset'
+            'email, subscription_status, daily_narrations_used, last_narration_reset, trial_used'
         ).eq('id', user_id).execute()
-        
+
         if not result.data or len(result.data) == 0:
             return {
                 "status": "free",
@@ -1076,10 +1076,12 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
                 "daily_narrations_used": 0,
                 "daily_limit": FREE_DAILY_NARRATION_LIMIT,
                 "can_narrate": True,
+                "narrations_remaining": FREE_DAILY_NARRATION_LIMIT,
+                "trial_used": False,
             }
-        
+
         profile = result.data[0]
-        
+
         # Check if email is in tester list (case-insensitive)
         profile_email = profile.get('email', '')
         if profile_email and profile_email.lower() in [e.lower() for e in TESTER_EMAILS]:
@@ -1094,13 +1096,13 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
                 "narrations_remaining": None,
                 "trial_used": False,
             }
-        
+
         status = profile.get('subscription_status', 'free') or 'free'
         is_premium = status == 'premium'
-        
+
         daily_used = profile.get('daily_narrations_used', 0) or 0
         last_reset = profile.get('last_narration_reset')
-        
+
         # Check if we need to reset daily counter
         should_reset = False
         if last_reset:
@@ -1109,19 +1111,20 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
                     last_reset_dt = datetime.fromisoformat(last_reset.replace('Z', '+00:00'))
                 else:
                     last_reset_dt = last_reset
-                
+
                 # Reset if more than 24 hours since last reset
                 now = datetime.utcnow()
                 if last_reset_dt.tzinfo:
                     now = now.replace(tzinfo=last_reset_dt.tzinfo)
-                
-                if (now - last_reset_dt).total_seconds() > 86400:  # 24 hours
+
+                if (now - last_reset_dt).total_seconds() > 86400:
                     should_reset = True
-                except:
+
+            except Exception:
                 should_reset = True
         else:
             should_reset = True
-        
+
         if should_reset:
             daily_used = 0
             # Reset the counter in DB
@@ -1130,13 +1133,13 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
                     'daily_narrations_used': 0,
                     'last_narration_reset': datetime.utcnow().isoformat()
                 }).eq('id', user_id).execute()
-                except Exception as e:
+            except Exception as e:
                 logger.warning(f"[SUB] Could not reset daily counter: {e}")
-        
+
         # Determine if user can narrate
         daily_limit = None if is_premium else FREE_DAILY_NARRATION_LIMIT
         can_narrate = is_premium or daily_used < FREE_DAILY_NARRATION_LIMIT
-        
+
         return {
             "status": status,
             "is_premium": is_premium,
@@ -1146,7 +1149,7 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
             "narrations_remaining": None if is_premium else max(0, FREE_DAILY_NARRATION_LIMIT - daily_used),
             "trial_used": profile.get('trial_used', False),
         }
-        
+
     except Exception as e:
         logger.error(f"[SUB] Error getting subscription: {e}")
         return {
@@ -1155,6 +1158,8 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
             "daily_narrations_used": 0,
             "daily_limit": FREE_DAILY_NARRATION_LIMIT,
             "can_narrate": True,
+            "narrations_remaining": FREE_DAILY_NARRATION_LIMIT,
+            "trial_used": False,
         }
 
 async def increment_narration_usage(user_id: str) -> dict:
@@ -1177,7 +1182,7 @@ async def increment_narration_usage(user_id: str) -> dict:
         
         return {"daily_narrations_used": new_count}
         
-        except Exception as e:
+    except Exception as e:
         logger.error(f"[SUB] Error incrementing usage: {e}")
         return {"daily_narrations_used": 0}
 
@@ -1251,7 +1256,7 @@ async def check_weekly_story_limit(user_id: str, is_premium: bool) -> bool:
         logger.info(f"User {user_id} has created {story_count} stories in the last 7 days")
         
         return story_count < 3
-        except Exception as e:
+    except Exception as e:
         logger.error(f"Error checking story limit: {str(e)}")
         # On error, allow the request (fail open)
         return True
@@ -1263,7 +1268,7 @@ def select_story_companion(user_id: str, theme: str, is_premium: bool = False) -
     # - User's history (prefer returning companions)
     # - Theme matching
     
-    Returns companion dict or None
+    # Returns companion dict or None
     
     import random
     
@@ -1281,7 +1286,7 @@ def select_story_companion(user_id: str, theme: str, is_premium: bool = False) -
             # Also check subscription from DB
             sub_status = result.data[0].get('subscription_status', 'free')
             is_premium = is_premium or sub_status == 'premium'
-        except Exception as e:
+    except Exception as e:
         logger.warning(f"[COMPANION] Could not fetch met companions: {e}")
     
     logger.info(f"[COMPANION] User has met: {met_companions}, is_premium: {is_premium}")
@@ -1944,6 +1949,10 @@ Respond with ONLY the JSON, no other text."""
         response_text = response.text
                
         logger.info(f"Gemini response: {response_text}")
+
+    except Exception as e:
+        logger.error(f"[STORY] Story generation failed: {str(e)}")
+        raise HTTPException(status_code=500, detail="Failed to generate story")
         
         # Parse the JSON response
         try:
@@ -1963,13 +1972,13 @@ Respond with ONLY the JSON, no other text."""
                 raise ValueError("Invalid story format")
             
             return story_data
-             except json.JSONDecodeError as e:
+        except json.JSONDecodeError as e:
             logger.error(f"Failed to parse OpenAI response as JSON: {str(e)}")
             logger.error(f"Response was: {response}")
             raise HTTPException(status_code=500, detail="Failed to generate story - invalid format")
             
-             except Exception as e:
-        logger.error(f"Error generating story with OpenAI: {str(e)}")
+        except Exception as e:
+            logger.error(f"Error generating story with OpenAI: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate story: {str(e)}")
 
 # ================== TTS Text Normalization ==================
@@ -2121,7 +2130,7 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
         logger.info(f"[TRANSLATE] Success: {len(text)} chars -> {len(translated_text)} chars")
         return translated_text.strip()
 
-       except Exception as e:
+    except Exception as e:
         logger.error(f"[TRANSLATE] Failed: {str(e)}")
         return text
 
@@ -2198,7 +2207,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
             logger.warning("[METADATA] Could not parse JSON from response")
             return {"summary": "", "characters": [], "setting": ""}
 
-        except Exception as e:
+    except Exception as e:
         logger.error(f"[METADATA] Extraction failed: {str(e)}")
         return {"summary": "", "characters": [], "setting": ""}
 
@@ -2229,7 +2238,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
                 "message": "Service role should bypass RLS"
             }
 
-            except Exception as e:
+        except Exception as e:
             return {
                 "status": "error",
                 "error": str(e),
@@ -2279,7 +2288,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
                 "message": "INSERT returned no data",
                 "result": str(result)
             }
-        except Exception as e:
+    except Exception as e:
         return {
             "status": "error",
             "error": str(e),
@@ -2289,91 +2298,92 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
     @api_router.get("/debug/test-signed-url")
     async def debug_test_signed_url(story_id: str):
         # Debug endpoint to test signed URL generation WITHOUT auth
-        try:
-            # Get the storage path from the story
-            story_result = supabase.table('stories').select('audio_url, user_id').eq('id', story_id).execute()
-        
-        if not story_result.data:
-            return {"error": "Story not found"}
-        
-        story = story_result.data[0]
-        storage_path = story.get('audio_url')
-        
-        if not storage_path:
-            return {"error": "No audio_url in story", "story": story}
-        
-        # Check if it's a path or URL
-        is_url = storage_path.startswith('http')
-        
-        if is_url:
-            return {
-                "error": "audio_url contains a full URL instead of path",
-                "audio_url": storage_path,
-                "needs_fix": True
-            }
-        
-        # Try to create signed URL
-        logger.info(f"[DEBUG] Creating signed URL for path: {storage_path}")
-        signed_url_result = supabase.storage.from_('story-audio').create_signed_url(storage_path, 3600)
-        
-        return {
-            "status": "success",
-            "storage_path": storage_path,
-            "signed_url_response": str(signed_url_result),
-            "signed_url": signed_url_result.get('signedURL') or signed_url_result.get('signed_url') or signed_url_result.get('signedUrl'),
-            "raw_keys": list(signed_url_result.keys()) if isinstance(signed_url_result, dict) else None
-        }
-        except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e)
-        }
+            try:
+                # Get the storage path from the story
+                story_result = supabase.table('stories').select('audio_url, user_id').eq('id', story_id).execute()
+
+                if not story_result.data:
+                    return {"error": "Story not found"}
+
+                story = story_result.data[0]
+                storage_path = story.get('audio_url')
+
+                if not storage_path:
+                    return {"error": "No audio_url in story", "story": story}
+
+                # Check if it's a path or URL
+                is_url = storage_path.startswith('http')
+
+                if is_url:
+                    return {
+                    "error": "audio_url contains a full URL instead of path",
+                    "audio_url": storage_path,
+                    "needs_fix": True
+                    }
+
+                # Try to create signed URL
+                    logger.info(f"[DEBUG] Creating signed URL for path: {storage_path}")
+                    signed_url_result = supabase.storage.from_('story-audio').create_signed_url(storage_path, 3600)
+
+                return {
+                    "status": "success",
+                    "storage_path": storage_path,
+                    "signed_url_response": str(signed_url_result),
+                    "signed_url": signed_url_result.get('signedURL') or signed_url_result.get('signed_url'),
+                    "raw_keys": list(signed_url_result.keys()) if isinstance(signed_url_result, dict) else None
+                    }
+
+            except Exception as e:
+                return {
+                "error": str(e)
+                    }
+             
 
     @api_router.post("/auth/signup", response_model=AuthResponse)
     async def signup(request: SignupRequest):
         # Sign up a new user
-    try:
-        # Create user with Supabase Auth
-        auth_response = supabase.auth.sign_up({
-            "email": request.email,
-            "password": request.password
-        })
+        try:
+            # Create user with Supabase Auth
+            auth_response = supabase.auth.sign_up({
+                "email": request.email,
+                "password": request.password
+            })
         
-        if not auth_response.user:
-            raise HTTPException(status_code=400, detail="Failed to create auth user")
+            if not auth_response.user:
+                raise HTTPException(status_code=400, detail="Failed to create auth user")
         
-        user_id = auth_response.user.id
+            user_id = auth_response.user.id
         
-        # Create user profile
-        user_data = {
-            "id": user_id,
-            "preferred_language": request.preferredLanguage,
-            "bedtime_mode": False,
-            "plan": "free"
-        }
+            # Create user profile
+            user_data = {
+                "id": user_id,
+                "preferred_language": request.preferredLanguage,
+                "bedtime_mode": False,
+                "plan": "free"
+            }
         
-        result = supabase.table('users_profile').insert(user_data).execute()
+            result = supabase.table('users_profile').insert(user_data).execute()
         
-        if not result.data or len(result.data) == 0:
-            raise HTTPException(status_code=500, detail="Failed to create user")
+            if not result.data or len(result.data) == 0:
+                raise HTTPException(status_code=500, detail="Failed to create user")
         
-        user = result.data[0]
+            user = result.data[0]
         
-        # Create JWT token
-        token = create_access_token({"user_id": user['id'], "email": user['email']})
+            # Create JWT token
+            token = create_access_token({"user_id": user['id'], "email": user['email']})
         
-        return AuthResponse(
-            token=token,
-            userId=user['id'],
-            email=user['email'],
-            preferredLanguage=user['preferred_language']
-        )
+            return AuthResponse(
+                token=token,
+                userId=user['id'],
+                email=user['email'],
+                preferredLanguage=user['preferred_language']
+            )
         
         except HTTPException:
-        raise
+            raise
         except Exception as e:
-        logger.error(f"Signup error: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Signup failed: {str(e)}")
+            logger.error(f"Signup error: {str(e)}")
+            raise HTTPException(status_code=500, detail=f"Signup failed: {str(e)}")
 
 @api_router.post("/auth/login", response_model=AuthResponse)
 async def login(request: LoginRequest):
@@ -2408,9 +2418,9 @@ async def login(request: LoginRequest):
             preferredLanguage=user.get('preferred_language', 'en')
         )
         
-        except HTTPException:
+    except HTTPException:
         raise
-        except Exception as e:
+    except Exception as e:
         logger.error(f"Login error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
@@ -2444,7 +2454,7 @@ async def get_subscription_status(user_id: str = Depends(get_current_user)):
             auth_user = supabase.auth.admin.get_user_by_id(user_id)
             if auth_user and auth_user.user:
                 user_email = auth_user.user.email
-        except Exception as e:
+    except Exception as e:
         logger.warning(f"[SUB] Could not get user email: {e}")
     
     subscription = await get_user_subscription(user_id, user_email)
@@ -2530,7 +2540,7 @@ async def get_voice_presets(user_id: str = Depends(get_current_user)):
         if user_result.data and len(user_result.data) > 0:
             parent_voice_id = user_result.data[0].get('parent_voice_id')
             parent_voice_status = user_result.data[0].get('parent_voice_status', 'none') or 'none'
-        except Exception as e:
+    except Exception as e:
         logger.warning(f"[VOICES] Error fetching parent voice status: {e}")
     
     # Build narrator list from presets
@@ -2580,7 +2590,7 @@ async def get_story_companions(user_id: str = Depends(get_current_user)):
         if result.data and len(result.data) > 0:
             met_companions = result.data[0].get('met_companions', []) or []
             is_premium = result.data[0].get('subscription_status') == 'premium'
-        except Exception as e:
+    except Exception as e:
         logger.warning(f"[COMPANIONS] Could not fetch user data: {e}")
     
     # Get tier config
@@ -2641,9 +2651,9 @@ async def get_user_profile(user_id: str = Depends(get_current_user)):
             can_generate=profile['can_generate'],
             can_save_more=profile['can_save_more']
         )
-        except HTTPException:
+    except HTTPException:
         raise
-        except Exception as e:
+    except Exception as e:
         logger.error(f"Error getting user profile: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get user profile")
 
@@ -2772,7 +2782,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
                 logger.info(f"[STORY] User selected companion: {companion_name}")
             else:
                 logger.warning(f"[STORY] Unknown companion ID: {request.companionId}")
-            else:
+        else:
             # No companion selected - use random selection based on probability
             selected_companion = select_story_companion(user_id, request.theme)
             if selected_companion:
@@ -2870,7 +2880,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
                         'met_companions': met_companions
                     }).eq('id', user_id).execute()
                     logger.info(f"[STORY] User met new companion: {companion_name}. Total met: {len(met_companions)}")
-                except Exception as comp_err:
+            except Exception as comp_err:
                 logger.warning(f"[STORY] Could not update met_companions: {comp_err}")
         
         print(f"[STORY] Inserting story record with user_id: {request.userId}")
@@ -2883,7 +2893,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         try:
             result = supabase.table('stories').insert(story_record).execute()
             print(f"[STORY] Insert result: {result}")
-            except Exception as e1:
+        except Exception as e1:
             print(f"[STORY] INSERT attempt 1 failed: {e1}")
             insert_error = e1
             
@@ -2893,7 +2903,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
                 result = fresh_supabase.table('stories').insert(story_record).execute()
                 print("[STORY] Insert with fresh client succeeded")
                 insert_error = None
-                except Exception as e2:
+            except Exception as e2:
                 print(f"[STORY] INSERT attempt 2 also failed: {e2}")
         
         if insert_error:
@@ -2927,7 +2937,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
                     'setting': metadata.get('setting', '')
                 }).eq('id', story_id).execute()
                 logger.info(f"[STORY] Saved metadata for future continuation: {len(metadata.get('characters', []))} characters")
-            except Exception as meta_error:
+        except Exception as meta_error:
             # Don't fail the request if metadata extraction fails
             logger.warning(f"[STORY] Metadata extraction failed (non-blocking): {str(meta_error)}")
         
@@ -2941,9 +2951,9 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
             pages=story_data["pages"]
         )
         
-        except HTTPException:
+    except HTTPException:
         raise
-        except Exception as e:
+    except Exception as e:
         error_msg = str(e)
         logger.error(f"Story generation error: {error_msg}")
         print(f"[STORY] ERROR: {error_msg}")
