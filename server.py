@@ -1117,7 +1117,7 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
                 
                 if (now - last_reset_dt).total_seconds() > 86400:  # 24 hours
                     should_reset = True
-            except:
+                except:
                 should_reset = True
         else:
             should_reset = True
@@ -1130,7 +1130,7 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
                     'daily_narrations_used': 0,
                     'last_narration_reset': datetime.utcnow().isoformat()
                 }).eq('id', user_id).execute()
-            except Exception as e:
+                except Exception as e:
                 logger.warning(f"[SUB] Could not reset daily counter: {e}")
         
         # Determine if user can narrate
@@ -1177,7 +1177,7 @@ async def increment_narration_usage(user_id: str) -> dict:
         
         return {"daily_narrations_used": new_count}
         
-    except Exception as e:
+        except Exception as e:
         logger.error(f"[SUB] Error incrementing usage: {e}")
         return {"daily_narrations_used": 0}
 
@@ -1251,7 +1251,7 @@ async def check_weekly_story_limit(user_id: str, is_premium: bool) -> bool:
         logger.info(f"User {user_id} has created {story_count} stories in the last 7 days")
         
         return story_count < 3
-    except Exception as e:
+        except Exception as e:
         logger.error(f"Error checking story limit: {str(e)}")
         # On error, allow the request (fail open)
         return True
@@ -1281,7 +1281,7 @@ def select_story_companion(user_id: str, theme: str, is_premium: bool = False) -
             # Also check subscription from DB
             sub_status = result.data[0].get('subscription_status', 'free')
             is_premium = is_premium or sub_status == 'premium'
-    except Exception as e:
+        except Exception as e:
         logger.warning(f"[COMPANION] Could not fetch met companions: {e}")
     
     logger.info(f"[COMPANION] User has met: {met_companions}, is_premium: {is_premium}")
@@ -1963,12 +1963,12 @@ Respond with ONLY the JSON, no other text."""
                 raise ValueError("Invalid story format")
             
             return story_data
-        except json.JSONDecodeError as e:
+             except json.JSONDecodeError as e:
             logger.error(f"Failed to parse OpenAI response as JSON: {str(e)}")
             logger.error(f"Response was: {response}")
             raise HTTPException(status_code=500, detail="Failed to generate story - invalid format")
             
-    except Exception as e:
+             except Exception as e:
         logger.error(f"Error generating story with OpenAI: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Failed to generate story: {str(e)}")
 
@@ -2121,7 +2121,7 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
         logger.info(f"[TRANSLATE] Success: {len(text)} chars -> {len(translated_text)} chars")
         return translated_text.strip()
 
-    except Exception as e:
+       except Exception as e:
         logger.error(f"[TRANSLATE] Failed: {str(e)}")
         return text
 
@@ -2198,7 +2198,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
             logger.warning("[METADATA] Could not parse JSON from response")
             return {"summary": "", "characters": [], "setting": ""}
 
-    except Exception as e:
+        except Exception as e:
         logger.error(f"[METADATA] Extraction failed: {str(e)}")
         return {"summary": "", "characters": [], "setting": ""}
 
@@ -2229,7 +2229,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
                 "message": "Service role should bypass RLS"
             }
 
-        except Exception as e:
+            except Exception as e:
             return {
                 "status": "error",
                 "error": str(e),
@@ -2279,7 +2279,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
                 "message": "INSERT returned no data",
                 "result": str(result)
             }
-    except Exception as e:
+        except Exception as e:
         return {
             "status": "error",
             "error": str(e),
@@ -2323,7 +2323,7 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
             "signed_url": signed_url_result.get('signedURL') or signed_url_result.get('signed_url') or signed_url_result.get('signedUrl'),
             "raw_keys": list(signed_url_result.keys()) if isinstance(signed_url_result, dict) else None
         }
-    except Exception as e:
+        except Exception as e:
         return {
             "status": "error",
             "error": str(e)
@@ -2369,9 +2369,9 @@ async def extract_story_metadata(story_text: str, title: str) -> dict:
             preferredLanguage=user['preferred_language']
         )
         
-    except HTTPException:
+        except HTTPException:
         raise
-    except Exception as e:
+        except Exception as e:
         logger.error(f"Signup error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Signup failed: {str(e)}")
 
@@ -2408,9 +2408,9 @@ async def login(request: LoginRequest):
             preferredLanguage=user.get('preferred_language', 'en')
         )
         
-    except HTTPException:
+        except HTTPException:
         raise
-    except Exception as e:
+        except Exception as e:
         logger.error(f"Login error: {str(e)}")
         raise HTTPException(status_code=500, detail=f"Login failed: {str(e)}")
 
@@ -2444,7 +2444,7 @@ async def get_subscription_status(user_id: str = Depends(get_current_user)):
             auth_user = supabase.auth.admin.get_user_by_id(user_id)
             if auth_user and auth_user.user:
                 user_email = auth_user.user.email
-    except Exception as e:
+        except Exception as e:
         logger.warning(f"[SUB] Could not get user email: {e}")
     
     subscription = await get_user_subscription(user_id, user_email)
@@ -2530,7 +2530,7 @@ async def get_voice_presets(user_id: str = Depends(get_current_user)):
         if user_result.data and len(user_result.data) > 0:
             parent_voice_id = user_result.data[0].get('parent_voice_id')
             parent_voice_status = user_result.data[0].get('parent_voice_status', 'none') or 'none'
-    except Exception as e:
+        except Exception as e:
         logger.warning(f"[VOICES] Error fetching parent voice status: {e}")
     
     # Build narrator list from presets
@@ -2580,7 +2580,7 @@ async def get_story_companions(user_id: str = Depends(get_current_user)):
         if result.data and len(result.data) > 0:
             met_companions = result.data[0].get('met_companions', []) or []
             is_premium = result.data[0].get('subscription_status') == 'premium'
-    except Exception as e:
+        except Exception as e:
         logger.warning(f"[COMPANIONS] Could not fetch user data: {e}")
     
     # Get tier config
@@ -2641,9 +2641,9 @@ async def get_user_profile(user_id: str = Depends(get_current_user)):
             can_generate=profile['can_generate'],
             can_save_more=profile['can_save_more']
         )
-    except HTTPException:
+        except HTTPException:
         raise
-    except Exception as e:
+        except Exception as e:
         logger.error(f"Error getting user profile: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to get user profile")
 
@@ -2772,7 +2772,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
                 logger.info(f"[STORY] User selected companion: {companion_name}")
             else:
                 logger.warning(f"[STORY] Unknown companion ID: {request.companionId}")
-        else:
+            else:
             # No companion selected - use random selection based on probability
             selected_companion = select_story_companion(user_id, request.theme)
             if selected_companion:
@@ -2870,7 +2870,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
                         'met_companions': met_companions
                     }).eq('id', user_id).execute()
                     logger.info(f"[STORY] User met new companion: {companion_name}. Total met: {len(met_companions)}")
-            except Exception as comp_err:
+                except Exception as comp_err:
                 logger.warning(f"[STORY] Could not update met_companions: {comp_err}")
         
         print(f"[STORY] Inserting story record with user_id: {request.userId}")
@@ -2883,7 +2883,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         try:
             result = supabase.table('stories').insert(story_record).execute()
             print(f"[STORY] Insert result: {result}")
-        except Exception as e1:
+            except Exception as e1:
             print(f"[STORY] INSERT attempt 1 failed: {e1}")
             insert_error = e1
             
@@ -2893,7 +2893,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
                 result = fresh_supabase.table('stories').insert(story_record).execute()
                 print("[STORY] Insert with fresh client succeeded")
                 insert_error = None
-            except Exception as e2:
+                except Exception as e2:
                 print(f"[STORY] INSERT attempt 2 also failed: {e2}")
         
         if insert_error:
@@ -2927,7 +2927,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
                     'setting': metadata.get('setting', '')
                 }).eq('id', story_id).execute()
                 logger.info(f"[STORY] Saved metadata for future continuation: {len(metadata.get('characters', []))} characters")
-        except Exception as meta_error:
+            except Exception as meta_error:
             # Don't fail the request if metadata extraction fails
             logger.warning(f"[STORY] Metadata extraction failed (non-blocking): {str(meta_error)}")
         
@@ -2941,9 +2941,9 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
             pages=story_data["pages"]
         )
         
-    except HTTPException:
+        except HTTPException:
         raise
-    except Exception as e:
+        except Exception as e:
         error_msg = str(e)
         logger.error(f"Story generation error: {error_msg}")
         print(f"[STORY] ERROR: {error_msg}")
@@ -3099,24 +3099,24 @@ async def generate_tts(request: TTSRequest, user_id: str = Depends(get_current_u
             # Increment monthly narrations counter
             month_start = datetime.utcnow().replace(day=1, hour=0, minute=0, second=0, microsecond=0).date()
             
-            if usage_result.data and len(usage_result.data) > 0:
-                # Update existing record
-                new_usage = current_usage + 1
-                supabase.table('narration_usage').update({
-                    "narrations_used": new_usage,
-                    "updated_at": datetime.utcnow().isoformat()
-                }).eq('user_id', user_id).eq('month_start', month_start.isoformat()).execute()
-                logger.info(f"Premium user {user_id} incremented: {new_usage}/90")
-            else:
-                # Create new record
-                supabase.table('narration_usage').insert({
-                    "user_id": user_id,
-                    "month_start": month_start.isoformat(),
-                    "narrations_used": 1,
-                    "created_at": datetime.utcnow().isoformat(),
-                    "updated_at": datetime.utcnow().isoformat()
+        if usage_result.data and len(usage_result.data) > 0:
+            # Update existing record
+            new_usage = current_usage + 1
+            supabase.table('narration_usage').update({
+                "narrations_used": new_usage,
+                "updated_at": datetime.utcnow().isoformat()
+            }).eq('user_id', user_id).eq('month_start', month_start.isoformat()).execute()
+            logger.info(f"Premium user {user_id} incremented: {new_usage}/90")
+        else:
+            # Create new record
+            supabase.table('narration_usage').insert({
+                "user_id": user_id,
+                "month_start": month_start.isoformat(),
+                "narrations_used": 1,
+                "created_at": datetime.utcnow().isoformat(),
+                "updated_at": datetime.utcnow().isoformat()
                 }).execute()
-                logger.info(f"Premium user {user_id} new month: 1/90")
+        logger.info(f"Premium user {user_id} new month: 1/90")
         
         logger.info(f"TTS generation complete for story {request.storyId}")
         return TTSResponse(audioUrl=mock_audio_url)
