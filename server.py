@@ -4568,6 +4568,7 @@ async def request_narration(request: NarrationRequest, user_id: str = Depends(ge
     
     story_id = request.storyId
     narration_language_code = request.narrationLanguageCode
+    is_parent_voice = request.voicePreference == "parent_voice"
     
     # ==================== SUBSCRIPTION CHECK ====================
     subscription = await get_user_subscription(user_id)
@@ -5165,6 +5166,8 @@ async def request_chunked_narration(request: NarrationRequest, user_id: str = De
     
     story_id = request.storyId
     narration_language_code = request.narrationLanguageCode
+
+    # is_parent_voice = request.voicePreference == "parent_voice"
     
     # ==================== SUBSCRIPTION CHECK ====================
     subscription = await get_user_subscription(user_id)
