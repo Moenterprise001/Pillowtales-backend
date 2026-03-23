@@ -4569,7 +4569,13 @@ async def request_narration(request: NarrationRequest, user_id: str = Depends(ge
     story_id = request.storyId
     narration_language_code = request.narrationLanguageCode
     is_parent_voice = request.voicePreference == "parent_voice"
-    
+
+    logger.info(
+    f"[CHUNKED] voicePreference={request.voicePreference}, "
+    f"is_parent_voice={is_parent_voice}, "
+    f"story_id={story_id}, "
+    f"lang={narration_language_code}"
+)
     # ==================== SUBSCRIPTION CHECK ====================
     subscription = await get_user_subscription(user_id)
     narration_access = check_feature_access(subscription, "narration")
