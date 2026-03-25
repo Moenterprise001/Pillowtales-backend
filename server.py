@@ -2846,7 +2846,6 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         # Generate story using OpenAI (with continuation context and companion if available)
         story_data = await generate_story_with_openai(request, continuation_context, selected_companion)
 
-        # Validate story_data
         logger.info(f"[STORY] DEBUG: story_data returned type={type(story_data).__name__}")
 
         if story_data is None or not isinstance(story_data, dict):
@@ -2866,7 +2865,6 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
             logger.error(f"[STORY] CRITICAL: Invalid pages! type={type(pages_value).__name__}")
             raise HTTPException(status_code=500, detail="No story pages generated")
 
-        # Continue as before
         story_data["pages"] = append_bedtime_routine_to_story(
         
         # ==================== APPEND BEDTIME RITUAL ENDING ====================
