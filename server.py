@@ -52,21 +52,11 @@ def elevenlabs_available() -> bool:
 
 
 def should_use_elevenlabs(voice_preference: Optional[str] = None, voice_preset: Optional[str] = None) -> bool:
-    # Decide whether ElevenLabs should be used.
-    # ElevenLabs is only used when:
-    # - USE_ELEVENLABS=True
-    # - ELEVENLABS_API_KEY is present
-    # - the selected narrator/preset is an ElevenLabs one
-
     if not USE_ELEVENLABS:
         return False
-    
-        return True
 
     selected = voice_preference or voice_preset or DEFAULT_NARRATOR
-    preset = VOICE_PRESETS.get(selected, {})
-    preset_provider = preset.get("provider", "openai")
-    return preset_provider == "elevenlabs"
+    return selected == "parent_voice"
 
 # ================== DEV MODE - SKIP TTS FOR DEBUGGING ==================
 # ================== TTS GENERATION BLOCK ==================
@@ -107,8 +97,8 @@ VOICE_PRESETS = {
     # ========== CALM STORYTELLER 🌙 (DEFAULT - FOUNDER'S VOICE) ==========
     # The default narrator for all users - founder's voice cloned for bedtime
     "calm_storyteller": {
-        "provider": "elevenlabs",
-        "voice_id": "L9jN5cGcpJEym0VnazMG",  # Calm Storyteller - system narrator voice
+        "provider": "openai",
+        "voice_id": "Shimmer",  # Calm Storyteller - system narrator voice
         "name": "Calm Storyteller",
         "description": "Soft & soothing bedtime voice",
         "icon": "🌙",
@@ -125,8 +115,8 @@ VOICE_PRESETS = {
     # ========== WISE OWL 🦉 (UK FEMALE - CHARLOTTE) ==========
     # Alternative narrator - soft British female voice
     "wise_owl": {
-        "provider": "elevenlabs",
-        "voice_id": "XB0fDUnXU5powFXDhCwa",  # Charlotte - UK female
+        "provider": "openai",
+        "voice_id": "nova",  # Charlotte - UK female
         "name": "Wise Owl",
         "description": "Soft British accent, gentle & wise",
         "icon": "🦉",
@@ -165,8 +155,8 @@ VOICE_PRESETS = {
     # Native Spanish (Spain) female narrator for Spanish language stories
     # Calm, gentle storytelling voice - perfect for bedtime
     "night_owl_spanish": {
-        "provider": "elevenlabs",
-        "voice_id": "HYlEvvU9GMan5YdjFYpg",  # Loida Burgos - Spanish (Spain)
+        "provider": "openai",
+        "voice_id": "nova",  # Loida Burgos - Spanish (Spain)
         "name": "Búho Sabio",  # "Wise Owl" in Spanish
         "description": "Suave voz española para dormir",  # "Soft Spanish voice for sleep"
         "icon": "🦉",
@@ -183,8 +173,8 @@ VOICE_PRESETS = {
     # ========== WEISE EULE 🦉 - GERMAN (SERAPHINA - GERMAN FEMALE) ==========
     # Native German female narrator - calm, gentle bedtime voice
     "night_owl_german": {
-        "provider": "elevenlabs",
-        "voice_id": "5Q0t7uMcjvnagumLfvZi",  # Seraphina - soft German female voice
+        "provider": "openai",
+        "voice_id": "nova",  # Seraphina - soft German female voice
         "name": "Weise Eule",  # "Wise Owl" in German
         "description": "Sanfte deutsche Stimme zum Einschlafen",  # "Soft German voice for sleep"
         "icon": "🦉",
@@ -201,8 +191,8 @@ VOICE_PRESETS = {
     # ========== HIBOU SAGE 🦉 - FRENCH (CHARLOTTE - FRENCH FEMALE) ==========
     # Native French female narrator - calm, gentle bedtime voice
     "night_owl_french": {
-        "provider": "elevenlabs",
-        "voice_id": "XB0fDUnXU5powFXDhCwa",  # Charlotte - also works well for French
+        "provider": "openai",
+        "voice_id": "nova",  # Charlotte - also works well for French
         "name": "Hibou Sage",  # "Wise Owl" in French
         "description": "Douce voix française pour dormir",  # "Soft French voice for sleep"
         "icon": "🦉",
@@ -220,8 +210,8 @@ VOICE_PRESETS = {
     # ========== GUFO SAGGIO 🦉 - ITALIAN (MANUELA - NATIVE ITALIAN FEMALE) ==========
     # Native Italian female narrator - warm, clear voice perfect for bedtime storytelling
     "night_owl_italian": {
-        "provider": "elevenlabs",
-        "voice_id": "oVJbgLwL0s5pk9e2U6QH",  # Manuela - warm, clear Italian professional actress voice
+        "provider": "openai",
+        "voice_id": "nova",  # Manuela - warm, clear Italian professional actress voice
         "name": "Gufo Saggio",  # "Wise Owl" in Italian
         "description": "Dolce voce italiana per dormire",  # "Sweet Italian voice for sleep"
         "icon": "🦉",
@@ -234,23 +224,6 @@ VOICE_PRESETS = {
         "speed": 1.0,
         "tier": "free",
     },
-    
-    # ========== PORTUGUESE NARRATOR - DISABLED FOR LAUNCH ==========
-    # Portuguese support will be reintroduced in a later update
-    # "night_owl_portuguese": {
-    #     "provider": "elevenlabs",
-    #     "voice_id": "lWq4KDY8znfkV0DrK8Vb",  # Yasmin Alves - gentle, warm Brazilian Portuguese
-    #     "name": "Coruja Sábia",  # "Wise Owl" in Portuguese
-    #     "description": "Voz portuguesa suave para dormir",
-    #     "icon": "🦉",
-    #     "personality": "calm",
-    #     "language_code": "pt",
-    #     "stability": 0.50,
-    #     "similarity_boost": 0.75,
-    #     "style": 0.0,
-    #     "speed": 1.0,
-    #     "tier": "free",
-    # },
 }
 
 # Default narrator - Calm Storyteller (UK female) for all stories
@@ -1393,7 +1366,7 @@ async def generate_story_with_openai(request: GenerateStoryRequest, continuation
         # Get language name for prompt
         story_language = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, "English")
         
-        # Build continuation context if this is a sequel
+                # Build continuation context if this is a sequel
         continuation_prompt = ""
 
         # Safe defaults for non-continuation stories
@@ -4620,23 +4593,35 @@ async def generate_tts_audio(text: str, language_code: str, voice_id: str = None
         narrator_preset = DEFAULT_NARRATOR
     
     preset = VOICE_PRESETS.get(narrator_preset, {})
-    preset_provider = preset.get("provider", "elevenlabs")
-    
-    logger.info(f"[TTS] Routing: preset={narrator_preset}, provider={preset_provider}, chars={char_count}, voice_override={voice_id_override}")
-    
-    # Use ElevenLabs expressive generation for all narrator personalities
-    if preset_provider == "elevenlabs":
+
+    use_elevenlabs = (narrator_preset == "parent_voice") or (voice_id_override is not None)
+
+    logger.info(
+        f"[TTS] Routing: preset={narrator_preset}, "
+        f"use_elevenlabs={use_elevenlabs}, "
+        f"chars={char_count}, "
+        f"voice_override={voice_id_override}"
+    )
+
+    if use_elevenlabs:
+        logger.info("[TTS] Using ElevenLabs for parent_voice/voice_override")
         return await generate_tts_elevenlabs_expressive(
             text=text,
             language_code=language_code,
             voice_preset=narrator_preset,
             story_id=story_id,
-            voice_id_override=voice_id_override  # Pass parent voice ID if provided
-        )
+            voice_id_override=voice_id_override
+    )
     else:
-        # Fallback to OpenAI
-        return await generate_tts_audio_openai(text, language_code, "shimmer", story_id, narrator_preset)
-
+        openai_voice = preset.get("voice_id", "shimmer")
+        logger.info(f"[TTS] Using OpenAI TTS for system narrator: {narrator_preset}, voice={openai_voice}")
+        return await generate_tts_audio_openai(
+            text,
+            language_code,
+            openai_voice,
+            story_id,
+            narrator_preset
+        )
 @api_router.post("/narration/request", response_model=NarrationResponse)
 async def request_narration(request: NarrationRequest, user_id: str = Depends(get_current_user)):
     # Request narration for a story with MULTILINGUAL support.
@@ -5067,7 +5052,7 @@ async def process_narration_background(data: dict):
         text_for_tts = clean_text_for_narration(text_for_tts)
         
         # Determine TTS provider
-        tts_provider = "elevenlabs" if should_use_elevenlabs(voice_preference=voice_preference) else "openai"
+        tts_provider = "elevenlabs" if (voice_preference == "parent_voice" or parent_voice_id_override) else "openai"
 
         logger.info(f"[NARRATION-BG] provider: {tts_provider}")
         logger.info(f"[NARRATION-BG] elevenlabs_key_present: {elevenlabs_available()}")
@@ -5482,7 +5467,7 @@ async def process_chunked_narration_page1_first(data: dict):
     
     logger.info(f"[CHUNKED-BG] Starting Page-1-First generation for {total_pages} pages")
     
-    def update_chunked_status(pages_ready: list, pages_generating: list, pages_failed: list):
+    def update_chunked_status(pages_ready: list, pages_generating: list, pages_failed: list, generation_complete: bool = False):
         # Update the chunked audio status in DB
         try:
             current = supabase.table('stories').select('chunked_audio_status').eq('id', story_id).execute()
@@ -5492,11 +5477,17 @@ async def process_chunked_narration_page1_first(data: dict):
                 if isinstance(chunked_status, str):
                     chunked_status = json.loads(chunked_status)
             
+            is_terminal = generation_complete or len(pages_failed) > 0
+
             chunked_status[cache_key] = {
                 'pages_ready': pages_ready,
                 'pages_generating': pages_generating,
                 'pages_failed': pages_failed,
-                'updated_at': datetime.utcnow().isoformat()
+                'updated_at': datetime.utcnow().isoformat(),
+                'generation_started': True,
+                'generation_complete': is_terminal,
+                'narrator': narrator_id,
+                'provider': 'elevenlabs' if (voice_preference == "parent_voice" or parent_voice_id_override) else 'openai'
             }
             
             supabase.table('stories').update({
@@ -5534,7 +5525,7 @@ async def process_chunked_narration_page1_first(data: dict):
             
             # Generate TTS
             # Generate TTS
-            tts_provider = "elevenlabs" if should_use_elevenlabs(voice_preference=voice_preference) else "openai"
+            tts_provider = "elevenlabs" if (voice_preference == "parent_voice" or parent_voice_id_override) else "openai"
 
             logger.info(f"[CHUNKED-BG] TTS provider selected: {tts_provider}")
             logger.info(f"[CHUNKED-BG] elevenlabs_key_present: {elevenlabs_available()}")
@@ -5587,26 +5578,37 @@ async def process_chunked_narration_page1_first(data: dict):
         logger.error("[CHUNKED-BG] ✗ Page 1 FAILED - Cannot continue")
         return
     
-    # ==================== GENERATE REMAINING PAGES ====================
+     # ==================== GENERATE REMAINING PAGES ====================
     for page_num in range(2, total_pages + 1):
-        logger.info(f"[CHUNKED-BG] Generating Page {page_num}/{total_pages}")
+    
+        # 🚨 STOP if any previous page failed (prevents credit burn loop)
+        if pages_failed:
+            logger.warning(f"[CHUNKED-BG] STOPPING: Previous page(s) failed: {pages_failed}")
+            logger.warning(f"[CHUNKED-BG] Will not generate page {page_num} or remaining pages")
+            update_chunked_status(pages_ready, [], pages_failed)
+            break
+
+            logger.info(f"[CHUNKED-BG] Generating Page {page_num}/{total_pages}")
         
         # Update status: this page is now generating
-        remaining = [p for p in range(page_num, total_pages + 1)]
-        update_chunked_status(pages_ready, remaining, pages_failed)
+            remaining = [p for p in range(page_num, total_pages + 1)]
+            update_chunked_status(pages_ready, remaining, pages_failed)
         
-        page_success = await generate_page_audio(page_num, pages[page_num - 1])
+            page_success = await generate_page_audio(page_num, pages[page_num - 1])
         
-        if page_success:
-            pages_ready.append(page_num)
-        else:
-            pages_failed.append(page_num)
+            if page_success:
+                pages_ready.append(page_num)
+            else:
+                pages_failed.append(page_num)
+                logger.error(f"[CHUNKED-BG] ✗ Page {page_num} FAILED - entering terminal failure state")
+                update_chunked_status(pages_ready, [], pages_failed, generation_complete=True)
+                break
         
-        # Small delay to prevent rate limiting
-        await asyncio.sleep(0.5)
+            # Small delay to prevent rate limiting
+                await asyncio.sleep(0.5)
     
     # ==================== FINAL STATUS UPDATE ====================
-    update_chunked_status(pages_ready, [], pages_failed)
+    update_chunked_status(pages_ready, [], pages_failed, generation_complete=True)
     
     # Update usage counters
     if user_plan == 'free' and not is_tester:
