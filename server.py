@@ -1402,7 +1402,7 @@ async def generate_story_with_openai(request: GenerateStoryRequest, continuation
             characters = continuation_context.get('characters', [])
             setting = continuation_context.get('setting', '')
             
-    cchar_descriptions = ""
+    char_descriptions = ""
     if characters:
         logger.info(f"[STORY] DEBUG: characters type={type(characters).__name__}, len={len(characters) if isinstance(characters, list) else 'N/A'}")
 
