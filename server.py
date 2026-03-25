@@ -1395,30 +1395,38 @@ async def generate_story_with_openai(request: GenerateStoryRequest, continuation
         
         # Build continuation context if this is a sequel
         continuation_prompt = ""
+
+        # Safe defaults for non-continuation stories
+        part_number = 1
+        prev_title = ""
+        prev_summary = ""
+        characters = []
+        setting = ""
+        char_descriptions = ""
+
         if continuation_context:
             part_number = continuation_context.get('part_number', 1) + 1
             prev_title = continuation_context.get('title', 'the previous story')
             prev_summary = continuation_context.get('summary', '')
             characters = continuation_context.get('characters', [])
             setting = continuation_context.get('setting', '')
-            
-        char_descriptions = ""
 
-        if characters:
-            logger.info(f"[STORY] DEBUG: characters type={type(characters).__name__}, len={len(characters) if isinstance(characters, list) else 'N/A'}")
+            if characters:
+                logger.info(
+                    f"[STORY] DEBUG: characters type={type(characters).__name__}, "
+                    f"len={len(characters) if isinstance(characters, list) else 'N/A'}"
+                )
 
-        # Filter out None values and ensure each character is a dict
-        valid_chars = [c for c in characters if c is not None and isinstance(c, dict)]
-        logger.info(f"[STORY] DEBUG: valid_chars count={len(valid_chars)}")
+                valid_chars = [c for c in characters if c is not None and isinstance(c, dict)]
+                logger.info(f"[STORY] DEBUG: valid_chars count={len(valid_chars)}")
 
-        char_list = [
-            f"- {c.get('name', 'Unknown')}: {c.get('description', '')} ({c.get('role', 'character')})"
-            for c in valid_chars
-        ]
+                char_list = [
+                    f"- {c.get('name', 'Unknown')}: {c.get('description', '')} ({c.get('role', 'character')})"
+                    for c in valid_chars
+                ]
+                char_descriptions = "\n".join(char_list)
 
-        char_descriptions = "\n".join(char_list)
-            
-        continuation_prompt = f"""
+            continuation_prompt = f"""
 IMPORTANT: This is Part {part_number} of an ongoing story arc!
 
 PREVIOUS STORY CONTEXT:
@@ -1436,7 +1444,6 @@ CONTINUATION RULES:
 5. Create a new mini-adventure that advances the larger story
 6. The title should indicate this is Part {part_number} (e.g., "{request.childName}'s Adventure - Part {part_number}")
 7. If this is Part 5 (the final part), create a satisfying conclusion to the story arc
-
 """
      
         # Build companion prompt if a companion is joining this story
