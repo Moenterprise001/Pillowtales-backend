@@ -1987,51 +1987,52 @@ Respond with ONLY the JSON, no other text."""
         logger.info(f"[STORY] DEBUG: OpenAI response type={type(response_text).__name__}")
         logger.info(f"[STORY] DEBUG: OpenAI response preview={str(response_text)[:500] if response_text is not None else 'None'}")
 
-        # Parse the JSON response
-        try:
-            if response_text is None:
+    # Parse the JSON response
+    try:
+        # CRITICAL: Check response type before processing
+        if response_text is None:
             logger.error("[STORY] CRITICAL: OpenAI returned None response_text!")
             raise HTTPException(status_code=500, detail="Failed to generate story - no response from AI")
 
-            if not isinstance(response_text, str):
-                logger.error(f"[STORY] CRITICAL: OpenAI response is not a string! type={type(response_text).__name__}")
-                raise HTTPException(status_code=500, detail="Failed to generate story - invalid response type")
+        if not isinstance(response_text, str):
+            logger.error(f"[STORY] CRITICAL: OpenAI response is not a string! type={type(response_text).__name__}")
+            raise HTTPException(status_code=500, detail="Failed to generate story - invalid response type")
 
-            # Clean the response - remove markdown code blocks if present
-            cleaned_response = response_text.strip()
-            if cleaned_response.startswith("```json"):
-                cleaned_response = cleaned_response[7:]
-            if cleaned_response.startswith("```"):
-                cleaned_response = cleaned_response[3:]
-            if cleaned_response.endswith("```"):
-                cleaned_response = cleaned_response[:-3]
-            cleaned_response = cleaned_response.strip()
+        # Clean the response - remove markdown code blocks if present
+        cleaned_response = response_text.strip()
+        if cleaned_response.startswith("```json"):
+            cleaned_response = cleaned_response[7:]
+        if cleaned_response.startswith("```"):
+            cleaned_response = cleaned_response[3:]
+        if cleaned_response.endswith("```"):
+            cleaned_response = cleaned_response[:-3]
+        cleaned_response = cleaned_response.strip()
 
-            logger.info(f"[STORY] DEBUG: cleaned_response length={len(cleaned_response)}")
+        logger.info(f"[STORY] DEBUG: cleaned_response length={len(cleaned_response)}")
 
-            story_data = json.loads(cleaned_response)
+        story_data = json.loads(cleaned_response)
 
-            logger.info(f"[STORY] DEBUG: story_data type={type(story_data).__name__}")
-            logger.info(f"[STORY] DEBUG: story_data keys={list(story_data.keys()) if isinstance(story_data, dict) else 'NOT_A_DICT'}")
+        logger.info(f"[STORY] DEBUG: story_data type={type(story_data).__name__}")
+        logger.info(f"[STORY] DEBUG: story_data keys={list(story_data.keys()) if isinstance(story_data, dict) else 'NOT_A_DICT'}")
 
-            if story_data is None or not isinstance(story_data, dict):
+        if story_data is None or not isinstance(story_data, dict):
             logger.error(f"[STORY] CRITICAL: JSON parsed invalid type! type={type(story_data).__name__}")
             raise HTTPException(status_code=500, detail="Invalid AI response format")
 
-            if "title" not in story_data or "pages" not in story_data:
+        if "title" not in story_data or "pages" not in story_data:
             logger.error(f"[STORY] CRITICAL: Missing keys. Got: {list(story_data.keys()) if isinstance(story_data, dict) else 'NOT_A_DICT'}")
             raise ValueError("Invalid story format")
 
-            return story_data
-        
-        except json.JSONDecodeError as e:
-            logger.error(f"Failed to parse OpenAI response as JSON: {str(e)}")
-            logger.error(f"Response was: {response}")
-            raise HTTPException(status_code=500, detail="Failed to generate story - invalid format")
-            
-        except Exception as e:
-            logger.error(f"Error generating story with OpenAI: {str(e)}")
-            raise HTTPException(status_code=500, detail=f"Failed to generate story: {str(e)}")
+        return story_data
+
+    except json.JSONDecodeError as e:
+        logger.error(f"Failed to parse OpenAI response as JSON: {str(e)}")
+        logger.error(f"Response was: {response_text}")
+        raise HTTPException(status_code=500, detail="Failed to generate story - invalid format")
+
+    except Exception as e:
+        logger.exception("[STORY] Full traceback")
+        raise HTTPException(status_code=500, detail=f"Failed to generate story: {str(e)}")
 
 # ================== TTS Text Normalization ==================
 
@@ -2867,8 +2868,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
             logger.error(f"[STORY] CRITICAL: Invalid pages! type={type(pages_value).__name__}")
             raise HTTPException(status_code=500, detail="No story pages generated")
 
-        story_data["pages"] = append_bedtime_routine_to_story(
-        
+                
         # ==================== APPEND BEDTIME RITUAL ENDING ====================
         # Add personalized goodnight message to every story
         story_data["pages"] = append_bedtime_ritual_to_story(
