@@ -116,7 +116,7 @@ VOICE_PRESETS = {
     # Alternative narrator - soft British female voice
     "wise_owl": {
         "provider": "openai",
-        "voice_id": "nova",  # Charlotte - UK female
+        "voice_id": "shimmer",  # Charlotte - UK female
         "name": "Wise Owl",
         "description": "Soft British accent, gentle & wise",
         "icon": "🦉",
@@ -126,7 +126,7 @@ VOICE_PRESETS = {
         "stability": 0.50,
         "similarity_boost": 0.75,
         "style": 0.0,
-        "speed": 1.0,
+        "speed": 0.92,
         "tier": "free",
     },
     
@@ -156,7 +156,7 @@ VOICE_PRESETS = {
     # Calm, gentle storytelling voice - perfect for bedtime
     "night_owl_spanish": {
         "provider": "openai",
-        "voice_id": "nova",  # Loida Burgos - Spanish (Spain)
+        "voice_id": "shimmer",  # Loida Burgos - Spanish (Spain)
         "name": "Búho Sabio",  # "Wise Owl" in Spanish
         "description": "Suave voz española para dormir",  # "Soft Spanish voice for sleep"
         "icon": "🦉",
@@ -174,7 +174,7 @@ VOICE_PRESETS = {
     # Native German female narrator - calm, gentle bedtime voice
     "night_owl_german": {
         "provider": "openai",
-        "voice_id": "nova",  # Seraphina - soft German female voice
+        "voice_id": "shimmer",  # Seraphina - soft German female voice
         "name": "Weise Eule",  # "Wise Owl" in German
         "description": "Sanfte deutsche Stimme zum Einschlafen",  # "Soft German voice for sleep"
         "icon": "🦉",
@@ -184,7 +184,7 @@ VOICE_PRESETS = {
         "stability": 0.50,
         "similarity_boost": 0.75,
         "style": 0.0,
-        "speed": 1.0,
+        "speed": 0.9,
         "tier": "free",
     },
     
@@ -192,7 +192,7 @@ VOICE_PRESETS = {
     # Native French female narrator - calm, gentle bedtime voice
     "night_owl_french": {
         "provider": "openai",
-        "voice_id": "nova",  # Charlotte - also works well for French
+        "voice_id": "shimmer",  # Charlotte - also works well for French
         "name": "Hibou Sage",  # "Wise Owl" in French
         "description": "Douce voix française pour dormir",  # "Soft French voice for sleep"
         "icon": "🦉",
@@ -202,7 +202,7 @@ VOICE_PRESETS = {
         "stability": 0.50,
         "similarity_boost": 0.75,
         "style": 0.0,
-        "speed": 1.0,
+        "speed": 0.9,
         "tier": "free",
     },
     
@@ -211,7 +211,7 @@ VOICE_PRESETS = {
     # Native Italian female narrator - warm, clear voice perfect for bedtime storytelling
     "night_owl_italian": {
         "provider": "openai",
-        "voice_id": "nova",  # Manuela - warm, clear Italian professional actress voice
+        "voice_id": "shimmer",  # Manuela - warm, clear Italian professional actress voice
         "name": "Gufo Saggio",  # "Wise Owl" in Italian
         "description": "Dolce voce italiana per dormire",  # "Sweet Italian voice for sleep"
         "icon": "🦉",
@@ -371,17 +371,17 @@ TESTER_EMAILS = [
 
 # Language-specific voice mappings for natural pronunciation
 LANGUAGE_VOICES = {
-    "en": {"openai": "nova", "elevenlabs": "21m00Tcm4TlvDq8ikWAM"},
-    "es": {"openai": "nova", "elevenlabs": "EXAVITQu4vr4xnSDxMaL"},  # Spanish narrator
-    "fr": {"openai": "nova", "elevenlabs": "ThT5KcBeYPX3keUQqHPh"},  # French narrator
-    "de": {"openai": "nova", "elevenlabs": "pNInz6obpgDQGcFmaJgB"},  # German narrator
-    "it": {"openai": "nova", "elevenlabs": "VR6AewLTigWG4xSOukaG"},  # Italian narrator
-    "pt": {"openai": "nova", "elevenlabs": "ErXwobaYiN019PkySvjV"},  # Portuguese narrator
+    "en": {"openai": "shimmer", "elevenlabs": "21m00Tcm4TlvDq8ikWAM"},
+    "es": {"openai": "shimmer", "elevenlabs": "EXAVITQu4vr4xnSDxMaL"},  # Spanish narrator
+    "fr": {"openai": "shimmer", "elevenlabs": "ThT5KcBeYPX3keUQqHPh"},  # French narrator
+    "de": {"openai": "shimmer", "elevenlabs": "pNInz6obpgDQGcFmaJgB"},  # German narrator
+    "it": {"openai": "shimmer", "elevenlabs": "VR6AewLTigWG4xSOukaG"},  # Italian narrator
+    "pt": {"openai": "shimmer", "elevenlabs": "ErXwobaYiN019PkySvjV"},  # Portuguese narrator
 }
 
 # Legacy OpenAI voice mapping (for backwards compatibility)
 OPENAI_VOICES = {
-    "default": "nova",
+    "default": "shimmer",
     "calm": "echo",
     "expressive": "fable",
     "gentle": "shimmer",
@@ -3939,7 +3939,7 @@ def compress_audio_for_upload(audio_bytes: bytes, target_bitrate: str = "48k") -
 async def generate_tts_audio_openai(
     text: str,
     language_code: str,
-    voice: str = "nova",
+    voice: str = "shimmer",
     story_id: str = None,
     voice_preset: str = None
 ) -> tuple:
@@ -3967,7 +3967,7 @@ async def generate_tts_audio_openai(
         raise HTTPException(status_code=500, detail="OPENAI_API_KEY not configured")
 
     # Keep voice simple/stable for bedtime
-    selected_voice = voice or "nova"
+    selected_voice = voice or "shimmer"
 
     try:
         async with httpx.AsyncClient(timeout=120.0) as client:
@@ -3999,6 +3999,19 @@ async def generate_tts_audio_openai(
             raise HTTPException(status_code=500, detail=f"OpenAI TTS failed: {error_text}")
 
         audio_bytes = response.content
+
+        if not audio_bytes:
+            log_tts_metrics(
+                story_id=story_id,
+                provider="openai",
+                chars=char_count,
+                language=lang_code,
+                voice=selected_voice,
+                success=False,
+                error="Empty audio returned from OpenAI",
+            )
+            raise HTTPException(status_code=500, detail="OpenAI TTS returned empty audio")
+        
         estimated_cost = log_tts_metrics(
             story_id=story_id,
             provider="openai",
@@ -4054,7 +4067,7 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
 
     if not USE_ELEVENLABS:
         logger.info("[TTS-ELEVEN] ElevenLabs disabled by USE_ELEVENLABS=false, using OpenAI fallback")
-        return await generate_tts_audio_openai(text, language_code, "nova", story_id, voice_preset)
+        return await generate_tts_audio_openai(text, language_code, "shimmer", story_id, voice_preset)
 
     # Get narrator personality settings
     preset = VOICE_PRESETS.get(voice_preset, VOICE_PRESETS[DEFAULT_NARRATOR])
@@ -4124,7 +4137,7 @@ async def generate_tts_elevenlabs_expressive(text: str, language_code: str, voic
             'stability': 0.85,          # Higher for smoother, calmer delivery
             'similarity_boost': 0.30,   # Lower for more natural flow
             'style': 0.05,              # Tiny bit of warmth
-            'speed': 0.85,              # Slower for bedtime feel
+            'speed': 0.9,              # Slower for bedtime feel
             'pause_mult': 1.3,          # Longer pauses for relaxed pacing
             'notes': 'Smoother, softer, more bedtime-friendly'
         },
