@@ -1418,7 +1418,7 @@ async def generate_story_with_openai(request: GenerateStoryRequest, continuation
 
         char_descriptions = "\n".join(char_list)
             
-            continuation_prompt = f"""
+        continuation_prompt = f"""
 IMPORTANT: This is Part {part_number} of an ongoing story arc!
 
 PREVIOUS STORY CONTEXT:
