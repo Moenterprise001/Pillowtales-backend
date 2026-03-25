@@ -1402,9 +1402,10 @@ async def generate_story_with_openai(request: GenerateStoryRequest, continuation
             characters = continuation_context.get('characters', [])
             setting = continuation_context.get('setting', '')
             
-    char_descriptions = ""
-    if characters:
-        logger.info(f"[STORY] DEBUG: characters type={type(characters).__name__}, len={len(characters) if isinstance(characters, list) else 'N/A'}")
+        char_descriptions = ""
+
+        if characters:
+            logger.info(f"[STORY] DEBUG: characters type={type(characters).__name__}, len={len(characters) if isinstance(characters, list) else 'N/A'}")
 
         # Filter out None values and ensure each character is a dict
         valid_chars = [c for c in characters if c is not None and isinstance(c, dict)]
@@ -1414,6 +1415,7 @@ async def generate_story_with_openai(request: GenerateStoryRequest, continuation
             f"- {c.get('name', 'Unknown')}: {c.get('description', '')} ({c.get('role', 'character')})"
             for c in valid_chars
         ]
+
         char_descriptions = "\n".join(char_list)
             
             continuation_prompt = f"""
