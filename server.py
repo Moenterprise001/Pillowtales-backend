@@ -906,11 +906,31 @@ async def get_user_profile_with_stats(user_id: str) -> dict:
         # Count stories this week
         week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
         stories_week_result = supabase.table('stories').select('id', count='exact').eq('user_id', user_id).gte('created_at', week_ago).execute()
-        stories_this_week = stories_week_result.count if hasattr(stories_week_result, 'count') else len(stories_week_result.data)
-        
+
+        week_count = getattr(stories_week_result, 'count', None)
+        week_data = getattr(stories_week_result, 'data', None)
+
+        logger.info(
+            f"[LIMITS] DEBUG: week_count={week_count}, "
+            f"data_type={type(week_data).__name__}, "
+            f"data_len={len(week_data) if isinstance(week_data, list) else 'N/A'}"
+        )    
+
+        stories_this_week = week_count if week_count is not None else len(week_data or [])
+
         # Count total saved stories
         stories_saved_result = supabase.table('stories').select('id', count='exact').eq('user_id', user_id).execute()
-        stories_saved = stories_saved_result.count if hasattr(stories_saved_result, 'count') else len(stories_saved_result.data)
+
+        saved_count = getattr(stories_saved_result, 'count', None)
+        saved_data = getattr(stories_saved_result, 'data', None)
+
+        logger.info(
+            f"[LIMITS] DEBUG: saved_count={saved_count}, "
+            f"data_type={type(saved_data).__name__}, "
+            f"data_len={len(saved_data) if isinstance(saved_data, list) else 'N/A'}"
+        )
+
+        stories_saved = saved_count if saved_count is not None else len(saved_data or [])
         
         # Determine if user can generate more stories
         can_generate = stories_this_week < limits['stories_per_week']
@@ -1382,10 +1402,19 @@ async def generate_story_with_openai(request: GenerateStoryRequest, continuation
             characters = continuation_context.get('characters', [])
             setting = continuation_context.get('setting', '')
             
-            char_descriptions = ""
-            if characters:
-                char_list = [f"- {c.get('name', 'Unknown')}: {c.get('description', '')} ({c.get('role', 'character')})" for c in characters]
-                char_descriptions = "\n".join(char_list)
+    cchar_descriptions = ""
+    if characters:
+        logger.info(f"[STORY] DEBUG: characters type={type(characters).__name__}, len={len(characters) if isinstance(characters, list) else 'N/A'}")
+
+        # Filter out None values and ensure each character is a dict
+        valid_chars = [c for c in characters if c is not None and isinstance(c, dict)]
+        logger.info(f"[STORY] DEBUG: valid_chars count={len(valid_chars)}")
+
+        char_list = [
+            f"- {c.get('name', 'Unknown')}: {c.get('description', '')} ({c.get('role', 'character')})"
+            for c in valid_chars
+        ]
+        char_descriptions = "\n".join(char_list)
             
             continuation_prompt = f"""
 IMPORTANT: This is Part {part_number} of an ongoing story arc!
@@ -1953,25 +1982,46 @@ Respond with ONLY the JSON, no other text."""
     except Exception as e:
         logger.error(f"[STORY] Story generation failed: {str(e)}")
         raise HTTPException(status_code=500, detail="Failed to generate story")
-        
-        # Parse the JSON response
-        try:
-            # Clean the response - remove markdown code blocks if present
-            cleaned_response = response_text.strip()
-            if cleaned_response.startswith("```json"):
-                cleaned_response = cleaned_response[7:]
-            if cleaned_response.startswith("```"):
-                cleaned_response = cleaned_response[3:]
-            if cleaned_response.endswith("```"):
-                cleaned_response = cleaned_response[:-3]
-            cleaned_response = cleaned_response.strip()
-            
-            story_data = json.loads(cleaned_response)
-            
-            if "title" not in story_data or "pages" not in story_data:
-                raise ValueError("Invalid story format")
-            
-            return story_data
+        logger.info(f"[STORY] DEBUG: OpenAI response type={type(response_text).__name__}")
+        logger.info(f"[STORY] DEBUG: OpenAI response preview={str(response_text)[:500] if response_text is not None else 'None'}")
+
+# Parse the JSON response
+try:
+    # CRITICAL: Check response type before processing
+    if response_text is None:
+        logger.error("[STORY] CRITICAL: OpenAI returned None response_text!")
+        raise HTTPException(status_code=500, detail="Failed to generate story - no response from AI")
+
+    if not isinstance(response_text, str):
+        logger.error(f"[STORY] CRITICAL: OpenAI response is not a string! type={type(response_text).__name__}")
+        raise HTTPException(status_code=500, detail="Failed to generate story - invalid response type")
+
+    # Clean the response - remove markdown code blocks if present
+    cleaned_response = response_text.strip()
+    if cleaned_response.startswith("```json"):
+        cleaned_response = cleaned_response[7:]
+    if cleaned_response.startswith("```"):
+        cleaned_response = cleaned_response[3:]
+    if cleaned_response.endswith("```"):
+        cleaned_response = cleaned_response[:-3]
+    cleaned_response = cleaned_response.strip()
+
+    logger.info(f"[STORY] DEBUG: cleaned_response length={len(cleaned_response)}")
+
+    story_data = json.loads(cleaned_response)
+
+    logger.info(f"[STORY] DEBUG: story_data type={type(story_data).__name__}")
+    logger.info(f"[STORY] DEBUG: story_data keys={list(story_data.keys()) if isinstance(story_data, dict) else 'NOT_A_DICT'}")
+
+    if story_data is None or not isinstance(story_data, dict):
+        logger.error(f"[STORY] CRITICAL: JSON parsed invalid type! type={type(story_data).__name__}")
+        raise HTTPException(status_code=500, detail="Invalid AI response format")
+
+    if "title" not in story_data or "pages" not in story_data:
+        logger.error(f"[STORY] CRITICAL: Missing keys. Got: {list(story_data.keys()) if isinstance(story_data, dict) else 'NOT_A_DICT'}")
+        raise ValueError("Invalid story format")
+
+    return story_data
         except json.JSONDecodeError as e:
             logger.error(f"Failed to parse OpenAI response as JSON: {str(e)}")
             logger.error(f"Response was: {response}")
@@ -2795,6 +2845,29 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         
         # Generate story using OpenAI (with continuation context and companion if available)
         story_data = await generate_story_with_openai(request, continuation_context, selected_companion)
+
+        # Validate story_data
+        logger.info(f"[STORY] DEBUG: story_data returned type={type(story_data).__name__}")
+
+        if story_data is None or not isinstance(story_data, dict):
+            logger.error(f"[STORY] CRITICAL: Invalid story_data returned! type={type(story_data).__name__}")
+            raise HTTPException(status_code=500, detail="Failed to generate story")
+
+        pages_value = story_data.get("pages")
+        title_value = story_data.get("title")
+
+        logger.info(
+            f"[STORY] DEBUG: pages_valid={isinstance(pages_value, list)}, "
+            f"pages_len={len(pages_value) if isinstance(pages_value, list) else 'N/A'}, "
+            f"title_preview={str(title_value)[:50] if title_value else 'None'}"
+        )
+
+        if not isinstance(pages_value, list) or len(pages_value) == 0:
+            logger.error(f"[STORY] CRITICAL: Invalid pages! type={type(pages_value).__name__}")
+            raise HTTPException(status_code=500, detail="No story pages generated")
+
+        # Continue as before
+        story_data["pages"] = append_bedtime_routine_to_story(
         
         # ==================== APPEND BEDTIME RITUAL ENDING ====================
         # Add personalized goodnight message to every story
