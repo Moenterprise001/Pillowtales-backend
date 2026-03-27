@@ -169,7 +169,7 @@ VOICE_PRESETS = {
         "stability": 0.50,            # Natural expression
         "similarity_boost": 0.75,     # Clear articulation
         "style": 0.0,                 # No style modification
-        "speed": 0.93,                 # Normal speed
+        "speed": 1.00,                 # Normal speed
         "tier": "free",
     },
     
@@ -205,7 +205,7 @@ VOICE_PRESETS = {
         "stability": 0.50,
         "similarity_boost": 0.75,
         "style": 0.0,
-        "speed": 0.9,
+        "speed": 1.00,
         "tier": "free",
     },
     
