@@ -94,34 +94,37 @@ VOICE_PRESETS = {
     # Language-filtered narrator options for parents to choose from
     # Each narrator has a language_code: "en", "es", "de", "fr", "it", "pt", or "all" (parent_voice)
     
-    # ========== CALM STORYTELLER 🌙 (DEFAULT - FOUNDER'S VOICE) ==========
-    # The default narrator for all users - founder's voice cloned for bedtime
-    "calm_storyteller": {
-        "provider": "openai",
-        "voice_id": "Shimmer",  # Calm Storyteller - system narrator voice
-        "name": "Calm Storyteller",
-        "description": "Soft & soothing bedtime voice",
-        "icon": "🌙",
-        "personality": "calm",
-        "language_code": "en",  # English narrator
-        # V1 SETTINGS: Best articulation - let natural voice shine
-        "stability": 0.50,
-        "similarity_boost": 0.75,
-        "style": 0.0,
-        "speed": 1.0,
-        "tier": "free",
-    },
+    # ========= WISE OWL 🦉 (DEFAULT NARRATOR FOR LAUNCH) =========
+# Launch narrator replacing the earlier founder-voice concept.
+# The original "Calm Storyteller" founder voice used ElevenLabs and may return in a later update.
+
+"wise_owl": {
+    "provider": "openai",
+    "voice_id": "shimmer",  # OpenAI TTS voice for launch narrator
+    "name": "Wise Owl",
+    "description": "Soft Irish bedtime narration, gentle and wise",
+    "icon": "🦉",
+    "personality": "calm",
+    "language_code": "en",
+    "locale": "en-GB",
+    "stability": 0.50,
+    "similarity_boost": 0.75,
+    "style": 0.0,
+    "speed": 0.92,
+    "tier": "free",
+},
     
-    # ========== WISE OWL 🦉 (UK FEMALE - CHARLOTTE) ==========
-    # Alternative narrator - soft British female voice
+    # ========= WISE OWL 🦉 (DEFAULT NARRATOR FOR LAUNCH) =========
+    # Calm British bedtime narration voice (OpenAI TTS - tone controlled via prompt)
     "wise_owl": {
         "provider": "openai",
-        "voice_id": "shimmer",  # Charlotte - UK female
+        "voice_id": "shimmer",  # OpenAI TTS voice for launch narrator - best for calm, gentle storytelling
         "name": "Wise Owl",
-        "description": "Soft British accent, gentle & wise",
+        "description": "Calm British bedtime narration, gentle and reassuring",
         "icon": "🦉",
         "personality": "calm",
         "language_code": "en",  # English narrator
+        "locale": "en-GB",
         # V1 SETTINGS: Best articulation - let natural voice shine
         "stability": 0.50,
         "similarity_boost": 0.75,
@@ -166,7 +169,7 @@ VOICE_PRESETS = {
         "stability": 0.50,            # Natural expression
         "similarity_boost": 0.75,     # Clear articulation
         "style": 0.0,                 # No style modification
-        "speed": 1.0,                 # Normal speed
+        "speed": 0.93,                 # Normal speed
         "tier": "free",
     },
     
@@ -221,13 +224,13 @@ VOICE_PRESETS = {
         "stability": 0.50,
         "similarity_boost": 0.75,
         "style": 0.0,
-        "speed": 1.0,
+        "speed": 0.93,
         "tier": "free",
     },
 }
 
-# Default narrator - Calm Storyteller (UK female) for all stories
-DEFAULT_NARRATOR = "calm_storyteller"
+# Default narrator - Wise Owl (British English bedtime voice)
+DEFAULT_NARRATOR = "wise_owl"
 
 # ElevenLabs bedtime-optimized voice settings by personality
 # PAUSE DURATIONS (in milliseconds) - calibrated for BEDTIME narration
@@ -290,7 +293,7 @@ SUBSCRIPTION_TIERS = {
         # All system narrators (language-specific) available to free users
         # Portuguese removed for launch
         "narrators": [
-            "calm_storyteller", "wise_owl",  # English
+            "wise_owl", "wise_owl",  # English
             "night_owl_spanish",              # Spanish
             "night_owl_german",               # German
             "night_owl_french",               # French
@@ -307,7 +310,7 @@ SUBSCRIPTION_TIERS = {
         # All narrators including Parent Voice (works for any language)
         # Portuguese removed for launch
         "narrators": [
-            "calm_storyteller", "wise_owl",  # English
+            "wise_owl", "wise_owl",  # English
             "night_owl_spanish",              # Spanish
             "night_owl_german",               # German
             "night_owl_french",               # French
@@ -657,11 +660,20 @@ MAX_STORY_ARC_PARTS = 5
 # Supported languages for launch (EN, ES, FR, DE, IT)
 # Portuguese will be reintroduced in a later update
 SUPPORTED_LANGUAGES = {
-    "en": "English",
-    "es": "Spanish", 
+    "en": "English (British)",
+    "es": "Spanish (Castilian/Spain)",
     "fr": "French",
     "de": "German",
     "it": "Italian",
+}
+
+# Locale metadata for future expansion
+LANGUAGE_LOCALES = {
+    "en": {"locale": "en-GB", "region": "United Kingdom", "vocabulary": "British English"},
+    "es": {"locale": "es-ES", "region": "Spain", "vocabulary": "Castilian Spanish"},
+    "fr": {"locale": "fr-FR", "region": "France", "vocabulary": "Metropolitan French"},
+    "de": {"locale": "de-DE", "region": "Germany", "vocabulary": "Standard German"},
+    "it": {"locale": "it-IT", "region": "Italy", "vocabulary": "Standard Italian"},
 }
 
 # ElevenLabs voice mapping by language
@@ -1188,7 +1200,7 @@ def check_feature_access(user_subscription: dict, feature: str, item_id: str = N
     tier_config = SUBSCRIPTION_TIERS.get(tier, SUBSCRIPTION_TIERS["free"])
     
     if feature == "narrator":
-        allowed_narrators = tier_config.get("narrators", ["calm_storyteller"])
+        allowed_narrators = tier_config.get("narrators", ["wise_owl"])
         if item_id and item_id not in allowed_narrators:
             narrator = VOICE_PRESETS.get(item_id, {})
             return {
@@ -1363,10 +1375,45 @@ async def generate_story_with_openai(request: GenerateStoryRequest, continuation
     try:
         api_key = os.environ.get('EMERGENT_LLM_KEY')
         
-        # Get language name for prompt
+                # Get language name for prompt
         story_language = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, "English")
-        
-                # Build continuation context if this is a sequel
+
+        # Locale-specific language guidance
+        locale_prompt_rules = ""
+
+        if request.storyLanguageCode == "en":
+            locale_prompt_rules = """
+            === LANGUAGE / LOCALE RULES ===
+            Write the story in British English only.
+
+            REQUIRED VOCABULARY (British English):
+            - Use "Mum" and "Dad" (not "Mom")
+            - Use "colour", "favourite", "honour"
+            - Use "lorry", "biscuit", "garden", "torch", "jumper"
+
+            RULES:
+            - Do NOT use American English spelling or vocabulary
+            - Do NOT mix British and American wording in the same story
+            - Keep all wording natural for a child in the UK
+            """
+        elif request.storyLanguageCode == "es":
+            locale_prompt_rules = """
+            === LANGUAGE / LOCALE RULES ===
+            Write the story in Castilian Spanish (Spain) only.
+
+            REQUIRED VOCABULARY (Castilian Spanish):
+            - Use "ordenador" (not "computadora")
+            - Use "móvil" (not "celular")
+            - Use "coche" (not "carro")
+            - Use "vosotros" conjugations where natural
+            - Use Spain-style wording such as "patata", "jersey", "zumo", "gafas"
+
+            RULES:
+            - Do NOT use Latin American Spanish vocabulary or phrasing
+            - Keep all wording natural for a child in Spain
+            """
+
+        # Build continuation context if this is a sequel
         continuation_prompt = ""
 
         # Safe defaults for non-continuation stories
@@ -1954,8 +2001,52 @@ Respond with ONLY the JSON, no other text."""
         prompt = f"""
         {system_message}
 
-        Generate a bedtime story for {request.childName}, age {request.age}, with theme '{request.theme}' and moral '{request.moral}'. Write entirely in {story_language}.
+        === STORY SETUP ===
+        Child: {request.childName}
+        Age: {request.age}
+        Theme: {effective_theme}
+        Moral: {request.moral}
+        Language: {story_language}
+
+        {locale_prompt_rules}
+        {age_language}
+        {continuation_prompt}
+        {companion_prompt}
+        {characters_prompt}
+        {gender_instruction}
+
+        === STORY QUALITY RULES ===
+        - Write like a warm, magical bedtime storyteller
+        - Use calm, gentle, soothing language
+        - Avoid chaotic or overly energetic pacing
+        - Make the child the hero of the story
+        - Include soft emotional moments such as kindness, bravery, friendship, or wonder
+        - Keep the narrative clear and easy to follow
+
+        === STRUCTURE ===
+        1. Gentle beginning with a clear sense of where the story is going
+        2. Light adventure with curiosity, wonder, or a small challenge
+        3. Emotional moment with connection, growth, or learning
+        4. Calm resolution
+        5. Sleep-friendly ending
+
+        === ENDING RULES ===
+        - The final scene MUST feel calm and safe
+        - Slow the pacing down clearly near the end
+        - Use soft imagery such as moonlight, stars, warmth, quiet, or home
+        - End with a comforting emotional tone
+
+        === LANGUAGE CONSISTENCY ===
+        - Use ONLY the requested language and locale rules
+        - Do NOT mix dialects
+        - Keep vocabulary age-appropriate
+
+        === FINAL GOAL ===
+        Create a magical bedtime story that feels personal, calming, imaginative, and consistent in tone and language.
+
+        Return ONLY valid JSON.
         """
+
         response = model.generate_content(prompt)
         response_text = response.text
                
@@ -4672,7 +4763,7 @@ async def request_narration(request: NarrationRequest, user_id: str = Depends(ge
         )
     
     # Check narrator access (premium narrators)
-    if request.voicePreference and request.voicePreference != "calm_storyteller":
+    if request.voicePreference and request.voicePreference != "wise_owl":
         narrator_access = check_feature_access(subscription, "narrator", request.voicePreference)
         if not narrator_access["allowed"]:
             logger.info(f"[NARRATION] User {user_id} tried premium narrator: {request.voicePreference}")
@@ -5269,7 +5360,7 @@ async def request_chunked_narration(request: NarrationRequest, user_id: str = De
         )
     
     # Check narrator access (premium narrators)
-    if request.voicePreference and request.voicePreference != "calm_storyteller":
+    if request.voicePreference and request.voicePreference != "wise_owl":
         narrator_access = check_feature_access(subscription, "narrator", request.voicePreference)
         if not narrator_access["allowed"]:
             raise HTTPException(
@@ -6533,3 +6624,4 @@ async def check_and_install_ffmpeg():
 @app.on_event("shutdown")
 async def shutdown():
     logger.info("Shutting down PillowTales API")
+
