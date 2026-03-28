@@ -940,7 +940,7 @@ async def get_user_profile_with_stats(user_id: str) -> dict:
         logger.error(f"Error getting user profile stats: {str(e)}")
         return None
 
-    async def update_streak(user_id: str) -> int:
+async def update_streak(user_id: str) -> int:
         logger.info(f"[STREAK] Skipping streak update for user {user_id} (column not in DB)")
         return 0
                 
