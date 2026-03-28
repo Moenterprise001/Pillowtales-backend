@@ -940,58 +940,10 @@ async def get_user_profile_with_stats(user_id: str) -> dict:
         logger.error(f"Error getting user profile stats: {str(e)}")
         return None
 
-async def update_streak(user_id: str) -> int:
-    # Update user's sleep streak after generating a story. Returns new streak count.
-    try:
-        today = datetime.utcnow().date()
-        
-        # Get current streak info
-        profile_result = supabase.table('users_profile').select('streak_count, last_story_date').eq('id', user_id).execute()
-        
-        if not profile_result.data or len(profile_result.data) == 0:
-            return 0
-        
-        profile = profile_result.data[0]
-        current_streak = profile.get('streak_count', 0) or 0
-        last_date_str = profile.get('last_story_date')
-        
-        # Parse last story date
-        last_date = None
-        if last_date_str:
-            try:
-                if isinstance(last_date_str, str):
-                    last_date = datetime.strptime(last_date_str, '%Y-%m-%d').date()
-                else:
-                    last_date = last_date_str
-            except:
-                last_date = None
-        
-        # Calculate new streak
-        if last_date is None:
-            # First story ever
-            new_streak = 1
-        elif last_date == today:
-            # Already generated today, no change
-            new_streak = current_streak
-        elif last_date == today - timedelta(days=1):
-            # Consecutive day, increment streak
-            new_streak = current_streak + 1
-        else:
-            # Streak broken, start fresh
-            new_streak = 1
-        
-        # Update profile with new streak
-        supabase.table('users_profile').update({
-            'streak_count': new_streak,
-            'last_story_date': today.isoformat()
-        }).eq('id', user_id).execute()
-        
-        logger.info(f"Updated streak for user {user_id}: {current_streak} -> {new_streak}")
-        return new_streak
-        
-    except Exception as e:
-        logger.error(f"Error updating streak: {str(e)}")
+    async def update_streak(user_id: str) -> int:
+        logger.info(f"[STREAK] Skipping streak update for user {user_id} (column not in DB)")
         return 0
+                
 
 async def check_story_limits(user_id: str, plan: str, user_email: str = None) -> dict:
     # Check if user can generate and save stories based on their plan.
@@ -1070,9 +1022,9 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
             }
 
         # Try to get email from user profile if not provided
-        result = supabase.table('users_profile').select(
-            'email, subscription_status, daily_narrations_used, last_narration_reset, trial_used'
-        ).eq('id', user_id).execute()
+            result = supabase.table('users_profile').select(
+                'email, subscription_status, daily_narrations_used, last_narration_reset'
+                ).eq('id', user_id).execute()
 
         if not result.data or len(result.data) == 0:
             return {
@@ -1152,8 +1104,9 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
             "daily_limit": daily_limit,
             "can_narrate": can_narrate,
             "narrations_remaining": None if is_premium else max(0, FREE_DAILY_NARRATION_LIMIT - daily_used),
-            "trial_used": profile.get('trial_used', False),
-        }
+            "trial_used": False, 
+         
+         }
 
     except Exception as e:
         logger.error(f"[SUB] Error getting subscription: {e}")
@@ -5446,6 +5399,12 @@ async def request_chunked_narration(request: NarrationRequest, user_id: str = De
     story_id = request.storyId
     narration_language_code = request.narrationLanguageCode
 
+    logger.info(
+        f"[CHUNKED] Incoming request: story_id={request.storyId}, "
+        f"narrationLanguageCode={request.narrationLanguageCode}, "
+        f"voicePreference={request.voicePreference}"
+    )
+
     # is_parent_voice = request.voicePreference == "parent_voice"
     
     # ==================== SUBSCRIPTION CHECK ====================
@@ -5525,7 +5484,7 @@ async def request_chunked_narration(request: NarrationRequest, user_id: str = De
         pages = story.get('pages', [])
         total_pages = len(pages)
         story_language = story.get('language', 'en') or 'en'
-        
+         
         if total_pages == 0:
             raise HTTPException(status_code=400, detail="Story has no pages")
         
@@ -5538,6 +5497,12 @@ async def request_chunked_narration(request: NarrationRequest, user_id: str = De
         narrator_id = request.voicePreference or DEFAULT_NARRATOR
         cache_key = f"{narrator_id}_{narration_lang}"
         
+        logger.info(
+            f"[CHUNKED] Resolved request: story_id={story_id}, "
+            f"story_language={story_language}, narration_lang={narration_lang}, "
+            f"narrator_id={narrator_id}, cache_key={cache_key}"
+        )
+       
         # Check for existing chunked audio status
         chunked_status = story.get('chunked_audio_status') or {}
         if isinstance(chunked_status, str):
@@ -5781,10 +5746,10 @@ async def process_chunked_narration_page1_first(data: dict):
             storage_path = f"{user_id}/{story_id}/chunked/{cache_key}/page_{page_num}.mp3"
 
             supabase.storage.from_('story-audio').upload(
-                storage_path,
-                audio_bytes,
-                {"content-type": "audio/mpeg", "upsert": "true"}
-            )
+    storage_path,
+    audio_bytes,
+    {"content-type": "audio/mpeg", "upsert": "true"}
+)
 
             # ✅ NEW CRITICAL LOGS
             logger.info(f"[CHUNKED] Page {page_num} audio generated successfully")
