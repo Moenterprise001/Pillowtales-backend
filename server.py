@@ -5497,7 +5497,7 @@ async def request_chunked_narration(request: NarrationRequest, user_id: str = De
         # Build cache key for this narrator+language combo
         narrator_id = request.voicePreference or DEFAULT_NARRATOR
         cache_key = f"{narrator_id}_{narration_lang}"
-        
+
         logger.info(
             f"[CHUNKED] Resolved request: story_id={story_id}, "
             f"story_language={story_language}, narration_lang={narration_lang}, "
@@ -5861,20 +5861,28 @@ async def get_page_narration_status(
                 chunked_status = json.loads(chunked_status)
             except:
                 chunked_status = {}
-        
-        narrator_status = chunked_status.get(cache_key, {})
-        pages_ready = narrator_status.get('pages_ready', [])
-        pages_generating = narrator_status.get('pages_generating', [])
-        pages_failed = narrator_status.get('pages_failed', [])
-        
-        return PageStatusResponse(
-            storyId=story_id,
-            totalPages=total_pages,
-            pagesReady=pages_ready,
-            pagesGenerating=pages_generating,
-            pagesFailed=pages_failed,
-            allReady=len(pages_ready) == total_pages and len(pages_failed) == 0
-        )
+      
+            narrator_status = chunked_status.get(cache_key, {})
+            pages_ready = narrator_status.get('pages_ready', [])
+            pages_generating = narrator_status.get('pages_generating', [])
+            pages_failed = narrator_status.get('pages_failed', [])
+
+            all_ready = len(pages_ready) == total_pages and len(pages_failed) == 0
+
+            logger.info(
+                f"[PAGE-STATUS] story_id={story_id} cache_key={cache_key} "
+                f"pages_ready={pages_ready} pages_generating={pages_generating} "
+                f"pages_failed={pages_failed} all_ready={all_ready}"
+            )
+
+            return PageStatusResponse(
+                storyId=story_id,
+                totalPages=total_pages,
+                pagesReady=pages_ready,
+                pagesGenerating=pages_generating,
+                pagesFailed=pages_failed,
+                allReady=all_ready
+            )
         
     except HTTPException:
         raise
