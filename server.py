@@ -5779,14 +5779,18 @@ async def process_chunked_narration_page1_first(data: dict):
             
             # Upload to storage
             storage_path = f"{user_id}/{story_id}/chunked/{cache_key}/page_{page_num}.mp3"
-            
+
             supabase.storage.from_('story-audio').upload(
-                storage_path,
-                audio_bytes,
-                {"content-type": "audio/mpeg", "upsert": "true"}
-            )
-            
+    storage_path,
+    audio_bytes,
+    {"content-type": "audio/mpeg", "upsert": "true"}
+)
+
+            # ✅ NEW CRITICAL LOGS
+            logger.info(f"[CHUNKED] Page {page_num} audio generated successfully")
+            logger.info(f"[CHUNKED] Page {page_num} audio uploaded successfully")
             logger.info(f"[CHUNKED-BG] Page {page_num} uploaded: {storage_path}")
+
             return True
             
         except Exception as e:
