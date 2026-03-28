@@ -2288,7 +2288,8 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
 
     try:
         genai.configure(api_key=os.getenv("GEMINI_API_KEY"))
-        model = genai.GenerativeModel("gemini-1.5-flash")
+        logger.info(f"[TRANSLATE] Using model: {GEMINI_MODEL}")
+        model = genai.GenerativeModel(GEMINI_MODEL)
 
         prompt = (
             f"Translate the following children's bedtime story from {source_name} to {target_name}.\n\n"
