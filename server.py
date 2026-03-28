@@ -5685,7 +5685,8 @@ async def process_chunked_narration_page1_first(data: dict):
                 if isinstance(chunked_status, str):
                     chunked_status = json.loads(chunked_status)
             
-            is_terminal = generation_complete or len(pages_failed) > 0
+            is_complete = generation_complete
+            has_failures = len(pages_failed) > 0
 
             chunked_status[cache_key] = {
                 'pages_ready': pages_ready,
@@ -5693,11 +5694,17 @@ async def process_chunked_narration_page1_first(data: dict):
                 'pages_failed': pages_failed,
                 'updated_at': datetime.utcnow().isoformat(),
                 'generation_started': True,
-                'generation_complete': is_terminal,
+                'generation_complete': is_complete,
+                'has_failures': has_failures,
                 'narrator': narrator_id,
                 'provider': 'elevenlabs' if (voice_preference == "parent_voice" or parent_voice_id_override) else 'openai'
             }
-            
+            logger.info(
+                f"[CHUNKED-BG] STATUS UPDATE cache_key={cache_key} "
+                f"ready={pages_ready} generating={pages_generating} failed={pages_failed} "
+                f"complete={is_complete} has_failures={has_failures}"
+            )
+
             supabase.table('stories').update({
                 'chunked_audio_status': json.dumps(chunked_status)
             }).eq('id', story_id).execute()
@@ -5716,12 +5723,28 @@ async def process_chunked_narration_page1_first(data: dict):
             
             # Translate if needed
             text_for_tts = clean_text
+
+            logger.info(
+                f"[CHUNKED-BG] Page {page_num} language flow: "
+                f"story_language={story_language}, narration_lang={narration_lang}, "
+                f"translation_needed={narration_lang != story_language}"
+            )
+
             if narration_lang != story_language:
+                logger.info(f"[CHUNKED-BG] Page {page_num} starting translation")
                 text_for_tts = await translate_text_for_narration(clean_text, story_language, narration_lang)
+                logger.info(
+                    f"[CHUNKED-BG] Page {page_num} translation finished: "
+                    f"orig_len={len(clean_text)} "
+                    f"translated_len={len(text_for_tts) if isinstance(text_for_tts, str) else 'invalid'}"
+            )
+
             # SAFETY CHECK (CRITICAL FIX)
             if not text_for_tts or not isinstance(text_for_tts, str):
-                logger.warning("[CHUNKED-BG] Invalid translated text, using original")
+                logger.warning(f"[CHUNKED-BG] Page {page_num} invalid translated text, using original")
                 text_for_tts = clean_text
+
+                logger.info(f"[CHUNKED-BG] Page {page_num} TTS preview: {text_for_tts[:120]}")
     
             # Apply TTS text normalization for better pacing
             text_for_tts = normalize_text_for_tts(text_for_tts)
@@ -5768,7 +5791,7 @@ async def process_chunked_narration_page1_first(data: dict):
             
         except Exception as e:
             logger.error(f"[CHUNKED-BG] Page {page_num} failed: {str(e)}")
-            return False
+        return False
     
     # ==================== GENERATE PAGE 1 FIRST ====================
     logger.info("[CHUNKED-BG] === PRIORITY: Generating Page 1 ===")
