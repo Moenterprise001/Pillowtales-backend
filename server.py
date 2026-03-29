@@ -5794,7 +5794,7 @@ async def process_chunked_narration_page1_first(data: dict):
         # Update status: current page and all later pages still pending/generating
         remaining = [p for p in range(page_num, total_pages + 1)]
         update_chunked_status(pages_ready, remaining, pages_failed)
-
+    
         page_success = await generate_page_audio(page_num, pages[page_num - 1])
 
         if page_success:
@@ -5830,7 +5830,7 @@ async def process_chunked_narration_page1_first(data: dict):
 async def get_page_narration_status(
     story_id: str, 
     narrator: str = None,
-    lng: str = None,
+    lang:str = None,
     user_id: str = Depends(get_current_user)
 ):
     # Get the status of chunked page-by-page narration.
@@ -5846,7 +5846,11 @@ async def get_page_narration_status(
         
         story = story_result.data[0]
         total_pages = len(story.get('pages', []))
-        
+        # Resolve narrator + language safely
+        narrator_id = narrator or DEFAULT_NARRATOR
+        narration_lang = (lang or 'en').strip().lower()[:2]
+        cache_key = f"{narrator_id}_{narration_lang}"
+
         # Build cache key - use the actual language requested
         # (Language restriction removed - we now have language-specific narrators)
         narrator_id = narrator or DEFAULT_NARRATOR
