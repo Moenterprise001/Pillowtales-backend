@@ -2826,6 +2826,10 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         if profile_result.data and len(profile_result.data) > 0:
             plan = profile_result.data[0].get('plan', 'free')
             user_email = profile_result.data[0].get('email')
+        
+        # Get tester/premium-aware subscription info
+        subscription = await get_user_subscription(user_id, user_email)
+            
         # ================= STORY LIMIT CHECK (WEEKLY) =================
         one_week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
 
@@ -2835,7 +2839,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
 
         stories_this_week = len(stories_result.data) if stories_result.data else 0
 
-        if plan != "premium" and stories_this_week >= 2:
+        if not subscription.get("is_premium", False) and not subscription.get("is_tester", False) and stories_this_week >= 2:
             logger.info(f"[STORY] User {user_id} hit weekly story limit ({stories_this_week}/2)")
             raise HTTPException(
                 status_code=403,
@@ -2845,11 +2849,11 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
                     "upgrade_required": True,
                     "stories_used": stories_this_week,
                     "stories_limit": 2
-            }
-        )
+                }
+            )
         
         # ================= STORAGE LIMIT (FREE TIER) =================
-        if plan != "premium":
+        if not subscription.get("is_premium", False) and not subscription.get("is_tester", False):
             saved_stories_result = supabase.table('stories').select(
                 'id'
             ).eq('user_id', user_id).execute()
