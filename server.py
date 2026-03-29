@@ -5780,34 +5780,34 @@ async def process_chunked_narration_page1_first(data: dict):
         return
     
     # ==================== GENERATE REMAINING PAGES ====================
-        for page_num in range(2, total_pages + 1):
+    for page_num in range(2, total_pages + 1):
 
-            # STOP if any previous page failed
-            if pages_failed:
-                logger.warning(f"[CHUNKED-BG] STOPPING: Previous page(s) failed: {pages_failed}")
-                logger.warning(f"[CHUNKED-BG] Will not generate page {page_num} or remaining pages")
-                update_chunked_status(pages_ready, [], pages_failed)
-                break
+        # STOP if any previous page failed
+        if pages_failed:
+            logger.warning(f"[CHUNKED-BG] STOPPING: Previous page(s) failed: {pages_failed}")
+            logger.warning(f"[CHUNKED-BG] Will not generate page {page_num} or remaining pages")
+            update_chunked_status(pages_ready, [], pages_failed)
+            break
 
             logger.info(f"[CHUNKED-BG] Generating Page {page_num}/{total_pages}")
 
-            # Update status: current page and all later pages still pending/generating
-            remaining = [p for p in range(page_num, total_pages + 1)]
-            update_chunked_status(pages_ready, remaining, pages_failed)
+        # Update status: current page and all later pages still pending/generating
+        remaining = [p for p in range(page_num, total_pages + 1)]
+        update_chunked_status(pages_ready, remaining, pages_failed)
 
-            page_success = await generate_page_audio(page_num, pages[page_num - 1])
+        page_success = await generate_page_audio(page_num, pages[page_num - 1])
 
-            if page_success:
-                pages_ready.append(page_num)
-                logger.info(f"[CHUNKED] Page {page_num} audio generated successfully")
-            else:
-                pages_failed.append(page_num)
-                logger.error(f"[CHUNKED-BG] ✗ Page {page_num} FAILED - entering terminal failure state")
-                update_chunked_status(pages_ready, [], pages_failed, generation_complete=True)
-                break
+        if page_success:
+            pages_ready.append(page_num)
+            logger.info(f"[CHUNKED] Page {page_num} audio generated successfully")
+        else:
+            pages_failed.append(page_num)
+            logger.error(f"[CHUNKED-BG] ✗ Page {page_num} FAILED - entering terminal failure state")
+            update_chunked_status(pages_ready, [], pages_failed, generation_complete=True)
+            break
 
-            # Small delay to prevent rate limiting
-            await asyncio.sleep(0.5)
+        # Small delay to prevent rate limiting
+        await asyncio.sleep(0.5)
 
     # ==================== FINAL STATUS UPDATE ====================
     update_chunked_status(pages_ready, [], pages_failed, generation_complete=True)
