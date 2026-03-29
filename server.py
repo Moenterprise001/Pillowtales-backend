@@ -288,24 +288,33 @@ ELEVENLABS_PAUSE_DURATIONS = {
 SUBSCRIPTION_TIERS = {
     "free": {
         "name": "Free",
-        "daily_narration_limit": 2,  # 2 narrated stories per day
-        "unlimited_text_stories": True,
+
+        # Weekly limits
+        "weekly_story_limit": 2,        # 2 stories per week
+        "weekly_narration_limit": 2,    # 2 narrated stories per week
+
+        "unlimited_text_stories": False,
+
         # All system narrators (language-specific) available to free users
-        # Portuguese removed for launch
         "narrators": [
             "wise_owl", "wise_owl",  # English
-            "night_owl_spanish",              # Spanish
-            "night_owl_german",               # German
-            "night_owl_french",               # French
-            "night_owl_italian",              # Italian (Gufo Saggio - Manuela)
+            "night_owl_spanish",     # Spanish
+            "night_owl_german",      # German
+            "night_owl_french",      # French
+            "night_owl_italian",     # Italian
         ],
-        "companions": ["luna_owl", "milo_fox"],  # Basic companions
+
+        "companions": ["luna_owl", "milo_fox"],
+
+        # Parent voice is premium only
         "parent_voice": False,
+
         "priority_generation": False,
+        
     },
     "premium": {
         "name": "Premium",
-        "daily_narration_limit": None,  # Unlimited
+        "weekly_narration_limit": None,  # Unlimited
         "unlimited_text_stories": True,
         # All narrators including Parent Voice (works for any language)
         # Portuguese removed for launch
@@ -326,22 +335,22 @@ SUBSCRIPTION_TIERS = {
 # Premium pricing
 PREMIUM_PRICING = {
     "monthly": {
-        "price": 6.99,
+        "price": 4.99,
         "currency": "USD",
         "period": "month",
         "trial_days": 7,
     },
     "yearly": {
-        "price": 49.00,
+        "price": 39.00,
         "currency": "USD",
         "period": "year",
         "trial_days": 7,
-        "savings_percent": 42,  # vs monthly
+        "savings_percent": 33,  # vs monthly
     },
 }
 
 # Free tier limits
-FREE_DAILY_NARRATION_LIMIT = 2
+FREE_WEEKLY_NARRATION_LIMIT = 2
 
 # ================== TESTER/ADMIN ACCOUNTS ==================
 # These accounts automatically get PERMANENT PREMIUM access for QA testing
@@ -1003,7 +1012,7 @@ async def check_story_limits(user_id: str, plan: str, user_email: str = None) ->
 
 async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
     # Get user's subscription status and narration usage.
-    # Handles daily counter reset automatically.
+    # Uses a rolling 7-day narration window.
     # Also handles tester/admin bypass for testing.
 
     try:
@@ -1014,26 +1023,26 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
                 "status": "premium",
                 "is_premium": True,
                 "is_tester": True,
-                "daily_narrations_used": 0,
-                "daily_limit": None,
+                "weekly_narrations_used": 0,
+                "weekly_limit": None,
                 "can_narrate": True,
                 "narrations_remaining": None,
                 "trial_used": False,
             }
 
-        # Try to get email from user profile if not provided
-            result = supabase.table('users_profile').select(
-                'email, subscription_status, daily_narrations_used, last_narration_reset'
-                ).eq('id', user_id).execute()
+        # Try to get email + subscription status from user profile if not provided
+        result = supabase.table('users_profile').select(
+            'email, subscription_status'
+        ).eq('id', user_id).execute()
 
         if not result.data or len(result.data) == 0:
             return {
                 "status": "free",
                 "is_premium": False,
-                "daily_narrations_used": 0,
-                "daily_limit": FREE_DAILY_NARRATION_LIMIT,
+                "weekly_narrations_used": 0,
+                "weekly_limit": FREE_WEEKLY_NARRATION_LIMIT,
                 "can_narrate": True,
-                "narrations_remaining": FREE_DAILY_NARRATION_LIMIT,
+                "narrations_remaining": FREE_WEEKLY_NARRATION_LIMIT,
                 "trial_used": False,
             }
 
@@ -1047,102 +1056,57 @@ async def get_user_subscription(user_id: str, user_email: str = None) -> dict:
                 "status": "premium",
                 "is_premium": True,
                 "is_tester": True,
-                "daily_narrations_used": 0,
-                "daily_limit": None,
+                "weekly_narrations_used": 0,
+                "weekly_limit": None,
                 "can_narrate": True,
                 "narrations_remaining": None,
                 "trial_used": False,
             }
 
-        status = profile.get('subscription_status', 'free') or 'free'
+        status = profile.get('subscription_status', 'free')
         is_premium = status == 'premium'
 
-        daily_used = profile.get('daily_narrations_used', 0) or 0
-        last_reset = profile.get('last_narration_reset')
+        # Count narrations in rolling 7-day window
+        one_week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
 
-        # Check if we need to reset daily counter
-        should_reset = False
-        if last_reset:
-            try:
-                if isinstance(last_reset, str):
-                    last_reset_dt = datetime.fromisoformat(last_reset.replace('Z', '+00:00'))
-                else:
-                    last_reset_dt = last_reset
+        narration_result = supabase.table('stories').select(
+            'id, audio_created_at'
+        ).eq('user_id', user_id).not_.is_('audio_created_at', 'null').gte('audio_created_at', one_week_ago).execute()
 
-                # Reset if more than 24 hours since last reset
-                now = datetime.utcnow()
-                if last_reset_dt.tzinfo:
-                    now = now.replace(tzinfo=last_reset_dt.tzinfo)
+        weekly_used = len(narration_result.data) if narration_result.data else 0
 
-                if (now - last_reset_dt).total_seconds() > 86400:
-                    should_reset = True
-
-            except Exception:
-                should_reset = True
-        else:
-            should_reset = True
-
-        if should_reset:
-            daily_used = 0
-            # Reset the counter in DB
-            try:
-                supabase.table('users_profile').update({
-                    'daily_narrations_used': 0,
-                    'last_narration_reset': datetime.utcnow().isoformat()
-                }).eq('id', user_id).execute()
-            except Exception as e:
-                logger.warning(f"[SUB] Could not reset daily counter: {e}")
-
-        # Determine if user can narrate
-        daily_limit = None if is_premium else FREE_DAILY_NARRATION_LIMIT
-        can_narrate = is_premium or daily_used < FREE_DAILY_NARRATION_LIMIT
+        weekly_limit = None if is_premium else FREE_WEEKLY_NARRATION_LIMIT
+        can_narrate = is_premium or weekly_used < FREE_WEEKLY_NARRATION_LIMIT
 
         return {
             "status": status,
             "is_premium": is_premium,
-            "daily_narrations_used": daily_used,
-            "daily_limit": daily_limit,
+            "weekly_narrations_used": weekly_used,
+            "weekly_limit": weekly_limit,
             "can_narrate": can_narrate,
-            "narrations_remaining": None if is_premium else max(0, FREE_DAILY_NARRATION_LIMIT - daily_used),
-            "trial_used": False, 
-         
-         }
+            "narrations_remaining": None if is_premium else max(0, FREE_WEEKLY_NARRATION_LIMIT - weekly_used),
+            "trial_used": False,
+        }
 
     except Exception as e:
         logger.error(f"[SUB] Error getting subscription: {e}")
         return {
             "status": "free",
             "is_premium": False,
-            "daily_narrations_used": 0,
-            "daily_limit": FREE_DAILY_NARRATION_LIMIT,
+            "weekly_narrations_used": 0,
+            "weekly_limit": FREE_WEEKLY_NARRATION_LIMIT,
             "can_narrate": True,
-            "narrations_remaining": FREE_DAILY_NARRATION_LIMIT,
+            "narrations_remaining": FREE_WEEKLY_NARRATION_LIMIT,
             "trial_used": False,
         }
 
 async def increment_narration_usage(user_id: str) -> dict:
-    # Increment daily narration counter after successful narration generation.
-    try:
-        # Get current count
-        result = supabase.table('users_profile').select('daily_narrations_used').eq('id', user_id).execute()
-        current = 0
-        if result.data and len(result.data) > 0:
-            current = result.data[0].get('daily_narrations_used', 0) or 0
-        
-        new_count = current + 1
-        
-        # Update counter
-        supabase.table('users_profile').update({
-            'daily_narrations_used': new_count
-        }).eq('id', user_id).execute()
-        
-        logger.info(f"[SUB] User {user_id} narration usage: {new_count}")
-        
-        return {"daily_narrations_used": new_count}
-        
-    except Exception as e:
-        logger.error(f"[SUB] Error incrementing usage: {e}")
-        return {"daily_narrations_used": 0}
+    # Weekly narration usage is now calculated from stories.audio_created_at
+    # This function is kept for compatibility but no longer updates counters
+
+    logger.info(f"[SUB] Skipping narration counter update for user {user_id} (weekly usage derived from stories table)")
+    
+    return {"success": True}
 
 def check_feature_access(user_subscription: dict, feature: str, item_id: str = None) -> dict:
     # Check if user can access a specific feature/item.
@@ -1190,9 +1154,9 @@ def check_feature_access(user_subscription: dict, feature: str, item_id: str = N
                 "allowed": False,
                 "reason": "narration_limit",
                 "upgrade_required": True,
-                "upgrade_message": "You've listened to tonight's stories.\n\nUpgrade to unlock unlimited bedtime narrations.",
-                "narrations_used": user_subscription.get("daily_narrations_used", 0),
-                "narrations_limit": FREE_DAILY_NARRATION_LIMIT,
+                "upgrade_message": "You've used your 2 free narrations for this week.\n\nUpgrade to unlock unlimited bedtime narration.",
+                "narrations_used": user_subscription.get("weekly_narrations_used", 0),
+                "narrations_limit": user_subscription.get("weekly_limit", FREE_WEEKLY_NARRATION_LIMIT)
             }
     
     return {"allowed": True, "reason": None, "upgrade_required": False}
@@ -2673,7 +2637,7 @@ async def get_subscription_status(user_id: str = Depends(get_current_user)):
         "tier_name": tier_config.get("name", "Free"),
         "features": {
             "unlimited_text_stories": tier_config.get("unlimited_text_stories", True),
-            "daily_narration_limit": tier_config.get("daily_narration_limit"),
+            "weekly_narration_limit": tier_config.get("weekly_narration_limit"),
             "parent_voice": tier_config.get("parent_voice", False),
             "priority_generation": tier_config.get("priority_generation", False),
         },
@@ -2862,29 +2826,44 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         if profile_result.data and len(profile_result.data) > 0:
             plan = profile_result.data[0].get('plan', 'free')
             user_email = profile_result.data[0].get('email')
-        
-        # Check story limits based on plan (testers get unlimited access)
-        limits_check = await check_story_limits(user_id, plan, user_email)
-        
-        if not limits_check['can_generate']:
+        # ================= STORY LIMIT CHECK (WEEKLY) =================
+        one_week_ago = (datetime.utcnow() - timedelta(days=7)).isoformat()
+
+        stories_result = supabase.table('stories').select(
+            'id'
+        ).eq('user_id', user_id).gte('created_at', one_week_ago).execute()
+
+        stories_this_week = len(stories_result.data) if stories_result.data else 0
+
+        if plan != "premium" and stories_this_week >= 2:
+            logger.info(f"[STORY] User {user_id} hit weekly story limit ({stories_this_week}/2)")
             raise HTTPException(
                 status_code=403,
-                detail=json.dumps({
-                    "error": "PAYWALL", 
-                    "reason": limits_check['reason'],
-                    "message": limits_check.get('message', "Story limit reached. Upgrade to Premium for unlimited stories!")
-                })
-            )
+                detail={
+                    "error": "story_limit_reached",
+                    "message": "You've created 2 free stories this week.\n\nUpgrade to create unlimited bedtime stories.",
+                    "upgrade_required": True,
+                    "stories_used": stories_this_week,
+                    "stories_limit": 2
+            }
+        )
         
-        # Check if user can save more stories (for free tier)
-        if not limits_check['can_save']:
-            raise HTTPException(
+        # ================= STORAGE LIMIT (FREE TIER) =================
+        if plan != "premium":
+            saved_stories_result = supabase.table('stories').select(
+                'id'
+            ).eq('user_id', user_id).execute()
+
+            total_saved_stories = len(saved_stories_result.data) if saved_stories_result.data else 0
+
+            if total_saved_stories >= 10:
+                raise HTTPException(
                 status_code=403,
-                detail=json.dumps({
-                    "error": "STORAGE_LIMIT", 
-                    "reason": "storage_limit",
-                    "message": "You've reached the maximum number of saved stories. Delete some stories or upgrade to Premium!"
-                })
+                detail={
+                    "error": "storage_limit",
+                    "message": "You've reached the maximum number of saved stories.\n\nDelete some stories or upgrade to Premium!",
+                    "upgrade_required": True
+                }
             )
         
         # ==================== CONTINUATION HANDLING ====================
@@ -4787,7 +4766,7 @@ async def generate_tts_audio(text: str, language_code: str, voice_id: str = None
 @api_router.post("/narration/request", response_model=NarrationResponse)
 async def request_narration(request: NarrationRequest, user_id: str = Depends(get_current_user)):
     # Request narration for a story with MULTILINGUAL support.
-        # - Checks subscription limits (free: 2/day, premium: unlimited)
+        # - Checks subscription limits (free: 2/week, premium: unlimited)
         # - Stores audio per language: {userId}/{storyId}/{lang}.mp3
         # - Translates text on-the-fly if narration language differs from story language
         # - Uses ElevenLabs eleven_multilingual_v2 model with language_code parameter
@@ -4813,10 +4792,10 @@ async def request_narration(request: NarrationRequest, user_id: str = Depends(ge
             status_code=403,
             detail={
                 "error": "narration_limit_reached",
-                "message": narration_access.get("upgrade_message", "Daily narration limit reached"),
+                "message": narration_access.get("upgrade_message", "Weekly narration limit reached"),
                 "upgrade_required": True,
                 "narrations_used": narration_access.get("narrations_used", 0),
-                "narrations_limit": narration_access.get("narrations_limit", FREE_DAILY_NARRATION_LIMIT),
+                "narrations_limit": narration_access.get("narrations_limit", FREE_WEEKLY_NARRATION_LIMIT),
             }
         )
     
@@ -5066,13 +5045,16 @@ async def request_narration(request: NarrationRequest, user_id: str = Depends(ge
         logger.info(f"[NARRATION] User plan: {user_plan} (tester: {is_tester})")
         
         if user_plan == 'free':
-            # Free users get 2 narrations per day
+            # Free users get 2 narrations per week
             can_narrate = subscription.get("can_narrate", True)
             if not can_narrate:
                 raise HTTPException(
                     status_code=403,
-                    detail=json.dumps({"error": "DAILY_LIMIT", "message": "You've used your daily narrations. Come back tomorrow or upgrade to Premium!"})
-                )
+                    detail=json.dumps({
+                        "error": "WEEKLY_LIMIT",
+                        "message": "You've used your 2 free narrations this week.\n\nUpgrade to unlock unlimited bedtime narration."
+                })
+            )
         
         if user_plan == 'trial':
             trial_used = user_data.get('trial_narrations_used', 0) or 0
@@ -5418,7 +5400,7 @@ async def request_chunked_narration(request: NarrationRequest, user_id: str = De
             status_code=403,
             detail={
                 "error": "narration_limit_reached",
-                "message": narration_access.get("upgrade_message", "Daily narration limit reached"),
+                "message": narration_access.get("upgrade_message", "Weekly narration limit reached"),
                 "upgrade_required": True,
             }
         )
@@ -5496,6 +5478,11 @@ async def request_chunked_narration(request: NarrationRequest, user_id: str = De
         
         # Build cache key for this narrator+language combo
         narrator_id = request.voicePreference or DEFAULT_NARRATOR
+
+        # Prevent parent_voice as default
+        if not narrator_id or narrator_id == 'parent_voice':
+            narrator_id = 'wise_owl'
+            
         cache_key = f"{narrator_id}_{narration_lang}"
 
         logger.info(
