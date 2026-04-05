@@ -487,22 +487,60 @@ def get_bedtime_ritual_ending(child_name: str, language: str = 'en') -> str:
     return ritual_ending
 
 def append_bedtime_ritual_to_story(pages: list, child_name: str, language: str = 'en') -> list:
-    # Append the bedtime ritual ending to the last page of the story.
-    # This ensures every story ends with a consistent, comforting goodnight message.
-    
+    # Legacy helper kept for backwards compatibility.
+    # New stories should rely on prompt quality + post-processing instead of always appending
+    # a separate ritual block, which can create duplicate endings.
+    return pages
+
+
+def clean_story_text(text: str) -> str:
+    import re
+
+    if not text:
+        return text
+
+    # Normalize line endings safely
+    cleaned = text.replace("\r\n", "\n").replace("\r", "\n").strip()
+
+    # Remove explicit "The end" (multi-language)
+    end_markers = [
+        r'(?im)^\s*the end\.?\s*$',
+        r'(?im)^\s*fin\.?\s*$',
+        r'(?im)^\s*finis\.?\s*$',
+        r'(?im)^\s*ende\.?\s*$',
+        r'(?im)^\s*fine\.?\s*$',
+    ]
+
+    for pattern in end_markers:
+        cleaned = re.sub(pattern, '', cleaned)
+
+    # Collapse excessive blank lines
+    cleaned = re.sub(r'\n{3,}', '\n\n', cleaned)
+
+    # Remove duplicate final lines (common LLM repetition issue)
+    lines = [line.strip() for line in cleaned.split('\n') if line.strip()]
+    deduped = []
+    for line in lines:
+        if not deduped or line != deduped[-1]:
+            deduped.append(line)
+
+    return "\n".join(deduped)
+
+
+def postprocess_story_pages(pages: list, child_name: str, language: str = 'en') -> list:
+    # Final story cleanup for better readability and less robotic endings.
     if not pages:
         return pages
-    
-    # Get the ritual ending
-    ritual_ending = get_bedtime_ritual_ending(child_name, language)
-    
-    # Append to the last page
-    pages_with_ritual = pages.copy()
-    pages_with_ritual[-1] = pages_with_ritual[-1] + ritual_ending
-    
-    logger.info(f"[BEDTIME RITUAL] Appended ritual to story for {child_name}")
-    
-    return pages_with_ritual
+
+    cleaned_pages = [clean_story_text(page) for page in pages]
+
+    # Ensure the final page ends gently, but do not always append an extra ritual block.
+    final_page = cleaned_pages[-1].strip()
+    if final_page and not final_page.endswith(('.', '!', '?')):
+        final_page += '.'
+    cleaned_pages[-1] = final_page
+
+    return cleaned_pages
 
 
 # ================== STORY COMPANIONS ==================
@@ -1854,7 +1892,8 @@ Follow this emotional arc:
    The adventure wraps up fully — loose ends are resolved.
    End with calming imagery: moonlight, quiet stars, gentle wind, returning home safely.
    The final sentence should feel like a peaceful goodnight.
-   Example: "And as the stars twinkled overhead, {request.childName} closed their eyes, feeling safe and happy. The end."
+   NEVER use the phrase "The end".
+   Do not repeat goodnight lines or add a separate sign-off after the story already feels complete.
 
 
 === STORY PACING RULE ===
@@ -2056,6 +2095,9 @@ Respond with ONLY the JSON, no other text."""
         - Slow the pacing down clearly near the end
         - Use soft imagery such as moonlight, stars, warmth, quiet, or home
         - End with a comforting emotional tone
+        - NEVER use "The end" or any equivalent closing label
+        - Do NOT repeat "Goodnight" or add duplicate farewell lines
+        - End naturally, like a premium bedtime book written by a native storyteller
 
         === LANGUAGE CONSISTENCY ===
         - Use ONLY the requested language and locale rules
@@ -2114,6 +2156,12 @@ Respond with ONLY the JSON, no other text."""
         if "title" not in story_data or "pages" not in story_data:
             logger.error(f"[STORY] CRITICAL: Missing keys. Got: {list(story_data.keys()) if isinstance(story_data, dict) else 'NOT_A_DICT'}")
             raise ValueError("Invalid story format")
+
+        story_data["pages"] = postprocess_story_pages(
+            story_data.get("pages", []),
+            request.childName,
+            request.storyLanguageCode
+        )
 
         return story_data
 
@@ -2261,8 +2309,10 @@ async def translate_text_for_narration(text: str, source_lang: str, target_lang:
             "1. Preserve the calming, gentle tone suitable for bedtime\n"
             "2. Keep the story structure and flow intact\n"
             "3. Maintain any character names as-is (don't translate names)\n"
-            f"4. Ensure the translation is natural and fluent in {target_name}\n"
-            "5. Output ONLY the translated text, no explanations or notes\n\n"
+            f"4. Write in natural, native {target_name} wording rather than literal translation\n"
+            "5. Use child-friendly phrasing and culturally natural bedtime expressions\n"
+            "6. Keep paragraphs and pacing suitable for read-aloud narration\n"
+            "7. Output ONLY the translated text, no explanations or notes\n\n"
             f"{text}"
         )
 
@@ -2981,14 +3031,9 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
             raise HTTPException(status_code=500, detail="No story pages generated")
 
                 
-        # ==================== APPEND BEDTIME RITUAL ENDING ====================
-        # Add personalized goodnight message to every story
-        story_data["pages"] = append_bedtime_ritual_to_story(
-            story_data["pages"], 
-            request.childName, 
-            request.storyLanguageCode
-        )
-        
+        # ==================== STORY POST-PROCESSING ====================
+        # Story cleanup is handled after generation to avoid duplicated endings.
+
         # Save story to database
         full_text = " ".join(story_data["pages"])
         
