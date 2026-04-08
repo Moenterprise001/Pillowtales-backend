@@ -4,3 +4,4 @@ python-dotenv
 python-jose
 supabase
 google-generativeai
+httpx
