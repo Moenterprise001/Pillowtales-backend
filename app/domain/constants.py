@@ -12,7 +12,7 @@ SUPPORTED_LANGUAGES: Dict[str, str] = {
 
 VOICE_PRESETS: Dict[str, Dict[str, Any]] = {
     'wise_owl': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'Wise Owl', 'description': 'Calm British bedtime narration, gentle and reassuring', 'icon': '🦉', 'language_code': 'en', 'tier': 'free'},
-    'parent_voice': {'provider': 'elevenlabs', 'voice_id': None, 'name': 'Parent Voice', 'description': 'Your own voice reads stories', 'icon': '❤️', 'language_code': 'all', 'tier': 'premium', 'requires_setup': True},
+    'parent_voice': {'provider': 'elevenlabs', 'voice_id': None, 'name': 'Parent Voice', 'description': 'Your own voice reads stories', 'icon': '❤️', 'language_code': 'all', 'tier': 'add_on', 'requires_setup': True, 'purchase_required_each_story': True, 'price_eur': 2.0, 'bundle3_price_eur': 4.99},
     'night_owl_spanish': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'Búho Sabio', 'description': 'Suave voz española para dormir', 'icon': '🦉', 'language_code': 'es', 'tier': 'free'},
     'night_owl_german': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'Weise Eule', 'description': 'Sanfte deutsche Stimme zum Einschlafen', 'icon': '🦉', 'language_code': 'de', 'tier': 'free'},
     'night_owl_french': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'Hibou Sage', 'description': 'Douce voix française pour dormir', 'icon': '🦉', 'language_code': 'fr', 'tier': 'free'},
@@ -34,7 +34,7 @@ SUBSCRIPTION_TIERS: Dict[str, Dict[str, Any]] = {
         'max_saved_stories': 10,
         'narrators': ['wise_owl', 'night_owl_spanish', 'night_owl_german', 'night_owl_french', 'night_owl_italian'],
         'companions': ['luna_owl', 'milo_fox'],
-        'parent_voice': False,
+        'parent_voice': True,
     },
     'premium': {
         'weekly_story_limit': None,

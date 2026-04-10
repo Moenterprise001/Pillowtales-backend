@@ -266,9 +266,11 @@ class NarrationService:
                 raise HTTPException(
                     status_code=403,
                     detail={
-                        'error': 'premium_parent_voice',
-                        'message': 'Unlock Parent Voice with PillowTales Premium.',
+                        'error': 'insufficient_parent_voice_credits',
+                        'message': 'Parent Voice requires a credit or Premium access.',
                         'upgrade_required': True,
+                        'credits': subscription.parent_voice_credits,
+                        'intro_offer_available': subscription.parent_voice_intro_available,
                     },
                 )
             parent_voice_id = profile.get('parent_voice_id')
@@ -319,6 +321,24 @@ class NarrationService:
                 message='Page 1 is being generated...' if 1 not in existing.get('pages_ready', []) else f"Page 1 ready. {len(existing.get('pages_ready', []))}/{existing['total_pages']} pages complete.",
                 voice_mode=existing.get('voice_mode'),
                 jobId=job_id,
+            )
+
+        if requested_voice == 'parent_voice' and not subscription.is_premium:
+            wallet = self.user_repo.get_parent_voice_wallet(user_id)
+            credits = int(wallet.get('credits', 0))
+            if credits <= 0:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        'error': 'insufficient_parent_voice_credits',
+                        'message': 'No Parent Voice credits remaining.',
+                        'upgrade_required': True,
+                    },
+                )
+            self.user_repo.save_parent_voice_wallet(
+                user_id,
+                credits=credits - 1,
+                intro_used=bool(wallet.get('intro_used', False)),
             )
 
         _chunked_jobs[job_id] = {
