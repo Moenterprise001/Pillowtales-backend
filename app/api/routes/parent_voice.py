@@ -1,5 +1,5 @@
 from fastapi import APIRouter, UploadFile, File, Depends, HTTPException
-from app.core.auth import get_current_user
+from app.api.deps import get_current_user
 import uuid
 
 router = APIRouter(prefix="/api/parent-voice", tags=["parent-voice"])
