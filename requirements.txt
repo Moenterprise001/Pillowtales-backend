@@ -1,9 +1,9 @@
-fastapi
-uvicorn
+fastapi==0.110.0
+uvicorn==0.29.0
 python-dotenv
 python-jose
 python-multipart==0.0.9
 supabase
 google-generativeai
-httpx
+httpx==0.27.0
 

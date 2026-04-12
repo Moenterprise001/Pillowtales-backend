@@ -15,8 +15,6 @@ from app.models.subscription import SubscriptionResponse
 from app.repositories.story_repository import StoryRepository
 from app.repositories.user_repository import UserRepository
 from app.services.subscription_service import SubscriptionService
-from app.services.text_cleaner import clean_text_for_tts, apply_pronunciation
-from utils.audio_cache import generate_audio_hash
 
 # In-memory job state for active chunked narration generation.
 # Good enough for a single Render instance launch setup.
@@ -149,44 +147,26 @@ class NarrationService:
             {'content-type': 'audio/mpeg', 'upsert': 'true'},
         )
 
-    async def _generate_page_audio(
-        self,
-    	*,
-    	user_id: str,
-    	story_id: str,
-    	page: int,
-    	page_text: str,
-    	voice: str,
-    	language_code: str,
-    	voice_mode: str,
-    	parent_voice_id: Optional[str],
-    ) -> tuple[str, str]:
-    	clean_text = self._clean_page_text(page_text)
-    	if not clean_text:
+    async def _generate_page_audio(self, *, user_id: str, story_id: str, page: int, page_text: str, voice: str, language_code: str, voice_mode: str, parent_voice_id: Optional[str]) -> tuple[str, str]:
+        clean_text = self._clean_page_text(page_text)
+        if not clean_text:
             raise RuntimeError('Page has no text')
 
-    	# Apply global cleaning for TTS-safe text
-    	tts_text = clean_text_for_tts(clean_text)
-
-    	# Temporary safe pronunciation handling.
-    	# Replace with real child name + pronunciation once wired through request/story data.
-    	tts_text = apply_pronunciation(tts_text, "", "")
-
-    	used_mode = voice_mode
-    	if voice_mode == 'parent' and parent_voice_id:
+        used_mode = voice_mode
+        if voice_mode == 'parent' and parent_voice_id:
             try:
-            	audio = await self._generate_elevenlabs_tts(tts_text, parent_voice_id, language_code)
+                audio = await self._generate_elevenlabs_tts(clean_text, parent_voice_id, language_code)
             except Exception:
-            	# Bulletproof fallback: keep the whole job alive with standard narration.
-            	used_mode = 'fallback_tts'
-            	fallback_voice = self.default_voice_for_language(language_code)
-            	audio = await self._generate_openai_tts(tts_text, fallback_voice)
-    	else:
-            audio = await self._generate_openai_tts(tts_text, voice)
+                # Bulletproof fallback: keep the whole job alive with standard narration.
+                used_mode = 'fallback_tts'
+                fallback_voice = self.default_voice_for_language(language_code)
+                audio = await self._generate_openai_tts(clean_text, fallback_voice)
+        else:
+            audio = await self._generate_openai_tts(clean_text, voice)
 
-    	storage_path = self._storage_path(user_id, story_id, voice, language_code, page)
-    	await self._upload_audio(storage_path, audio)
-    	return storage_path, used_mode
+        storage_path = self._storage_path(user_id, story_id, voice, language_code, page)
+        await self._upload_audio(storage_path, audio)
+        return storage_path, used_mode
 
     async def _process_chunked_job(self, *, job_id: str, user_id: str, story: dict, voice: str, language_code: str, parent_voice_id: Optional[str]) -> None:
         pages = story.get('pages') or []

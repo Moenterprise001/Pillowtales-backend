@@ -24,6 +24,7 @@ class GenerateStoryRequest(BaseModel):
     characters: Optional[List[StoryCharacter]] = None
     customTheme: Optional[str] = None
     companionId: Optional[str] = None
+    childNamePronunciation: Optional[str] = None
     gender: str = 'neutral'
 
 
@@ -65,6 +66,7 @@ class StoryRecord(BaseModel):
     language: str
     story_language_code: str = 'en'
     narration_language_code: Optional[str] = None
+    child_name_pronunciation: Optional[str] = None
     pages: List[str]
     full_text: str
     is_favorite: bool = False

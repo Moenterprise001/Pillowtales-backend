@@ -38,6 +38,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         'language': request.storyLanguageCode,
         'story_language_code': request.storyLanguageCode,
         'narration_language_code': request.narrationLanguageCode or request.storyLanguageCode,
+        'child_name_pronunciation': request.childNamePronunciation,
         'pages': story_data['pages'],
         'full_text': full_text,
         'audio_url': None,

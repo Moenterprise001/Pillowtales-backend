@@ -3,7 +3,6 @@ from __future__ import annotations
 from fastapi import APIRouter, Depends
 
 from app.api.deps import get_current_user, get_subscription_service, get_user_repo
-from app.models.subscription import ParentVoiceCreditsRedeemRequest, ParentVoiceCreditsResponse
 from app.repositories.user_repository import UserRepository
 from app.services.subscription_service import SubscriptionService
 
