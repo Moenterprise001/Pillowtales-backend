@@ -19,8 +19,15 @@ async def request_narration(
     user_id: str = Depends(get_current_user),
     narration_service: NarrationService = Depends(get_narration_service),
 ) -> NarrationResponse:
+    print({
+        "event": "request_narration_start",
+        "user_id": user_id,
+        "story_id": getattr(request, "story_id", None),
+        "narrator": getattr(request, "narrator", None),
+        "lang": getattr(request, "lang", None),
+        "narration_language_code": getattr(request, "narration_language_code", None),
+    })
     return narration_service.request_narration(user_id, request)
-
 
 @router.get('/page-status', response_model=PageStatusResponse)
 async def get_page_status(
@@ -30,8 +37,16 @@ async def get_page_status(
     user_id: str = Depends(get_current_user),
     narration_service: NarrationService = Depends(get_narration_service),
 ) -> PageStatusResponse:
-    return narration_service.get_page_status(user_id, story_id, narrator, lang)
-
+    result = narration_service.get_page_status(user_id, story_id, narrator, lang)
+    print({
+        "event": "page_status_check",
+        "user_id": user_id,
+        "story_id": story_id,
+        "narrator": narrator,
+        "lang": lang,
+        "result": result.model_dump() if hasattr(result, "model_dump") else result.dict() if hasattr(result, "dict") else result,
+    })
+    return result
 
 @router.get('/page-audio')
 async def get_page_audio(
@@ -42,8 +57,17 @@ async def get_page_audio(
     user_id: str = Depends(get_current_user),
     narration_service: NarrationService = Depends(get_narration_service),
 ) -> dict:
-    return narration_service.get_page_audio_url(user_id, story_id, page, narrator, lang)
-
+    result = narration_service.get_page_audio_url(user_id, story_id, page, narrator, lang)
+    print({
+        "event": "page_audio_lookup",
+        "user_id": user_id,
+        "story_id": story_id,
+        "page": page,
+        "narrator": narrator,
+        "lang": lang,
+        "result": result,
+    })
+    return result
 
 @router.get('/usage', response_model=SubscriptionResponse)
 async def get_narration_usage(
