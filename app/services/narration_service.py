@@ -15,6 +15,7 @@ from app.models.subscription import SubscriptionResponse
 from app.repositories.story_repository import StoryRepository
 from app.repositories.user_repository import UserRepository
 from app.services.subscription_service import SubscriptionService
+from app.services.text_cleaner import clean_text_for_tts, apply_pronunciation
 
 # In-memory job state for active chunked narration generation.
 # Good enough for a single Render instance launch setup.
@@ -52,8 +53,9 @@ class NarrationService:
             return requested_voice
         return self.default_voice_for_language(language_code)
 
-    def _cache_key(self, user_id: str, story_id: str, voice: str, language_code: str) -> str:
-        return f"{user_id}:{story_id}:{voice}:{language_code}"
+    def _cache_key(self, user_id: str, story_id: str, voice: str, language_code: str, pronunciation: Optional[str] = None) -> str:
+        safe_pronunciation = (pronunciation or '').strip().lower()
+        return f"{user_id}:{story_id}:{voice}:{language_code}:{safe_pronunciation}"
 
     def _storage_prefix(self, user_id: str, story_id: str, voice: str, language_code: str) -> str:
         return f"{user_id}/{story_id}/chunked/{voice}_{language_code}"
@@ -147,22 +149,25 @@ class NarrationService:
             {'content-type': 'audio/mpeg', 'upsert': 'true'},
         )
 
-    async def _generate_page_audio(self, *, user_id: str, story_id: str, page: int, page_text: str, voice: str, language_code: str, voice_mode: str, parent_voice_id: Optional[str]) -> tuple[str, str]:
-        clean_text = self._clean_page_text(page_text)
-        if not clean_text:
+    async def _generate_page_audio(self, *, user_id: str, story_id: str, page: int, page_text: str, voice: str, language_code: str, voice_mode: str, parent_voice_id: Optional[str], child_name: Optional[str] = None, child_name_pronunciation: Optional[str] = None) -> tuple[str, str]:
+        page_text = self._clean_page_text(page_text)
+        tts_text = clean_text_for_tts(page_text)
+        tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
+
+        if not tts_text:
             raise RuntimeError('Page has no text')
 
         used_mode = voice_mode
         if voice_mode == 'parent' and parent_voice_id:
             try:
-                audio = await self._generate_elevenlabs_tts(clean_text, parent_voice_id, language_code)
+                audio = await self._generate_elevenlabs_tts(tts_text, parent_voice_id, language_code)
             except Exception:
                 # Bulletproof fallback: keep the whole job alive with standard narration.
                 used_mode = 'fallback_tts'
                 fallback_voice = self.default_voice_for_language(language_code)
-                audio = await self._generate_openai_tts(clean_text, fallback_voice)
+                audio = await self._generate_openai_tts(tts_text, fallback_voice)
         else:
-            audio = await self._generate_openai_tts(clean_text, voice)
+            audio = await self._generate_openai_tts(tts_text, voice)
 
         storage_path = self._storage_path(user_id, story_id, voice, language_code, page)
         await self._upload_audio(storage_path, audio)
@@ -192,6 +197,8 @@ class NarrationService:
                     language_code=language_code,
                     voice_mode=job['voice_mode'],
                     parent_voice_id=parent_voice_id,
+                    child_name=story.get('child_name'),
+                    child_name_pronunciation=story.get('child_name_pronunciation'),
                 )
                 job['voice_mode'] = actual_mode
                 if idx not in job['pages_ready']:
@@ -288,7 +295,13 @@ class NarrationService:
         # Only explicit selection should use Parent Voice.
         cache_voice = requested_voice if requested_voice != 'parent_voice' else 'parent_voice'
         total_pages = len(story.get('pages') or [])
-        job_id = self._cache_key(user_id, story['id'], cache_voice, language_code)
+        job_id = self._cache_key(
+            user_id,
+            story['id'],
+            cache_voice,
+            language_code,
+            story.get('child_name_pronunciation'),
+        )
 
         ready_pages = self._list_ready_pages(user_id, story['id'], cache_voice, language_code)
         if ready_pages:
@@ -381,7 +394,13 @@ class NarrationService:
         language_code = self.resolve_language(story, lang)
         voice = self.resolve_voice(narrator, language_code)
         cache_voice = voice if voice != 'parent_voice' else 'parent_voice'
-        job_id = self._cache_key(user_id, story_id, cache_voice, language_code)
+        job_id = self._cache_key(
+            user_id,
+            story_id,
+            cache_voice,
+            language_code,
+            story.get('child_name_pronunciation'),
+        )
         total_pages = len(story.get('pages') or [])
         ready_pages = self._list_ready_pages(user_id, story_id, cache_voice, language_code)
         job = _chunked_jobs.get(job_id)
