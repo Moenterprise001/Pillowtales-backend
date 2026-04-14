@@ -28,7 +28,20 @@ class NarrationService:
         self.user_repo = user_repo
         self.subscription_service = subscription_service
 
-    def resolve_language(self, story: dict, requested_language: Optional[str]) -> str:
+    def get_narration_usage(self, user_id: str) -> dict:
+        """
+        Minimal usage payload for the current frontend.
+        Safe stub to unblock narration testing.
+        """
+        return {
+            "plan": "premium",
+            "narrations_remaining": None,
+            "daily_narrations_used": 0,
+            "daily_limit": None,
+            "can_narrate": True,
+        }
+
+   def resolve_language(self, story: dict, requested_language: Optional[str]) -> str:
         language_code = requested_language or story.get('narration_language_code') or story.get('story_language_code') or story.get('language') or 'en'
         language_code = (language_code or 'en').strip().lower()[:2]
         if language_code not in SUPPORTED_LANGUAGES:
