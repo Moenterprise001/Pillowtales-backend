@@ -191,6 +191,40 @@ class NarrationService:
             {"content-type": "audio/mpeg", "upsert": "true"},
         )
 
+
+    async def _translate_text(self, text: str, target_lang: str) -> str:
+        # Simple translation using OpenAI Chat Completions via httpx
+        if not text:
+            return text
+        lang = (target_lang or "en").lower()
+        if lang == "en":
+            return text
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            return text
+        try:
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "gpt-4o-mini",
+                        "messages": [
+                            {"role": "system", "content": f"Translate the following children's story text into {lang}. Keep it natural and child-friendly."},
+                            {"role": "user", "content": text},
+                        ],
+                        "temperature": 0.3,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                return data["choices"][0]["message"]["content"].strip()
+        except Exception:
+            return text
+
     async def _generate_page_audio(
         self,
         *,
@@ -206,7 +240,9 @@ class NarrationService:
         child_name_pronunciation: Optional[str] = None,
     ) -> tuple[str, str]:
         page_text = self._clean_page_text(page_text)
-        tts_text = clean_text_for_tts(page_text)
+        # Translate BEFORE TTS if needed
+        translated = await self._translate_text(page_text, language_code)
+        tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
 
         if not tts_text:
