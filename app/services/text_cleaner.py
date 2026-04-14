@@ -1,4 +1,13 @@
+from __future__ import annotations
+
 import re
+import unicodedata
+
+
+def _is_punctuation_or_symbol_only(value: str) -> bool:
+    if not value:
+        return False
+    return all(unicodedata.category(ch).startswith(("P", "S")) for ch in value)
 
 
 def clean_text_for_tts(text: str) -> str:
@@ -11,10 +20,14 @@ def clean_text_for_tts(text: str) -> str:
     cleaned = cleaned.replace("—", ",").replace("–", ",")
 
     # Remove common narration markers if present
-    cleaned = re.sub(r"\[(whisper|softly|chuckle|pause|gently)\]\s*", "", cleaned, flags=re.IGNORECASE)
+    cleaned = re.sub(
+        r"\[(whisper|softly|chuckle|pause|gently)\]\s*",
+        "",
+        cleaned,
+        flags=re.IGNORECASE,
+    )
 
-    # Remove lines that are only punctuation / symbols / stray quote marks
-    lines = []
+    lines: list[str] = []
     for line in cleaned.splitlines():
         stripped = line.strip()
 
@@ -22,16 +35,13 @@ def clean_text_for_tts(text: str) -> str:
             lines.append("")
             continue
 
-        # Drop isolated punctuation/symbol lines, including orphan apostrophes/quotes
-        if re.fullmatch(r"[\p{P}\p{S}]+", stripped):
-            continue
-
-        # Python stdlib re doesn't support \p classes, so do a practical fallback:
-        if re.fullmatch(r"[\'\"`‘’“”.,;:!?\-–—()\[\]{}…]+", stripped):
+        # Drop isolated punctuation/symbol lines, including orphan apostrophes/quotes.
+        # Python's stdlib re does not support \p{...}, so use Unicode categories.
+        if _is_punctuation_or_symbol_only(stripped):
             continue
 
         # Drop isolated single letters
-        if re.fullmatch(r"[A-Za-zÀ-ÖØ-öø-ÿ]", stripped):
+        if len(stripped) == 1 and stripped.isalpha():
             continue
 
         lines.append(line.rstrip())
