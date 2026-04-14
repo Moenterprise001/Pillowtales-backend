@@ -16,7 +16,7 @@ async def request_narration(
     user_id: str = Depends(get_current_user),
     narration_service: NarrationService = Depends(get_narration_service),
 ) -> NarrationResponse:
-    return await narration_service.request_narration(user_id, request)
+    return narration_service.request_narration(user_id, request)
 
 
 @router.get('/usage')
@@ -24,7 +24,7 @@ async def get_narration_usage(
     user_id: str = Depends(get_current_user),
     narration_service: NarrationService = Depends(get_narration_service),
 ) -> dict:
-    return await narration_service.get_narration_usage(user_id)
+    return narration_service.get_narration_usage(user_id)
 
 
 @router.get('/page-status', response_model=PageStatusResponse)
@@ -35,7 +35,7 @@ async def get_page_status(
     user_id: str = Depends(get_current_user),
     narration_service: NarrationService = Depends(get_narration_service),
 ) -> PageStatusResponse:
-    return await narration_service.get_page_status(user_id, story_id, narrator, lang)
+    return narration_service.get_page_status(user_id, story_id, narrator, lang)
 
 
 @router.get('/page-audio')
@@ -47,4 +47,4 @@ async def get_page_audio(
     user_id: str = Depends(get_current_user),
     narration_service: NarrationService = Depends(get_narration_service),
 ) -> dict:
-    return await narration_service.get_page_audio_url(user_id, story_id, page, narrator, lang)
+    return narration_service.get_page_audio_url(user_id, story_id, page, narrator, lang)
