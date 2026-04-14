@@ -1,79 +1,58 @@
 from __future__ import annotations
 
-from fastapi import APIRouter, Depends
+from typing import List, Literal, Optional
 
-from app.api.deps import get_current_user, get_narration_service, get_subscription_service, get_user_repo
-from app.models.narration import NarrationRequest, NarrationResponse, PageStatusResponse
-from app.models.subscription import SubscriptionResponse
-from app.repositories.user_repository import UserRepository
-from app.services.narration_service import NarrationService
-from app.services.subscription_service import SubscriptionService
+from pydantic import BaseModel, Field, ConfigDict
 
-router = APIRouter(prefix='/narration', tags=['narration'])
+VoiceMode = Literal['standard', 'parent', 'fallback_tts']
+NarrationStatus = Literal['page_ready', 'generating', 'all_ready', 'failed']
 
 
-@router.post('/request', response_model=NarrationResponse)
-@router.post('/request-chunked', response_model=NarrationResponse)
-async def request_narration(
-    request: NarrationRequest,
-    user_id: str = Depends(get_current_user),
-    narration_service: NarrationService = Depends(get_narration_service),
-) -> NarrationResponse:
-    print({
-        "event": "request_narration_start",
-        "user_id": user_id,
-        "story_id": getattr(request, "story_id", None),
-        "narrator": getattr(request, "narrator", None),
-        "lang": getattr(request, "lang", None),
-        "narration_language_code": getattr(request, "narration_language_code", None),
-    })
-    return narration_service.request_narration(user_id, request)
+class NarrationRequest(BaseModel):
+    model_config = ConfigDict(populate_by_name=True)
 
-@router.get('/page-status', response_model=PageStatusResponse)
-async def get_page_status(
-    story_id: str,
-    narrator: str | None = None,
-    lang: str | None = None,
-    user_id: str = Depends(get_current_user),
-    narration_service: NarrationService = Depends(get_narration_service),
-) -> PageStatusResponse:
-    result = narration_service.get_page_status(user_id, story_id, narrator, lang)
-    print({
-        "event": "page_status_check",
-        "user_id": user_id,
-        "story_id": story_id,
-        "narrator": narrator,
-        "lang": lang,
-        "result": result.model_dump() if hasattr(result, "model_dump") else result.dict() if hasattr(result, "dict") else result,
-    })
-    return result
+    # Accept BOTH old camelCase and new snake_case payloads
+    story_id: str
+    narration_language_code: Optional[str] = Field(default=None, alias='narrationLanguageCode')
+    voice_preference: Optional[str] = Field(default=None, alias='voicePreference')
 
-@router.get('/page-audio')
-async def get_page_audio(
-    story_id: str,
-    page: int,
-    narrator: str | None = None,
-    lang: str | None = None,
-    user_id: str = Depends(get_current_user),
-    narration_service: NarrationService = Depends(get_narration_service),
-) -> dict:
-    result = narration_service.get_page_audio_url(user_id, story_id, page, narrator, lang)
-    print({
-        "event": "page_audio_lookup",
-        "user_id": user_id,
-        "story_id": story_id,
-        "page": page,
-        "narrator": narrator,
-        "lang": lang,
-        "result": result,
-    })
-    return result
+    # New frontend/internal fields
+    narrator: Optional[str] = None
+    lang: Optional[str] = None
+    child_name_pronunciation: Optional[str] = None
 
-@router.get('/usage', response_model=SubscriptionResponse)
-async def get_narration_usage(
-    user_id: str = Depends(get_current_user),
-    user_repo: UserRepository = Depends(get_user_repo),
-    subscription_service: SubscriptionService = Depends(get_subscription_service),
-) -> SubscriptionResponse:
-    profile = user_repo.get_profile(user_id) or {}
-    return subscription_service.get_subscription(user_id, profile.get('email'))
+    # Backward-compatible properties so existing service code
+    # can keep using request.storyId / request.narrationLanguageCode / request.voicePreference
+    @property
+    def storyId(self) -> str:
+        return self.story_id
+
+    @property
+    def narrationLanguageCode(self) -> Optional[str]:
+        return self.lang or self.narration_language_code
+
+    @property
+    def voicePreference(self) -> Optional[str]:
+        return self.narrator or self.voice_preference
+
+
+class NarrationResponse(BaseModel):
+    status: NarrationStatus
+    audioUrl: Optional[str] = None
+    message: Optional[str] = None
+    jobId: Optional[str] = None
+    currentPage: Optional[int] = None
+    totalPages: Optional[int] = None
+    pageAudioUrl: Optional[str] = None
+    pagesReady: List[int] = Field(default_factory=list)
+    voice_mode: Optional[VoiceMode] = None
+
+
+class PageStatusResponse(BaseModel):
+    storyId: str
+    totalPages: int
+    pagesReady: List[int] = Field(default_factory=list)
+    pagesGenerating: List[int] = Field(default_factory=list)
+    pagesFailed: List[int] = Field(default_factory=list)
+    allReady: bool
+    voice_mode: Optional[VoiceMode] = None
