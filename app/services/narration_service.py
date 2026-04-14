@@ -236,10 +236,12 @@ class NarrationService:
                     except Exception:
                         pass
             except Exception:
+                print(f"[NARRATION] Page {idx} generation failed for story {story['id']}: {repr(e)}")
                 if idx not in job['pages_failed']:
                     job['pages_failed'].append(idx)
                 job['pages_generating'] = [p for p in range(idx + 1, len(pages) + 1)]
                 job['status'] = 'failed'
+                job['last_error'] = str(e)
                 return
 
             await asyncio.sleep(0.2)
@@ -417,6 +419,8 @@ class NarrationService:
         total_pages = len(story.get('pages') or [])
         ready_pages = self._list_ready_pages(user_id, story_id, cache_voice, language_code)
         job = _chunked_jobs.get(job_id)
+	if job and job.get('last_error'):
+            print(f"[NARRATION] Job {job_id} last_error: {job['last_error']}")
         generating = job.get('pages_generating', []) if job else []
         failed = job.get('pages_failed', []) if job else []
         all_ready = total_pages > 0 and len(ready_pages) >= total_pages
