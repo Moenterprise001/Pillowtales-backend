@@ -41,7 +41,7 @@ class NarrationService:
             "can_narrate": True,
         }
 
-   def resolve_language(self, story: dict, requested_language: Optional[str]) -> str:
+    def resolve_language(self, story: dict, requested_language: Optional[str]) -> str:
         language_code = requested_language or story.get('narration_language_code') or story.get('story_language_code') or story.get('language') or 'en'
         language_code = (language_code or 'en').strip().lower()[:2]
         if language_code not in SUPPORTED_LANGUAGES:
