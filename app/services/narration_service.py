@@ -419,7 +419,7 @@ class NarrationService:
         total_pages = len(story.get('pages') or [])
         ready_pages = self._list_ready_pages(user_id, story_id, cache_voice, language_code)
         job = _chunked_jobs.get(job_id)
-	if job and job.get('last_error'):
+        if job and job.get('last_error'):
             print(f"[NARRATION] Job {job_id} last_error: {job['last_error']}")
         generating = job.get('pages_generating', []) if job else []
         failed = job.get('pages_failed', []) if job else []
