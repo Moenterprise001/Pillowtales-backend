@@ -66,11 +66,33 @@ class NarrationService:
     def resolve_voice(self, requested_voice: Optional[str], language_code: str) -> str:
         # Product rule: default narrator must remain Wise Owl / standard narrator family,
         # never Parent Voice unless explicitly selected.
-        if requested_voice:
-            if requested_voice not in VOICE_PRESETS:
-                raise HTTPException(status_code=400, detail="Unsupported narrator")
+        default_voice = self.default_voice_for_language(language_code)
+
+        if not requested_voice:
+            return default_voice
+
+        if requested_voice not in VOICE_PRESETS:
+            raise HTTPException(status_code=400, detail="Unsupported narrator")
+
+        # Parent Voice is allowed explicitly and handles multilingual separately.
+        if requested_voice == "parent_voice":
             return requested_voice
-        return self.default_voice_for_language(language_code)
+
+        preset = VOICE_PRESETS.get(requested_voice, {}) or {}
+        preset_lang = (
+            preset.get("language_code")
+            or preset.get("language")
+            or "all"
+        )
+        preset_lang = str(preset_lang).strip().lower()[:2] if preset_lang != "all" else "all"
+
+        # Only allow exact-language or universal narrators.
+        if preset_lang == "all" or preset_lang == language_code:
+            return requested_voice
+
+        # Frontend can momentarily send a stale narrator during language switches.
+        # Fall back to the correct default narrator for the requested language.
+        return default_voice
 
     def _cache_key(
         self,
@@ -242,6 +264,7 @@ class NarrationService:
         page_text = self._clean_page_text(page_text)
         # Translate BEFORE TTS if needed
         translated = await self._translate_text(page_text, language_code)
+        print(f"[NARRATION] Generating page {page} with voice={voice} language={language_code}")
         tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
 
@@ -410,12 +433,15 @@ class NarrationService:
         )
 
         ready_pages = self._list_ready_pages(user_id, story["id"], cache_voice, language_code)
-        if ready_pages:
+
+        # Only trust cache when the full page set exists for this narrator/language.
+        # This prevents mixed-language playback caused by partial stale caches.
+        if ready_pages and len(ready_pages) == total_pages:
             page1_path = self._storage_path(user_id, story["id"], cache_voice, language_code, 1)
             page1_url = self._signed_url(page1_path)
             existing_job = _chunked_jobs.get(job_id)
             return NarrationResponse(
-                status="all_ready" if len(ready_pages) >= total_pages else "page_ready",
+                status="all_ready",
                 audioUrl=page1_url,
                 pageAudioUrl=page1_url,
                 currentPage=1,
