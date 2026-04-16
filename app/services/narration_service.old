@@ -354,23 +354,6 @@ class NarrationService:
                 print(f"[NARRATION] Page {idx} generation failed for story {story['id']}: {repr(e)}")
                 if idx not in job["pages_failed"]:
                     job["pages_failed"].append(idx)
-                if (
-                    job.get("voice_mode") == "parent"
-                    and job.get("credit_charged")
-                    and not job.get("credit_refunded")
-                ):
-                    try:
-                        wallet = self.user_repo.get_parent_voice_wallet(user_id) or {}
-                        credits = int(wallet.get("credits", 0))
-                        self.user_repo.save_parent_voice_wallet(
-                            user_id,
-                            credits=credits + 1,
-                            intro_used=bool(wallet.get("intro_used", False)),
-                        )
-                        job["credit_refunded"] = True
-                        print(f"[NARRATION] Refunded parent voice credit for story {story['id']}")
-                    except Exception as refund_error:
-                        print(f"[NARRATION] Parent voice refund failed for story {story['id']}: {repr(refund_error)}")
                 job["pages_generating"] = []
                 job["status"] = "failed"
                 job["last_error"] = str(e)
@@ -493,14 +476,10 @@ class NarrationService:
                 jobId=job_id,
             )
 
-        wallet = None
-        wallet_credits = 0
-        wallet_intro_used = False
         if requested_voice == "parent_voice" and not subscription.is_premium:
-            wallet = self.user_repo.get_parent_voice_wallet(user_id) or {}
-            wallet_credits = int(wallet.get("credits", 0))
-            wallet_intro_used = bool(wallet.get("intro_used", False))
-            if wallet_credits <= 0:
+            wallet = self.user_repo.get_parent_voice_wallet(user_id)
+            credits = int(wallet.get("credits", 0))
+            if credits <= 0:
                 raise HTTPException(
                     status_code=403,
                     detail={
@@ -509,8 +488,12 @@ class NarrationService:
                         "upgrade_required": True,
                     },
                 )
+            self.user_repo.save_parent_voice_wallet(
+                user_id,
+                credits=credits - 1,
+                intro_used=bool(wallet.get("intro_used", False)),
+            )
 
-        voice_mode = "parent" if requested_voice == "parent_voice" else "standard"
         _chunked_jobs[job_id] = {
             "story_id": story["id"],
             "user_id": user_id,
@@ -522,24 +505,10 @@ class NarrationService:
             "pages_failed": [],
             "page_paths": {},
             "total_pages": total_pages,
-            "voice_mode": voice_mode,
+            "voice_mode": "parent" if requested_voice == "parent_voice" else "standard",
             "started_at": datetime.now(timezone.utc).isoformat(),
             "last_error": None,
-            "credit_charged": False,
-            "credit_refunded": False,
         }
-
-        try:
-            if requested_voice == "parent_voice" and not subscription.is_premium:
-                self.user_repo.save_parent_voice_wallet(
-                    user_id,
-                    credits=wallet_credits - 1,
-                    intro_used=wallet_intro_used,
-                )
-                _chunked_jobs[job_id]["credit_charged"] = True
-        except Exception:
-            _chunked_jobs.pop(job_id, None)
-            raise
 
         asyncio.create_task(
             self._process_chunked_job(
@@ -558,7 +527,7 @@ class NarrationService:
             currentPage=1,
             totalPages=total_pages,
             pagesReady=[],
-            voice_mode=voice_mode,
+            voice_mode="parent" if requested_voice == "parent_voice" else "standard",
             jobId=job_id,
         )
 
