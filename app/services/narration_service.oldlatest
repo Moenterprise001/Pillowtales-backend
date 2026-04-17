@@ -116,29 +116,6 @@ class NarrationService:
     def _storage_path(self, user_id: str, story_id: str, voice: str, language_code: str, page: int) -> str:
         return f"{self._storage_prefix(user_id, story_id, voice, language_code)}/page_{page}.mp3"
 
-
-    def _list_story_chunk_folders(self, user_id: str, story_id: str) -> list[str]:
-        prefix = f"{user_id}/{story_id}/chunked"
-        try:
-            items = self.story_repo.client.storage.from_("story-audio").list(prefix)
-        except Exception:
-            return []
-
-        names: list[str] = []
-        for item in items or []:
-            name = item.get("name") or ""
-            if name:
-                names.append(name)
-        return names
-
-    def _list_existing_parent_voice_languages(self, user_id: str, story_id: str) -> list[str]:
-        languages: set[str] = set()
-        for name in self._list_story_chunk_folders(user_id, story_id):
-            match = re.match(r"parent_voice_([a-z]{2})$", name.strip())
-            if match:
-                languages.add(match.group(1))
-        return sorted(languages)
-
     def _signed_url(self, storage_path: str, expires_in: int = 3600) -> Optional[str]:
         try:
             result = self.story_repo.client.storage.from_("story-audio").create_signed_url(storage_path, expires_in)
@@ -552,18 +529,6 @@ class NarrationService:
                         "error": "parent_voice_not_ready",
                         "message": "Parent Voice is not set up yet. Please record your voice first.",
                         "setup_required": True,
-                    },
-                )
-
-        if requested_voice == "parent_voice":
-            existing_parent_voice_languages = self._list_existing_parent_voice_languages(user_id, story["id"])
-            if existing_parent_voice_languages and language_code not in existing_parent_voice_languages:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "error": "parent_voice_language_locked",
-                        "message": "Parent Voice is locked to the original language for this story. Please purchase a new Parent Voice narration to switch language.",
-                        "locked_languages": existing_parent_voice_languages,
                     },
                 )
 
