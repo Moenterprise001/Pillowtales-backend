@@ -46,8 +46,12 @@ SUBSCRIPTION_TIERS: Dict[str, Dict[str, Any]] = {
     },
 }
 
-TESTER_EMAILS = {
-    'qa@pillowtales.app', 'test@pillowtales.app', 'qa@pillowtales.co', 'test@pillowtales.co',
-    'logintest@pillowtales.app', 'dev@pillowtales.app', 'dev@pillowtales.co',
-    'support@pillowtales.co', 'hello@pillowtales.co',
+PREMIUM_TESTER_EMAILS = {
+    'qa@pillowtales.co',
+    'pttest@pillowtales.co',
+}
+
+QA_PARENT_VOICE_BYPASS_EMAILS = {
+    'qa@pillowtales.co',
+    'pttest@pillowtales.co',
 }

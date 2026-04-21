@@ -537,7 +537,7 @@ class NarrationService:
                     status_code=403,
                     detail={
                         "error": "insufficient_parent_voice_credits",
-                        "message": "Parent Voice requires a credit or Premium access.",
+                        "message": "Parent Voice requires a credit or your first free story.",
                         "upgrade_required": True,
                         "credits": subscription.parent_voice_credits,
                         "intro_offer_available": subscription.parent_voice_intro_available,
@@ -622,7 +622,7 @@ class NarrationService:
             )
 
         credit_charged = False
-        if requested_voice == "parent_voice" and not subscription.is_premium:
+        if requested_voice == "parent_voice" and not subscription.parent_voice_bypass:
             wallet = self.user_repo.get_parent_voice_wallet(user_id)
             credits = int(wallet.get("credits", 0))
             if credits <= 0:

@@ -15,7 +15,6 @@ class SubscriptionResponse(BaseModel):
     narrations_remaining: Optional[int] = None
     parent_voice_credits: int = 0
     parent_voice_intro_available: bool = False
-    parent_voice_bypass: bool = False
 
 
 
