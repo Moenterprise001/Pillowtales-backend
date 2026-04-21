@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Optional
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class StoryCharacter(BaseModel):
@@ -21,7 +21,7 @@ class GenerateStoryRequest(BaseModel):
     storyLanguageCode: str = 'en'
     narrationLanguageCode: Optional[str] = None
     continueFromStoryId: Optional[str] = None
-    characters: Optional[List[StoryCharacter]] = None
+    characters: Optional[List[StoryCharacter]] = Field(default=None, max_length=3)
     customTheme: Optional[str] = None
     companionId: Optional[str] = None
     childNamePronunciation: Optional[str] = None
@@ -71,3 +71,25 @@ class StoryRecord(BaseModel):
     full_text: str
     is_favorite: bool = False
     created_at: str
+
+
+    @field_validator('characters')
+    @classmethod
+    def validate_characters(cls, value):
+        if value is None:
+            return value
+        cleaned = []
+        seen = set()
+        for character in value:
+            name = (character.name or '').strip()
+            relationship = (character.relationship or '').strip()
+            if not name or not relationship:
+                continue
+            key = (name.lower(), relationship.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(StoryCharacter(name=name, relationship=relationship))
+            if len(cleaned) >= 3:
+                break
+        return cleaned or None

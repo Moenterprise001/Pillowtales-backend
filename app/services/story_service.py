@@ -45,6 +45,21 @@ class StoryService:
         companion_line = 'No companion is required.'
         if companion:
             companion_line = f"Include {companion['name']} naturally in the story. They are described as: {companion['description']}. Make them warm, helpful, and bedtime-appropriate."
+
+        family_characters = request.characters or []
+        if family_characters:
+            character_lines = []
+            for character in family_characters[:3]:
+                character_lines.append(f"- {character.name} ({character.relationship})")
+            characters_block = '\n'.join(character_lines)
+            character_instruction = (
+                'Include these family members, friends, or pets naturally in the story if possible. '
+                'Make sure each named character appears clearly at least once without overwhelming the bedtime tone:\n'
+                f"{characters_block}"
+            )
+        else:
+            character_instruction = 'No extra family members or friends are required.'
+
         return f"""You are a premium children's bedtime storyteller.
 Write a calming, original bedtime story in {language_name}.
 
@@ -61,6 +76,7 @@ Rules:
 - Format for readability with 2-3 sentences per paragraph and visible breaks.
 - Create approximately {request.durationMin} minutes of read-aloud content.
 - {companion_line}
+- {character_instruction}
 Return ONLY valid JSON with this schema:
 {{"title": "...", "pages": ["...", "..."]}}"""
 
