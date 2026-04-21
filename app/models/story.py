@@ -27,6 +27,27 @@ class GenerateStoryRequest(BaseModel):
     childNamePronunciation: Optional[str] = None
     gender: str = 'neutral'
 
+    @field_validator('characters')
+    @classmethod
+    def validate_characters(cls, value: Optional[List[StoryCharacter]]):
+        if value is None:
+            return value
+        cleaned: List[StoryCharacter] = []
+        seen = set()
+        for character in value:
+            name = (character.name or '').strip()
+            relationship = (character.relationship or '').strip()
+            if not name or not relationship:
+                continue
+            key = (name.lower(), relationship.lower())
+            if key in seen:
+                continue
+            seen.add(key)
+            cleaned.append(StoryCharacter(name=name, relationship=relationship))
+            if len(cleaned) >= 3:
+                break
+        return cleaned or None
+
 
 class StoryResponse(BaseModel):
     storyId: str
@@ -71,25 +92,3 @@ class StoryRecord(BaseModel):
     full_text: str
     is_favorite: bool = False
     created_at: str
-
-
-    @field_validator('characters')
-    @classmethod
-    def validate_characters(cls, value):
-        if value is None:
-            return value
-        cleaned = []
-        seen = set()
-        for character in value:
-            name = (character.name or '').strip()
-            relationship = (character.relationship or '').strip()
-            if not name or not relationship:
-                continue
-            key = (name.lower(), relationship.lower())
-            if key in seen:
-                continue
-            seen.add(key)
-            cleaned.append(StoryCharacter(name=name, relationship=relationship))
-            if len(cleaned) >= 3:
-                break
-        return cleaned or None
