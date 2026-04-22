@@ -42,14 +42,9 @@ class StoryService:
     def _build_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
         effective_theme = request.customTheme or request.theme
-
         companion_line = 'No companion is required.'
         if companion:
-            companion_line = (
-                f"Include {companion['name']} naturally in the story. "
-                f"They are described as: {companion['description']}. "
-                "Make them warm, helpful, and bedtime-appropriate."
-            )
+            companion_line = f"Include {companion['name']} naturally in the story. They are described as: {companion['description']}. Make them warm, helpful, and bedtime-appropriate."
 
         family_characters = request.characters or []
         if family_characters:
@@ -58,42 +53,31 @@ class StoryService:
                 character_lines.append(f"- {character.name} ({character.relationship})")
             characters_block = '\n'.join(character_lines)
             character_instruction = (
-                "Include these family members, friends, or pets naturally in the story if possible. "
-                "Make sure each named character appears clearly at least once without overwhelming the bedtime tone:\n"
+                'Include these family members, friends, or pets naturally in the story if possible. '
+                'Make sure each named character appears clearly at least once without overwhelming the bedtime tone:\n'
                 f"{characters_block}"
             )
         else:
-            character_instruction = "No extra family members or friends are required."
+            character_instruction = 'No extra family members or friends are required.'
 
         return f"""You are a premium children's bedtime storyteller.
+Write a calming, original bedtime story in {language_name}.
 
-IMPORTANT LANGUAGE RULE:
-- The ENTIRE story MUST be written ONLY in {language_name}.
-- Do NOT use English unless the language is English.
-- Do NOT mix languages.
-- All narration, title, and dialogue MUST be in {language_name}.
-
-STORY REQUIREMENTS:
+Rules:
 - Child name: {request.childName}
 - Age: {request.age}
 - Theme: {effective_theme}
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
-- Tone: warm, magical, calming, bedtime-safe
-- Use simple, natural language suitable for reading aloud
-- No "The end"
-- End peacefully and softly
-- 2-3 sentences per paragraph
-- Approximate length: {request.durationMin} minutes
-
-COMPANION:
+- Keep the tone warm, magical, and safe.
+- Use simple narration that sounds natural when read aloud.
+- Do not use 'The end'.
+- End with a peaceful natural bedtime finish.
+- Format for readability with 2-3 sentences per paragraph and visible breaks.
+- Create approximately {request.durationMin} minutes of read-aloud content.
 - {companion_line}
-
-CHARACTERS:
 - {character_instruction}
-
-OUTPUT FORMAT (STRICT):
-Return ONLY valid JSON:
+Return ONLY valid JSON with this schema:
 {{"title": "...", "pages": ["...", "..."]}}"""
 
     async def generate_story(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Dict[str, Any]:
