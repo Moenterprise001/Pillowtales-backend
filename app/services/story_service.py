@@ -65,6 +65,25 @@ class StoryService:
         else:
             character_instruction = "No extra family members or friends are required."
 
+        if request.durationMin >= 11:
+            target_pages = "12-14"
+            paragraphs_per_page = "3-4"
+            sentence_range = "2-4"
+            target_words = "1300-1600"
+            pacing_note = (
+                "This should feel like a full, rich bedtime journey with gentle detail, "
+                "quiet discovery, and a soft, satisfying wind-down."
+            )
+        else:
+            target_pages = "10-12"
+            paragraphs_per_page = "3"
+            sentence_range = "2-4"
+            target_words = "900-1200"
+            pacing_note = (
+                "This should feel full and immersive rather than brief. "
+                "Take time with the middle of the story and the calming ending."
+            )
+
         return f"""You are a premium children's bedtime storyteller.
 
 IMPORTANT LANGUAGE RULE:
@@ -81,10 +100,24 @@ STORY REQUIREMENTS:
 - Calm level: {request.calmLevel}
 - Tone: warm, magical, calming, bedtime-safe
 - Use simple, natural language suitable for reading aloud
-- No "The end"
+- No scary content
+- No rushed ending
+- Do NOT write "The end"
 - End peacefully and softly
-- 2-3 sentences per paragraph
-- Approximate length: {request.durationMin} minutes
+
+LENGTH AND STRUCTURE REQUIREMENTS (IMPORTANT):
+- Approximate reading time target: {request.durationMin} minutes
+- Target total word count: {target_words} words
+- Target page count: {target_pages} pages
+- Each page should contain {paragraphs_per_page} full paragraphs
+- Each paragraph should contain {sentence_range} sentences
+- Avoid one-line or very short paragraphs
+- Every page should feel meaningful, gentle, and substantial
+- The story must NOT feel like a 3-minute short story
+- Keep the pacing calm, descriptive, and immersive
+- Spend enough time in the middle of the adventure before winding down
+- The final pages should slow down naturally into sleep rather than ending abruptly
+- {pacing_note}
 
 COMPANION:
 - {companion_line}
@@ -94,7 +127,13 @@ CHARACTERS:
 
 OUTPUT FORMAT (STRICT):
 Return ONLY valid JSON:
-{{"title": "...", "pages": ["...", "..."]}}"""
+{{"title": "...", "pages": ["page 1 text", "page 2 text", "page 3 text"]}}
+
+OUTPUT QUALITY RULES:
+- Return a complete bedtime story, not an outline
+- Do not include notes, markdown, or explanations outside the JSON
+- Make each page rich enough to narrate properly
+- Ensure the story length and page fullness match the requested reading time"""
 
     async def generate_story(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Dict[str, Any]:
         companion = self._select_companion(request, subscription)
