@@ -26,8 +26,8 @@ _chunked_jobs: dict[str, dict] = {}
 _parent_voice_ip_log: dict[str, list[float]] = {}
 _parent_voice_user_log: dict[str, list[float]] = {}
 
-CACHE_KEY_VERSION = "v3"
-AUDIO_STORAGE_VERSION = "v3"
+CACHE_KEY_VERSION = "v4"
+AUDIO_STORAGE_VERSION = "v4"
 
 
 class NarrationService:
@@ -325,41 +325,16 @@ class NarrationService:
         )
 
     async def _translate_text(self, text: str, target_lang: str) -> str:
-        # Simple translation using OpenAI Chat Completions via httpx
         if not text:
             return text
+
         lang = (target_lang or "en").lower()
-        if lang == "en":
-            return text
-        api_key = os.getenv("OPENAI_API_KEY")
-        if not api_key:
-            print(f"[TRANSLATE] OPENAI_API_KEY missing for target_lang={lang}")
-            raise RuntimeError("OPENAI_API_KEY not configured for translation")
-        try:
-            async with httpx.AsyncClient(timeout=30.0) as client:
-                resp = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "gpt-4o-mini",
-                        "messages": [
-                            {"role": "system", "content": f"Translate the following children's story text into {lang}. Keep it natural and child-friendly."},
-                            {"role": "user", "content": text},
-                        ],
-                        "temperature": 0.3,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                translated = data["choices"][0]["message"]["content"].strip()
-                print(f"[TRANSLATE] Translation success target_lang={lang} input_preview={text[:120]!r} output_preview={translated[:120]!r}")
-                return translated
-        except Exception as e:
-            print(f"[TRANSLATE] FAILED target_lang={lang}: {repr(e)} input_preview={text[:120]!r}")
-            raise RuntimeError(f"Translation failed for {lang}")
+
+        # PillowTales stories are already generated in the selected language.
+        # Do not translate again before TTS, or localized text can be rewritten
+        # into English and narrated incorrectly.
+        print(f"[TRANSLATE] Skipping translation — assuming story already in {lang}")
+        return text
 
     async def _generate_page_audio(
         self,
