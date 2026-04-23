@@ -26,6 +26,9 @@ _chunked_jobs: dict[str, dict] = {}
 _parent_voice_ip_log: dict[str, list[float]] = {}
 _parent_voice_user_log: dict[str, list[float]] = {}
 
+CACHE_KEY_VERSION = "v3"
+AUDIO_STORAGE_VERSION = "v3"
+
 
 class NarrationService:
     def __init__(self, story_repo: StoryRepository, user_repo: UserRepository, subscription_service: SubscriptionService):
@@ -108,10 +111,10 @@ class NarrationService:
         pronunciation: Optional[str] = None,
     ) -> str:
         safe_pronunciation = (pronunciation or "").strip().lower()
-        return f"{user_id}:{story_id}:{voice}:{language_code}:{safe_pronunciation}:v2"
+        return f"{user_id}:{story_id}:{voice}:{language_code}:{safe_pronunciation}:{CACHE_KEY_VERSION}"
 
     def _storage_prefix(self, user_id: str, story_id: str, voice: str, language_code: str) -> str:
-        return f"{user_id}/{story_id}/chunked/{voice}_{language_code}"
+        return f"{user_id}/{story_id}/chunked/{voice}_{language_code}_{AUDIO_STORAGE_VERSION}"
 
     def _storage_path(self, user_id: str, story_id: str, voice: str, language_code: str, page: int) -> str:
         return f"{self._storage_prefix(user_id, story_id, voice, language_code)}/page_{page}.mp3"
@@ -134,7 +137,7 @@ class NarrationService:
     def _list_existing_parent_voice_languages(self, user_id: str, story_id: str) -> list[str]:
         languages: set[str] = set()
         for name in self._list_story_chunk_folders(user_id, story_id):
-            match = re.match(r"parent_voice_([a-z]{2})$", name.strip())
+            match = re.match(r"parent_voice_([a-z]{2})(?:_v\d+)?$", name.strip())
             if match:
                 languages.add(match.group(1))
         return sorted(languages)
@@ -330,8 +333,8 @@ class NarrationService:
             return text
         api_key = os.getenv("OPENAI_API_KEY")
         if not api_key:
-            print(f"[TRANSLATE] OPENAI_API_KEY missing, returning original text for target_lang={lang}")
-            return text
+            print(f"[TRANSLATE] OPENAI_API_KEY missing for target_lang={lang}")
+            raise RuntimeError("OPENAI_API_KEY not configured for translation")
         try:
             async with httpx.AsyncClient(timeout=30.0) as client:
                 resp = await client.post(
@@ -355,8 +358,8 @@ class NarrationService:
                 print(f"[TRANSLATE] Translation success target_lang={lang} input_preview={text[:120]!r} output_preview={translated[:120]!r}")
                 return translated
         except Exception as e:
-            print(f"[TRANSLATE] Translation failed target_lang={lang}: {repr(e)}; returning original text preview={text[:120]!r}")
-            return text
+            print(f"[TRANSLATE] FAILED target_lang={lang}: {repr(e)} input_preview={text[:120]!r}")
+            raise RuntimeError(f"Translation failed for {lang}")
 
     async def _generate_page_audio(
         self,
@@ -375,9 +378,9 @@ class NarrationService:
         page_text = self._clean_page_text(page_text)
         # Translate BEFORE TTS if needed
         translated = await self._translate_text(page_text, language_code)
-        print(f"[NARRATION] Generating page {page} with voice={voice} language={language_code}")
-        print(f"[NARRATION] Original page text preview={page_text[:160]!r}")
-        print(f"[NARRATION] Translated text preview for {language_code}={translated[:160]!r}")
+        print(f"[NARRATION] Page {page} voice={voice} language={language_code}")
+        print(f"[NARRATION] Original text: {page_text[:150]!r}")
+        print(f"[NARRATION] Translated text ({language_code}): {translated[:150]!r}")
         tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
 
