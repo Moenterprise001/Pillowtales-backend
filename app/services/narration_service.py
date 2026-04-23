@@ -26,9 +26,6 @@ _chunked_jobs: dict[str, dict] = {}
 _parent_voice_ip_log: dict[str, list[float]] = {}
 _parent_voice_user_log: dict[str, list[float]] = {}
 
-CACHE_KEY_VERSION = "v4"
-AUDIO_STORAGE_VERSION = "v4"
-
 
 class NarrationService:
     def __init__(self, story_repo: StoryRepository, user_repo: UserRepository, subscription_service: SubscriptionService):
@@ -111,10 +108,10 @@ class NarrationService:
         pronunciation: Optional[str] = None,
     ) -> str:
         safe_pronunciation = (pronunciation or "").strip().lower()
-        return f"{user_id}:{story_id}:{voice}:{language_code}:{safe_pronunciation}:{CACHE_KEY_VERSION}"
+        return f"{user_id}:{story_id}:{voice}:{language_code}:{safe_pronunciation}:v5"
 
     def _storage_prefix(self, user_id: str, story_id: str, voice: str, language_code: str) -> str:
-        return f"{user_id}/{story_id}/chunked/{voice}_{language_code}_{AUDIO_STORAGE_VERSION}"
+        return f"{user_id}/{story_id}/chunked/{voice}_{language_code}_v5"
 
     def _storage_path(self, user_id: str, story_id: str, voice: str, language_code: str, page: int) -> str:
         return f"{self._storage_prefix(user_id, story_id, voice, language_code)}/page_{page}.mp3"
@@ -137,7 +134,7 @@ class NarrationService:
     def _list_existing_parent_voice_languages(self, user_id: str, story_id: str) -> list[str]:
         languages: set[str] = set()
         for name in self._list_story_chunk_folders(user_id, story_id):
-            match = re.match(r"parent_voice_([a-z]{2})(?:_v\d+)?$", name.strip())
+            match = re.match(r"parent_voice_([a-z]{2})$", name.strip())
             if match:
                 languages.add(match.group(1))
         return sorted(languages)
@@ -324,17 +321,63 @@ class NarrationService:
             {"content-type": "audio/mpeg", "upsert": "true"},
         )
 
-    async def _translate_text(self, text: str, target_lang: str) -> str:
+
+    async def _translate_text(self, text: str, target_lang: str, source_lang: Optional[str] = None) -> str:
         if not text:
             return text
 
-        lang = (target_lang or "en").lower()
+        target = (target_lang or "en").lower()
+        source = (source_lang or "").lower()
 
-        # PillowTales stories are already generated in the selected language.
-        # Do not translate again before TTS, or localized text can be rewritten
-        # into English and narrated incorrectly.
-        print(f"[TRANSLATE] Skipping translation — assuming story already in {lang}")
-        return text
+        if source and source == target:
+            print(f"[TRANSLATE] Skipping translation source_lang={source} target_lang={target}")
+            return text
+
+        if not source and target == "en":
+            return text
+
+        api_key = os.getenv("OPENAI_API_KEY")
+        if not api_key:
+            print(f"[TRANSLATE] OPENAI_API_KEY missing for source_lang={source or 'unknown'} target_lang={target}")
+            raise RuntimeError("OPENAI_API_KEY not configured for translation")
+
+        try:
+            system_prompt = (
+                f"Translate the following children's story text from {source or 'the original language'} into {target}. "
+                "Keep it natural, child-friendly, and preserve names, tone, and meaning. "
+                "Return only the translated text."
+            )
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(
+                    "https://api.openai.com/v1/chat/completions",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "gpt-4o-mini",
+                        "messages": [
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": text},
+                        ],
+                        "temperature": 0.2,
+                    },
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                translated = data["choices"][0]["message"]["content"].strip()
+                print(
+                    f"[TRANSLATE] Translation success source_lang={source or 'unknown'} "
+                    f"target_lang={target} input_preview={text[:120]!r} output_preview={translated[:120]!r}"
+                )
+                return translated
+        except Exception as e:
+            print(
+                f"[TRANSLATE] FAILED source_lang={source or 'unknown'} "
+                f"target_lang={target}: {repr(e)} input_preview={text[:120]!r}"
+            )
+            raise RuntimeError(f"Translation failed from {source or 'unknown'} to {target}")
+
 
     async def _generate_page_audio(
         self,
@@ -349,13 +392,13 @@ class NarrationService:
         parent_voice_id: Optional[str],
         child_name: Optional[str] = None,
         child_name_pronunciation: Optional[str] = None,
+        story_language_code: Optional[str] = None,
     ) -> tuple[str, str]:
         page_text = self._clean_page_text(page_text)
-        # Translate BEFORE TTS if needed
-        translated = await self._translate_text(page_text, language_code)
-        print(f"[NARRATION] Page {page} voice={voice} language={language_code}")
-        print(f"[NARRATION] Original text: {page_text[:150]!r}")
-        print(f"[NARRATION] Translated text ({language_code}): {translated[:150]!r}")
+        translated = await self._translate_text(page_text, language_code, story_language_code)
+        print(f"[NARRATION] Generating page {page} with voice={voice} language={language_code}")
+        print(f"[NARRATION] Original page text preview={page_text[:160]!r}")
+        print(f"[NARRATION] Translated text preview for {language_code}={translated[:160]!r}")
         tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
 
@@ -432,6 +475,7 @@ class NarrationService:
                     parent_voice_id=parent_voice_id,
                     child_name=story.get("child_name"),
                     child_name_pronunciation=story.get("child_name_pronunciation"),
+                    story_language_code=self.resolve_language(story, story.get("language") or story.get("language_code") or story.get("story_language") or story.get("preferred_language")),
                 )
 
                 job["voice_mode"] = actual_mode
