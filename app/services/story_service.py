@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import random
+import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
@@ -140,20 +141,38 @@ OUTPUT QUALITY RULES:
 - The JSON pages array must contain exactly {target_pages} strings."""
 
     async def generate_story(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Dict[str, Any]:
+        start_total = time.time()
+        print("[PERF] ========================================")
+        print(f"[PERF] generate_story START lang={request.storyLanguageCode} duration={request.durationMin}")
+
         companion = self._select_companion(request, subscription)
+        print(f"[PERF] companion selected in {time.time() - start_total:.2f}s has_companion={bool(companion)}")
+
         if not self.model:
             pages = [
                 f"Once upon a time, {request.childName} discovered a quiet little path full of wonder.",
                 f"The path led to a gentle adventure about {request.customTheme or request.theme}, where kindness mattered most.",
                 f"Soon, everything grew peaceful again, and {request.childName} felt calm enough for sleep.",
             ]
+            print(f"[PERF] fallback story returned in {time.time() - start_total:.2f}s")
+            print("[PERF] ========================================")
             return {'title': f"{request.childName}'s Bedtime Adventure", 'pages': postprocess_story_pages(pages), 'companion': companion}
 
-        response = self.model.generate_content(self._build_prompt(request, companion))
+        t_prompt = time.time()
+        prompt = self._build_prompt(request, companion)
+        print(f"[PERF] prompt built in {time.time() - t_prompt:.2f}s chars={len(prompt)}")
+
+        t_gemini = time.time()
+        response = self.model.generate_content(prompt)
+        print(f"[PERF] Gemini generate_content took {time.time() - t_gemini:.2f}s")
+
         response_text = getattr(response, 'text', None)
         if not response_text or not isinstance(response_text, str):
+            print(f"[PERF] generate_story FAILED no response text total={time.time() - start_total:.2f}s")
+            print("[PERF] ========================================")
             raise HTTPException(status_code=500, detail='Failed to generate story')
 
+        t_clean = time.time()
         cleaned = response_text.strip()
         if cleaned.startswith('```json'):
             cleaned = cleaned[7:]
@@ -161,11 +180,20 @@ OUTPUT QUALITY RULES:
             cleaned = cleaned[3:]
         if cleaned.endswith('```'):
             cleaned = cleaned[:-3]
+        print(f"[PERF] cleaning took {time.time() - t_clean:.2f}s response_chars={len(response_text)}")
 
+        t_parse = time.time()
         story_data = json.loads(cleaned.strip())
+        print(f"[PERF] JSON parse took {time.time() - t_parse:.2f}s")
+
         if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
+            print(f"[PERF] generate_story FAILED invalid format total={time.time() - start_total:.2f}s")
+            print("[PERF] ========================================")
             raise HTTPException(status_code=500, detail='Invalid story format returned by AI')
+
+        t_post = time.time()
         pages = postprocess_story_pages(story_data.get('pages', []))
+        print(f"[PERF] postprocess took {time.time() - t_post:.2f}s pages_before_trim={len(pages)}")
 
         # Hard guard for production performance: Gemini may occasionally exceed
         # the requested page count. Trim to the intended count so narration cost,
@@ -173,6 +201,13 @@ OUTPUT QUALITY RULES:
         intended_page_count = 9 if request.durationMin >= 11 else 7
         story_data['pages'] = pages[:intended_page_count]
         story_data['companion'] = companion
+
+        total_words = sum(len(str(page).split()) for page in story_data['pages'])
+        print(
+            f"[PERF] generate_story DONE total={time.time() - start_total:.2f}s "
+            f"lang={request.storyLanguageCode} pages={len(story_data['pages'])} words={total_words}"
+        )
+        print("[PERF] ========================================")
         return story_data
 
     async def extract_metadata(self, title: str, full_text: str) -> Dict[str, Any]:
