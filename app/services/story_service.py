@@ -66,19 +66,19 @@ class StoryService:
             character_instruction = "No extra family members or friends are required."
 
         if request.durationMin >= 11:
-            target_pages = "12-14"
-            paragraphs_per_page = "3-4"
+            target_pages = "10"
+            paragraphs_per_page = "1"
             sentence_range = "2-4"
-            target_words = "1300-1600"
+            target_words = "750-950"
             pacing_note = (
                 "This should feel like a full, rich bedtime journey with gentle detail, "
                 "quiet discovery, and a soft, satisfying wind-down."
             )
         else:
-            target_pages = "10-12"
-            paragraphs_per_page = "3"
+            target_pages = "8"
+            paragraphs_per_page = "1"
             sentence_range = "2-4"
-            target_words = "900-1200"
+            target_words = "550-750"
             pacing_note = (
                 "This should feel full and immersive rather than brief. "
                 "Take time with the middle of the story and the calming ending."
@@ -111,9 +111,9 @@ LENGTH AND STRUCTURE REQUIREMENTS (IMPORTANT):
 - Target page count: {target_pages} pages
 - Each page should contain {paragraphs_per_page} full paragraphs
 - Each paragraph should contain {sentence_range} sentences
-- Avoid one-line or very short paragraphs
-- Every page should feel meaningful, gentle, and substantial
-- The story must NOT feel like a 3-minute short story
+- Each page must be one clear paragraph only
+- Do not exceed the target page count
+- Every page should feel meaningful, gentle, and concise
 - Keep the pacing calm, descriptive, and immersive
 - Spend enough time in the middle of the adventure before winding down
 - The final pages should slow down naturally into sleep rather than ending abruptly

@@ -25,6 +25,10 @@ class NarrationRequest(BaseModel):
         default=None,
         validation_alias=AliasChoices('child_name_pronunciation', 'childNamePronunciation'),
     )
+    start_page: Optional[int] = Field(
+        default=None,
+        validation_alias=AliasChoices('start_page', 'startPage', 'resume_from_page', 'resumeFromPage'),
+    )
 
     # Backward-compatible properties for existing service code
     @property
@@ -46,6 +50,10 @@ class NarrationRequest(BaseModel):
     @property
     def lang(self) -> Optional[str]:
         return self.narration_language_code
+
+    @property
+    def startPage(self) -> Optional[int]:
+        return self.start_page
 
 
 class NarrationResponse(BaseModel):

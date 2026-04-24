@@ -446,6 +446,7 @@ class NarrationService:
         voice: str,
         language_code: str,
         parent_voice_id: Optional[str],
+        start_page: int = 1,
     ) -> None:
         pages = story.get("pages") or []
         job = _chunked_jobs[job_id]
@@ -461,7 +462,24 @@ class NarrationService:
         initial_voice_mode = "parent" if voice == "parent_voice" and parent_voice_id else "standard"
         job["voice_mode"] = initial_voice_mode
 
-        for idx, page_text in enumerate(pages, start=1):
+        safe_start_page = max(1, min(int(start_page or 1), len(pages)))
+        page_order = [safe_start_page] + [i for i in range(1, len(pages) + 1) if i != safe_start_page]
+        job["priority_page"] = safe_start_page
+
+        for idx in page_order:
+            storage_path = self._storage_path(user_id, story["id"], voice, language_code, idx)
+            if self._signed_url(storage_path):
+                if idx not in job["pages_ready"]:
+                    job["pages_ready"].append(idx)
+                job["page_paths"][idx] = storage_path
+                job["pages_ready"] = sorted(job["pages_ready"])
+                if idx in job["pages_failed"]:
+                    job["pages_failed"].remove(idx)
+                job["last_error"] = None
+                job["status"] = "page_ready" if idx < len(pages) else "all_ready"
+                await asyncio.sleep(0.05)
+                continue
+            page_text = pages[idx - 1]
             job["pages_generating"] = [idx]
             try:
                 storage_path, actual_mode = await self._generate_page_audio(
@@ -597,6 +615,7 @@ class NarrationService:
 
         cache_voice = requested_voice if requested_voice != "parent_voice" else "parent_voice"
         total_pages = len(story.get("pages") or [])
+        requested_start_page = max(1, min(int(request.startPage or 1), total_pages)) if total_pages > 0 else 1
         job_id = self._cache_key(
             user_id,
             story["id"],
@@ -610,17 +629,17 @@ class NarrationService:
         # Only trust cache when the full page set exists for this narrator/language.
         # This prevents mixed-language playback caused by partial stale caches.
         if ready_pages and len(ready_pages) == total_pages:
-            page1_path = self._storage_path(user_id, story["id"], cache_voice, language_code, 1)
-            page1_url = self._signed_url(page1_path)
+            start_path = self._storage_path(user_id, story["id"], cache_voice, language_code, requested_start_page)
+            start_url = self._signed_url(start_path)
             existing_job = _chunked_jobs.get(job_id)
             return NarrationResponse(
                 status="all_ready",
-                audioUrl=page1_url,
-                pageAudioUrl=page1_url,
-                currentPage=1,
+                audioUrl=start_url,
+                pageAudioUrl=start_url,
+                currentPage=requested_start_page,
                 totalPages=total_pages,
                 pagesReady=ready_pages,
-                message=f"Page 1 ready. {len(ready_pages)}/{total_pages} pages complete.",
+                message=f"Page {requested_start_page} ready. {len(ready_pages)}/{total_pages} pages complete.",
                 voice_mode=(
                     existing_job.get("voice_mode")
                     if existing_job
@@ -631,19 +650,21 @@ class NarrationService:
 
         existing = _chunked_jobs.get(job_id)
         if existing and existing.get("status") in {"generating", "page_ready", "all_ready"}:
-            page1_storage = existing.get("page_paths", {}).get(1)
-            page1_url = self._signed_url(page1_storage) if page1_storage else None
+            start_storage = existing.get("page_paths", {}).get(requested_start_page)
+            start_url = self._signed_url(start_storage) if start_storage else None
+            if requested_start_page not in existing.get("pages_ready", []) and requested_start_page not in existing.get("pages_generating", []):
+                existing["priority_page"] = requested_start_page
             return NarrationResponse(
-                status="page_ready" if 1 in existing.get("pages_ready", []) else "generating",
-                audioUrl=page1_url,
-                pageAudioUrl=page1_url,
-                currentPage=1,
+                status="page_ready" if requested_start_page in existing.get("pages_ready", []) else "generating",
+                audioUrl=start_url,
+                pageAudioUrl=start_url,
+                currentPage=requested_start_page,
                 totalPages=existing["total_pages"],
                 pagesReady=existing.get("pages_ready", []),
                 message=(
-                    "Page 1 is being generated..."
-                    if 1 not in existing.get("pages_ready", [])
-                    else f"Page 1 ready. {len(existing.get('pages_ready', []))}/{existing['total_pages']} pages complete."
+                    f"Page {requested_start_page} is being generated..."
+                    if requested_start_page not in existing.get("pages_ready", [])
+                    else f"Page {requested_start_page} ready. {len(existing.get('pages_ready', []))}/{existing['total_pages']} pages complete."
                 ),
                 voice_mode=existing.get("voice_mode"),
                 jobId=job_id,
@@ -677,7 +698,7 @@ class NarrationService:
             "language_code": language_code,
             "status": "generating",
             "pages_ready": [],
-            "pages_generating": [1],
+            "pages_generating": [requested_start_page],
             "pages_failed": [],
             "page_paths": {},
             "total_pages": total_pages,
@@ -686,6 +707,7 @@ class NarrationService:
             "last_error": None,
             "credit_charged": credit_charged,
             "credit_refunded": False,
+            "priority_page": requested_start_page,
         }
 
         asyncio.create_task(
@@ -696,13 +718,14 @@ class NarrationService:
                 voice=cache_voice,
                 language_code=language_code,
                 parent_voice_id=parent_voice_id,
+                start_page=requested_start_page,
             )
         )
 
         return NarrationResponse(
             status="generating",
-            message="Generating Page 1 narration... (~10-15 seconds)",
-            currentPage=1,
+            message=f"Generating page {requested_start_page} narration... (~10-15 seconds)",
+            currentPage=requested_start_page,
             totalPages=total_pages,
             pagesReady=[],
             voice_mode="parent" if requested_voice == "parent_voice" else "standard",
