@@ -65,23 +65,28 @@ class StoryService:
         else:
             character_instruction = "No extra family members or friends are required."
 
+        # Production performance target:
+        # Keep stories concise enough for fast generation, affordable narration,
+        # and reliable sentence/page sync in the mobile reader.
         if request.durationMin >= 11:
-            target_pages = "10"
+            target_pages = "9"
             paragraphs_per_page = "1"
-            sentence_range = "2-4"
-            target_words = "750-950"
+            sentence_range = "2-3"
+            target_words = "650-800"
+            max_words_per_page = "90"
             pacing_note = (
-                "This should feel like a full, rich bedtime journey with gentle detail, "
-                "quiet discovery, and a soft, satisfying wind-down."
+                "Create a complete but concise bedtime journey. Avoid long descriptions, "
+                "side quests, or extra scenes. Keep the ending calm and satisfying."
             )
         else:
-            target_pages = "8"
+            target_pages = "7"
             paragraphs_per_page = "1"
-            sentence_range = "2-4"
-            target_words = "550-750"
+            sentence_range = "2-3"
+            target_words = "450-600"
+            max_words_per_page = "85"
             pacing_note = (
-                "This should feel full and immersive rather than brief. "
-                "Take time with the middle of the story and the calming ending."
+                "Create a gentle, concise bedtime story with a clear beginning, "
+                "middle, and peaceful ending. Do not pad the story."
             )
 
         return f"""You are a premium children's bedtime storyteller.
@@ -105,18 +110,16 @@ STORY REQUIREMENTS:
 - Do NOT write "The end"
 - End peacefully and softly
 
-LENGTH AND STRUCTURE REQUIREMENTS (IMPORTANT):
-- Approximate reading time target: {request.durationMin} minutes
-- Target total word count: {target_words} words
-- Target page count: {target_pages} pages
-- Each page should contain {paragraphs_per_page} full paragraphs
-- Each paragraph should contain {sentence_range} sentences
-- Each page must be one clear paragraph only
-- Do not exceed the target page count
-- Every page should feel meaningful, gentle, and concise
-- Keep the pacing calm, descriptive, and immersive
-- Spend enough time in the middle of the adventure before winding down
-- The final pages should slow down naturally into sleep rather than ending abruptly
+LENGTH AND STRUCTURE REQUIREMENTS (STRICT PERFORMANCE RULES):
+- EXACTLY {target_pages} pages. Do not return more or fewer pages.
+- EXACTLY {paragraphs_per_page} short paragraph per page.
+- EACH paragraph MUST contain {sentence_range} short sentences.
+- TOTAL story length MUST be {target_words} words.
+- DO NOT exceed {max_words_per_page} words on any single page.
+- Use short, simple sentences suitable for spoken bedtime narration.
+- Avoid long descriptions, repeated phrases, extra subplots, or unnecessary scenes.
+- Every page must move the story forward gently.
+- The final page must end peacefully and softly.
 - {pacing_note}
 
 COMPANION:
@@ -132,8 +135,9 @@ Return ONLY valid JSON:
 OUTPUT QUALITY RULES:
 - Return a complete bedtime story, not an outline
 - Do not include notes, markdown, or explanations outside the JSON
-- Make each page rich enough to narrate properly
-- Ensure the story length and page fullness match the requested reading time"""
+- Keep the story concise. Speed and predictability are more important than extra detail.
+- If unsure, write fewer words rather than more words.
+- The JSON pages array must contain exactly {target_pages} strings."""
 
     async def generate_story(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Dict[str, Any]:
         companion = self._select_companion(request, subscription)
@@ -161,7 +165,13 @@ OUTPUT QUALITY RULES:
         story_data = json.loads(cleaned.strip())
         if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
             raise HTTPException(status_code=500, detail='Invalid story format returned by AI')
-        story_data['pages'] = postprocess_story_pages(story_data.get('pages', []))
+        pages = postprocess_story_pages(story_data.get('pages', []))
+
+        # Hard guard for production performance: Gemini may occasionally exceed
+        # the requested page count. Trim to the intended count so narration cost,
+        # timing, and reader sync remain predictable.
+        intended_page_count = 9 if request.durationMin >= 11 else 7
+        story_data['pages'] = pages[:intended_page_count]
         story_data['companion'] = companion
         return story_data
 
