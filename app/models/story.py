@@ -53,6 +53,9 @@ class StoryResponse(BaseModel):
     storyId: str
     title: str
     pages: List[str]
+    generation_status: str = 'complete'
+    expected_pages: int = 7
+    generation_error: Optional[str] = None
 
 
 class UpdateStoryRequest(BaseModel):
@@ -90,5 +93,8 @@ class StoryRecord(BaseModel):
     child_name_pronunciation: Optional[str] = None
     pages: List[str]
     full_text: str
+    generation_status: str = 'complete'
+    expected_pages: int = 7
+    generation_error: Optional[str] = None
     is_favorite: bool = False
     created_at: str

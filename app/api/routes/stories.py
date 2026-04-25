@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -24,8 +25,10 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         raise HTTPException(status_code=404, detail='User profile not found')
     subscription = subscription_service.get_subscription(user_id, profile.get('email'))
     story_service.validate_story_limits(user_id, subscription)
-    story_data = await story_service.generate_story(request, subscription)
+    story_data = await story_service.generate_story_first_page(request, subscription)
     full_text = '\n\n'.join(story_data['pages'])
+    generation_status = story_data.get('generation_status', 'partial')
+    expected_pages = story_data.get('expected_pages', len(story_data.get('pages') or []))
     record = {
         'user_id': user_id,
         'title': story_data['title'],
@@ -46,15 +49,45 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         'is_favorite': False,
         'companion_id': story_data.get('companion', {}).get('id') if story_data.get('companion') else None,
         'companion_name': story_data.get('companion', {}).get('name') if story_data.get('companion') else None,
+        'generation_status': generation_status,
+        'expected_pages': expected_pages,
+        'generation_error': None,
         'created_at': datetime.now(timezone.utc).isoformat(),
     }
     saved_story = story_repo.insert(record)
-    metadata = await story_service.extract_metadata(story_data['title'], full_text)
-    try:
-        story_repo.update(saved_story['id'], user_id, {'story_summary': metadata.get('summary', ''), 'characters': metadata.get('characters', []), 'setting': metadata.get('setting', '')})
-    except Exception:
-        pass
-    return StoryResponse(storyId=saved_story['id'], title=story_data['title'], pages=story_data['pages'])
+
+    if generation_status == 'partial':
+        asyncio.create_task(story_service.complete_story_background(
+            request=request,
+            user_id=user_id,
+            story_id=saved_story['id'],
+            title=story_data['title'],
+            current_pages=story_data['pages'],
+            companion=story_data.get('companion'),
+            expected_pages=expected_pages,
+        ))
+    else:
+        metadata = await story_service.extract_metadata(story_data['title'], full_text)
+        try:
+            story_repo.update(saved_story['id'], user_id, {
+                'story_summary': metadata.get('summary', ''),
+                'characters': metadata.get('characters', []),
+                'setting': metadata.get('setting', ''),
+                'generation_status': 'complete',
+                'expected_pages': expected_pages,
+                'generation_error': None,
+            })
+        except Exception:
+            pass
+
+    return StoryResponse(
+        storyId=saved_story['id'],
+        title=story_data['title'],
+        pages=story_data['pages'],
+        generation_status=generation_status,
+        expected_pages=expected_pages,
+        generation_error=None,
+    )
 
 
 @router.get('/stories')
