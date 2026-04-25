@@ -17,7 +17,7 @@ class GenerateStoryRequest(BaseModel):
     theme: str
     moral: str
     calmLevel: str
-    durationMin: int = Field(ge=5, le=20)
+    durationMin: int = Field(default=8, ge=5, le=20)
     storyLanguageCode: str = 'en'
     narrationLanguageCode: Optional[str] = None
     continueFromStoryId: Optional[str] = None

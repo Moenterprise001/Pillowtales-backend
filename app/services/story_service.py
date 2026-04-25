@@ -78,30 +78,18 @@ class StoryService:
         else:
             character_instruction = "No extra family members or friends are required."
 
-        # Production narration target:
-        # Lean Chunking makes the first page fast, but the complete story still
-        # needs enough words to feel like a proper bedtime narration. Keep page
-        # counts predictable while asking Gemini for substantial page content.
-        if request.durationMin >= 11:
-            target_pages = "9"
-            paragraphs_per_page = "2-3"
-            sentence_range = "6-9"
-            target_words = "1400-1700"
-            max_words_per_page = "210"
-            pacing_note = (
-                "Create a rich but calm bedtime journey with enough detail for a proper longer narration. "
-                "Include gentle scene development and emotional progression, without scary content or rushed pacing."
-            )
-        else:
-            target_pages = "7"
-            paragraphs_per_page = "2-3"
-            sentence_range = "6-9"
-            target_words = "1050-1300"
-            max_words_per_page = "200"
-            pacing_note = (
-                "Create a substantial bedtime story suitable for several minutes of narration. "
-                "Do not compress the plot into a short summary; let each page breathe with gentle detail."
-            )
+        # Standard bedtime narration target:
+        # The product now uses one optimal story length. Age controls complexity;
+        # duration is kept as an internal compatibility field only.
+        target_pages = "7"
+        paragraphs_per_page = "2"
+        sentence_range = "5-7"
+        target_words = "850-1100"
+        max_words_per_page = "175"
+        pacing_note = (
+            "Create a substantial but calm bedtime story suitable for an approximately eight-minute bedtime experience. "
+            "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment."
+        )
 
         return f"""You are a premium children's bedtime storyteller.
 
@@ -131,7 +119,7 @@ LENGTH AND STRUCTURE REQUIREMENTS (STRICT PERFORMANCE RULES):
 - EACH page should contain {paragraphs_per_page} gentle paragraphs.
 - EACH page should contain approximately {sentence_range} bedtime-friendly sentences in total.
 - TOTAL story length MUST be approximately {target_words} words.
-- Each page should be substantial, normally 140-190 words, but DO NOT exceed {max_words_per_page} words on any single page.
+- Each page should be substantial, normally 120-165 words, but DO NOT exceed {max_words_per_page} words on any single page.
 - Use simple, natural sentences suitable for spoken bedtime narration.
 - Do not make pages too short. Avoid summarising scenes in only one or two sentences.
 - Every page must move the story forward gently and include one memorable story beat.
@@ -158,7 +146,7 @@ OUTPUT QUALITY RULES:
 
 
     def _intended_page_count(self, request: GenerateStoryRequest) -> int:
-        return 9 if request.durationMin >= 11 else 7
+        return 7
 
     def _clean_json_response(self, response_text: str) -> Dict[str, Any]:
         cleaned = response_text.strip()
@@ -222,13 +210,17 @@ STORY REQUIREMENTS:
 - Use simple, natural language suitable for reading aloud
 - No scary content
 
-{self._storycraft_rules()}
+PAGE 1 STORY QUALITY RULES:
+- Open with a warm, magical storybook moment that feels inviting and premium.
+- Establish a clear emotional hook and a promise of gentle adventure.
+- Let the child notice or choose something meaningful, rather than only describing the scene.
+- Keep it original, bedtime-safe, and suitable for reading aloud.
 
 PAGE 1 REQUIREMENTS:
 - Write ONLY the title and page 1.
-- Page 1 should be slightly longer than the other pages: approximately 170-220 words.
-- Page 1 should contain 2-3 gentle paragraphs and around 7-10 bedtime-friendly sentences.
-- Page 1 should establish the child, setting, companion if any, and emotional hook with enough detail to feel like a real opening chapter.
+- Page 1 should be a rich but lean opening: approximately 120-160 words.
+- Page 1 should contain 1-2 gentle paragraphs and around 4-6 bedtime-friendly sentences.
+- Page 1 should establish the child, setting, companion if any, and emotional hook without trying to tell the whole story.
 - Page 1 should open with wonder and a clear promise of adventure, not a short summary.
 - Do not resolve the story.
 - Do not make page 1 feel complete.
@@ -276,7 +268,7 @@ ORIGINAL STORY REQUIREMENTS:
 - No rushed ending
 - Do NOT write "The end"
 - End peacefully and softly on the final page.
-- The complete story should feel suitable for approximately {request.durationMin} minutes of narration.
+- The complete story should feel suitable for an approximately eight-minute bedtime experience.
 
 {self._storycraft_rules()}
 
@@ -290,8 +282,8 @@ CONTINUATION REQUIREMENTS:
 - Do not recap page 1.
 - Do not contradict page 1.
 - Each page should contain 2-3 gentle paragraphs.
-- Each page should be approximately 140-190 words.
-- Each page should contain around 6-9 bedtime-friendly sentences in total.
+- Each page should be approximately 120-170 words.
+- Each page should contain around 5-7 bedtime-friendly sentences in total.
 - Do not make pages too short; each page should feel like a complete story moment, not a summary.
 - Every page must move the story forward gently and include one memorable story beat.
 - The moral should be discovered through the child's actions, not explained like a lesson.
@@ -509,7 +501,7 @@ OUTPUT QUALITY RULES:
         # Hard guard for production performance: Gemini may occasionally exceed
         # the requested page count. Trim to the intended count so narration cost,
         # timing, and reader sync remain predictable.
-        intended_page_count = 9 if request.durationMin >= 11 else 7
+        intended_page_count = 7
         story_data['pages'] = pages[:intended_page_count]
         story_data['companion'] = companion
 
