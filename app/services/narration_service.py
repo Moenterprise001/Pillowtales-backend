@@ -650,12 +650,57 @@ class NarrationService:
 
         existing = _chunked_jobs.get(job_id)
         if existing and existing.get("status") in {"generating", "page_ready", "all_ready"}:
+            # Lean story generation can create page 1 first, then expand the same story
+            # to 7 pages later. If narration was prewarmed while only page 1 existed,
+            # the existing job may say all_ready for total_pages=1. Keep the job, but
+            # expand its total page count and restart one worker for any missing pages.
+            existing_total_pages = int(existing.get("total_pages") or 0)
+            if total_pages > existing_total_pages:
+                print(
+                    f"[NARRATION] Expanding existing chunked job story_id={story['id']} "
+                    f"from total_pages={existing_total_pages} to total_pages={total_pages}"
+                )
+                existing["total_pages"] = total_pages
+                existing["status"] = "page_ready"
+
+            current_ready_pages = sorted(set(self._list_ready_pages(user_id, story["id"], cache_voice, language_code)))
+            if current_ready_pages:
+                existing["pages_ready"] = sorted(set([*existing.get("pages_ready", []), *current_ready_pages]))
+
+            existing_ready = set(existing.get("pages_ready", []))
+            existing_generating = set(existing.get("pages_generating", []))
+            missing_pages = [i for i in range(1, total_pages + 1) if i not in existing_ready]
+            worker_should_start = bool(missing_pages) and not existing_generating and not existing.get("last_error")
+
+            if requested_start_page not in existing_ready and requested_start_page not in existing_generating:
+                existing["priority_page"] = requested_start_page
+
+            if worker_should_start:
+                priority_page = requested_start_page if requested_start_page in missing_pages else missing_pages[0]
+                existing["pages_generating"] = [priority_page]
+                existing["status"] = "generating"
+                print(
+                    f"[NARRATION] Restarting chunked worker for missing pages story_id={story['id']} "
+                    f"priority_page={priority_page} missing_pages={missing_pages}"
+                )
+                asyncio.create_task(
+                    self._process_chunked_job(
+                        job_id=job_id,
+                        user_id=user_id,
+                        story=story,
+                        voice=cache_voice,
+                        language_code=language_code,
+                        parent_voice_id=parent_voice_id,
+                        start_page=priority_page,
+                    )
+                )
+
             start_storage = existing.get("page_paths", {}).get(requested_start_page)
             start_url = self._signed_url(start_storage) if start_storage else None
-            if requested_start_page not in existing.get("pages_ready", []) and requested_start_page not in existing.get("pages_generating", []):
-                existing["priority_page"] = requested_start_page
+            page_is_ready = requested_start_page in existing.get("pages_ready", [])
+
             return NarrationResponse(
-                status="page_ready" if requested_start_page in existing.get("pages_ready", []) else "generating",
+                status="page_ready" if page_is_ready else "generating",
                 audioUrl=start_url,
                 pageAudioUrl=start_url,
                 currentPage=requested_start_page,
@@ -663,7 +708,7 @@ class NarrationService:
                 pagesReady=existing.get("pages_ready", []),
                 message=(
                     f"Page {requested_start_page} is being generated..."
-                    if requested_start_page not in existing.get("pages_ready", [])
+                    if not page_is_ready
                     else f"Page {requested_start_page} ready. {len(existing.get('pages_ready', []))}/{existing['total_pages']} pages complete."
                 ),
                 voice_mode=existing.get("voice_mode"),
