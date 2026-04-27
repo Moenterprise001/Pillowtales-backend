@@ -26,15 +26,20 @@ class StoryService:
         self.model = genai.GenerativeModel(settings.gemini_model) if settings.gemini_api_key else None
 
     def _select_companion(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Optional[dict]:
-        # V1 production focus: do not randomly introduce companions.
-        # The frontend currently uses the PillowTales bear as the single visual anchor.
-        # We still honour an explicit valid companionId from existing clients/backward compatibility,
-        # but no longer auto-select a random companion when none is requested.
         if request.companionId and request.companionId in STORY_COMPANIONS:
             companion = STORY_COMPANIONS[request.companionId].copy()
             companion['id'] = request.companionId
             return companion
-        return None
+        if random.random() > 0.30:
+            return None
+        tier = SUBSCRIPTION_TIERS['premium' if subscription.is_premium else 'free']
+        available = [cid for cid in tier['companions'] if cid in STORY_COMPANIONS]
+        if not available:
+            return None
+        selected = random.choice(available)
+        companion = STORY_COMPANIONS[selected].copy()
+        companion['id'] = selected
+        return companion
 
     def _storycraft_rules(self) -> str:
         return """STORYCRAFT QUALITY RULES:
@@ -188,35 +193,52 @@ OUTPUT QUALITY RULES:
 
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         blocks = self._language_and_character_blocks(request, companion)
-        return f"""Write ONLY page 1 of a premium, original bedtime story.
+        return f"""You are a premium children's bedtime storyteller.
 
-Language:
-- Write the title and page 1 ONLY in {blocks['language_name']}.
-- Do not mix languages.
+IMPORTANT LANGUAGE RULE:
+- The title and page 1 MUST be written ONLY in {blocks['language_name']}.
+- Do NOT use English unless the language is English.
+- Do NOT mix languages.
 
-Story seed:
-- Child: {request.childName}, age {request.age}
+STORY REQUIREMENTS:
+- Child name: {request.childName}
+- Age: {request.age}
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
-- Companion: {blocks['companion_line']}
-- Other characters: {blocks['character_instruction']}
+- Tone: warm, magical, calming, bedtime-safe
+- Use simple, natural language suitable for reading aloud
+- No scary content
 
-Page 1 feel:
-- Magical, warm, cinematic, and bedtime-safe.
-- Gentle wonder, soft sensory detail, and a clear invitation into the story.
-- Let {request.childName} notice or choose something meaningful.
-- No fear, danger, villains, franchise references, or copied story worlds.
+PAGE 1 STORY QUALITY RULES:
+- Open with a warm, magical storybook moment that feels inviting and premium.
+- Establish a clear emotional hook and a promise of gentle adventure.
+- Let the child notice or choose something meaningful, rather than only describing the scene.
+- Keep it original, bedtime-safe, and suitable for reading aloud.
 
-Page 1 shape:
-- 120-150 words.
-- 1-2 gentle paragraphs, around 4-6 read-aloud sentences.
-- Establish child, setting, mood, and emotional hook.
-- Promise a gentle adventure, but do not resolve it.
-- Do not write "The end".
+PAGE 1 REQUIREMENTS:
+- Write ONLY the title and page 1.
+- Page 1 should be a rich but lean opening: approximately 120-160 words.
+- Page 1 should contain 1-2 gentle paragraphs and around 4-6 bedtime-friendly sentences.
+- Page 1 should establish the child, setting, companion if any, and emotional hook without trying to tell the whole story.
+- Page 1 should open with wonder and a clear promise of adventure, not a short summary.
+- Do not resolve the story.
+- Do not make page 1 feel complete.
+- Do NOT write "The end".
 
-Return ONLY valid JSON in this exact shape:
-{{"title":"Short magical title","pages":["page 1 text"]}}"""
+COMPANION:
+- {blocks['companion_line']}
+
+CHARACTERS:
+- {blocks['character_instruction']}
+
+OUTPUT FORMAT (STRICT):
+Return ONLY valid JSON:
+{{"title": "...", "pages": ["page 1 text"]}}
+
+OUTPUT QUALITY RULES:
+- Do not include notes, markdown, or explanations outside the JSON.
+- The JSON pages array must contain exactly 1 string."""
 
     def _build_remaining_pages_prompt(
         self,
