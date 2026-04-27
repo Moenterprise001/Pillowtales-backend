@@ -320,6 +320,7 @@ OUTPUT QUALITY RULES:
             if not pages:
                 raise ValueError('First-page story returned no pages')
 
+            print(f"[PERF] first_page_ready_for_response pages=1 expected_pages={expected_pages}")
             print(f"[PERF] generate_story_first_page DONE total={time.time() - start_total:.2f}s")
             print("[PERF] ========================================")
             return {
@@ -346,6 +347,7 @@ OUTPUT QUALITY RULES:
         companion: Optional[dict],
         expected_pages: int,
     ) -> None:
+        start_total = time.time()
         print(f"[PERF] complete_story_background START story_id={story_id}")
         try:
             if not self.model:
@@ -401,15 +403,21 @@ OUTPUT QUALITY RULES:
                 'generation_error': None,
             }
 
+            t_metadata = time.time()
+            print(f"[PERF] metadata_extract START story_id={story_id}")
             metadata = await self.extract_metadata(title, full_text)
+            print(f"[PERF] metadata_extract DONE story_id={story_id} total={time.time() - t_metadata:.2f}s")
             update_payload.update({
                 'story_summary': metadata.get('summary', ''),
                 'characters': metadata.get('characters', []),
                 'setting': metadata.get('setting', ''),
             })
 
+            t_update = time.time()
+            print(f"[PERF] story_update_complete START story_id={story_id}")
             self.story_repo.update(story_id, user_id, update_payload)
-            print(f"[PERF] complete_story_background DONE story_id={story_id} pages={len(all_pages)}")
+            print(f"[PERF] story_update_complete DONE story_id={story_id} total={time.time() - t_update:.2f}s")
+            print(f"[PERF] complete_story_background DONE story_id={story_id} pages={len(all_pages)} total={time.time() - start_total:.2f}s")
         except Exception as exc:
             print(f"[PERF] complete_story_background FAILED story_id={story_id}: {exc}")
             try:
@@ -492,7 +500,9 @@ OUTPUT QUALITY RULES:
         return story_data
 
     async def extract_metadata(self, title: str, full_text: str) -> Dict[str, Any]:
+        start_total = time.time()
         if not self.model:
+            print(f"[PERF] extract_metadata skipped no_model total={time.time() - start_total:.2f}s")
             return {'summary': '', 'characters': [], 'setting': ''}
         prompt = (
             'Analyze this bedtime story and return only valid JSON. '
@@ -500,14 +510,20 @@ OUTPUT QUALITY RULES:
             f'Title: {title}\nStory:\n{full_text}'
         )
         try:
+            t_gemini = time.time()
             response = self.model.generate_content(prompt)
+            print(f"[PERF] extract_metadata Gemini took {time.time() - t_gemini:.2f}s")
             text = getattr(response, 'text', '')
             start = text.find('{')
             end = text.rfind('}')
             if start == -1 or end == -1:
+                print(f"[PERF] extract_metadata invalid_json total={time.time() - start_total:.2f}s")
                 return {'summary': '', 'characters': [], 'setting': ''}
-            return json.loads(text[start:end + 1])
-        except Exception:
+            result = json.loads(text[start:end + 1])
+            print(f"[PERF] extract_metadata DONE total={time.time() - start_total:.2f}s")
+            return result
+        except Exception as exc:
+            print(f"[PERF] extract_metadata FAILED total={time.time() - start_total:.2f}s error={exc}")
             return {'summary': '', 'characters': [], 'setting': ''}
 
     def validate_story_limits(self, user_id: str, subscription: SubscriptionResponse) -> None:
