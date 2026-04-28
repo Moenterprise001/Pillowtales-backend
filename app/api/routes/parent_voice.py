@@ -69,10 +69,11 @@ async def upload_parent_voice(
     audio_3: UploadFile | None = File(None),
     audio_4: UploadFile | None = File(None),
     audio_5: UploadFile | None = File(None),
+    audio_6: UploadFile | None = File(None),
 ) -> dict:
-    files = [f for f in [audio_1, audio_2, audio_3, audio_4, audio_5] if f is not None]
-    if len(files) < 5:
-        raise HTTPException(status_code=400, detail='Please upload all 5 voice samples.')
+    files = [f for f in [audio_1, audio_2, audio_3, audio_4, audio_5, audio_6] if f is not None]
+    if len(files) < 6:
+        raise HTTPException(status_code=400, detail='Please upload all 6 voice samples.')
 
     api_key = os.getenv('ELEVENLABS_API_KEY', '').strip()
     if not api_key:
