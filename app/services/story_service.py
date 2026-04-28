@@ -195,13 +195,12 @@ OUTPUT QUALITY RULES:
         }
 
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
-    	blocks = self._language_and_character_blocks(request, companion)
+        blocks = self._language_and_character_blocks(request, companion)
 
-    	opening = random.choice(OPENING_SEEDS).replace("{childName}", request.childName)
+        opening = random.choice(OPENING_SEEDS).replace("{childName}", request.childName)
 
-    	return f"""You are continuing a premium children's bedtime story.
+        return f"""You are continuing a premium children's bedtime story.
 
-    
 IMPORTANT LANGUAGE RULE:
 - Write ONLY in {blocks['language_name']}
 - Do NOT mix languages
@@ -212,8 +211,10 @@ STORY CONTEXT:
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
 
-OPENING (already written — continue from this):
+START THE STORY WITH THIS EXACT SENTENCE:
 "{opening}"
+
+Then continue immediately from it.
 
 INSTRUCTIONS:
 - Continue naturally from the opening above
@@ -224,9 +225,9 @@ INSTRUCTIONS:
 - Do NOT resolve the story yet
 
 PAGE 1 STRUCTURE:
-- 110–140 words
-- 1–2 gentle paragraphs
-- 4–6 calm, read-aloud sentences
+- 110-140 words total, including the opening sentence
+- 1-2 gentle paragraphs
+- 4-6 calm, read-aloud sentences
 - Clear emotional hook into the story
 
 COMPANION:
