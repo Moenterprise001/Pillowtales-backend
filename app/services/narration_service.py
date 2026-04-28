@@ -26,6 +26,18 @@ _chunked_jobs: dict[str, dict] = {}
 _parent_voice_ip_log: dict[str, list[float]] = {}
 _parent_voice_user_log: dict[str, list[float]] = {}
 
+def prepare_narration_text(text: str) -> str:
+    if not text:
+        return text
+
+    text = text.strip()
+
+    # Add natural pauses
+    text = text.replace(". ", ".<break time='400ms'/> ")
+    text = text.replace(", ", ",<break time='200ms'/> ")
+
+    return text
+
 
 class NarrationService:
     def __init__(self, story_repo: StoryRepository, user_repo: UserRepository, subscription_service: SubscriptionService):
@@ -401,6 +413,7 @@ class NarrationService:
         print(f"[NARRATION] Translated text preview for {language_code}={translated[:160]!r}")
         tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
+	tts_text = prepare_narration_text(tts_text)
 
         if not tts_text:
             raise RuntimeError("Page has no text")
