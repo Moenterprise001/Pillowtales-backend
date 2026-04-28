@@ -18,6 +18,14 @@ from app.repositories.story_repository import StoryRepository
 from app.utils.story_text import postprocess_story_pages
 
 
+OPENING_SEEDS = [
+    "Under a soft silver moon, {childName} snuggled into bed when something tiny and magical flickered near the window.",
+    "As the stars began to glow, {childName} pulled the blanket close and noticed a gentle shimmer in the room.",
+    "The night was calm and quiet when {childName} felt a soft, magical presence nearby.",
+    "Just as {childName} was getting cosy, a small glowing light appeared, as if the night had a secret to share.",
+    "The moonlight stretched across the room, and {childName} felt something special was about to begin."
+]
+
 class StoryService:
     def __init__(self, story_repo: StoryRepository):
         self.story_repo = story_repo
@@ -187,36 +195,50 @@ OUTPUT QUALITY RULES:
         }
 
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
-        blocks = self._language_and_character_blocks(request, companion)
-        return f"""Write ONLY page 1 of a premium, original bedtime story.
+    	blocks = self._language_and_character_blocks(request, companion)
 
-Language:
-- Write the title and page 1 ONLY in {blocks['language_name']}.
-- Do not mix languages.
+    	opening = random.choice(OPENING_SEEDS).replace("{childName}", request.childName)
 
-Story seed:
+    	return f"""You are continuing a premium children's bedtime story.
+
+    
+IMPORTANT LANGUAGE RULE:
+- Write ONLY in {blocks['language_name']}
+- Do NOT mix languages
+
+STORY CONTEXT:
 - Child: {request.childName}, age {request.age}
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
-- Companion: {blocks['companion_line']}
-- Other characters: {blocks['character_instruction']}
 
-Page 1 feel:
-- Magical, warm, cinematic, and bedtime-safe.
-- Gentle wonder, soft sensory detail, and a clear invitation into the story.
-- Let {request.childName} notice or choose something meaningful.
-- No fear, danger, villains, franchise references, or copied story worlds.
+OPENING (already written — continue from this):
+"{opening}"
 
-Page 1 shape:
-- 120-150 words.
-- 1-2 gentle paragraphs, around 4-6 read-aloud sentences.
-- Establish child, setting, mood, and emotional hook.
-- Promise a gentle adventure, but do not resolve it.
-- Do not write "The end".
+INSTRUCTIONS:
+- Continue naturally from the opening above
+- Keep the tone warm, magical, calm, and bedtime-safe
+- Use soft sensory details (light, stars, quiet, comfort)
+- Let {request.childName} notice or choose something meaningful
+- Do NOT introduce danger, fear, or fast pacing
+- Do NOT resolve the story yet
 
-Return ONLY valid JSON in this exact shape:
-{{"title":"Short magical title","pages":["page 1 text"]}}"""
+PAGE 1 STRUCTURE:
+- 110–140 words
+- 1–2 gentle paragraphs
+- 4–6 calm, read-aloud sentences
+- Clear emotional hook into the story
+
+COMPANION:
+- {blocks['companion_line']}
+
+CHARACTERS:
+- {blocks['character_instruction']}
+
+OUTPUT FORMAT (STRICT):
+Return ONLY valid JSON:
+{{"title":"Short magical title","pages":["page 1 text"]}}
+"""
 
     def _build_remaining_pages_prompt(
         self,
