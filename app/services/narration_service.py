@@ -427,13 +427,24 @@ class NarrationService:
         try:
             wallet = self.user_repo.get_parent_voice_wallet(user_id)
             credits = int(wallet.get("credits", 0))
-            self.user_repo.save_parent_voice_wallet(
-                user_id,
-                credits=credits + 1,
-                intro_used=bool(wallet.get("intro_used", False)),
-            )
+            intro_used = bool(wallet.get("intro_used", False))
+
+            if job.get("intro_charged"):
+                self.user_repo.save_parent_voice_wallet(
+                    user_id,
+                    credits=credits,
+                    intro_used=False,
+                )
+                print(f"[NARRATION] Refunded Parent Voice intro user_id={user_id}")
+            else:
+                self.user_repo.save_parent_voice_wallet(
+                    user_id,
+                    credits=credits + 1,
+                    intro_used=intro_used,
+                )
+                print(f"[NARRATION] Refunded Parent Voice credit user_id={user_id}")
+
             job["credit_refunded"] = True
-            print(f"[NARRATION] Refunded Parent Voice credit user_id={user_id}")
         except Exception as refund_err:
             print(f"[NARRATION] Parent Voice refund failed user_id={user_id}: {repr(refund_err)}")
 
@@ -558,61 +569,8 @@ class NarrationService:
         story = self._get_story_for_user(request.storyId, user_id)
         profile, subscription = self._get_subscription(user_id)
 
-        narration_access = self.subscription_service.feature_allowed(subscription, "narration")
-        if not narration_access["allowed"]:
-            raise HTTPException(status_code=403, detail=narration_access)
-
         language_code = self.resolve_language(story, request.narrationLanguageCode)
         requested_voice = self.resolve_voice(request.voicePreference, language_code)
-        voice_access = self.subscription_service.feature_allowed(subscription, "narrator", requested_voice)
-        if not voice_access["allowed"]:
-            detail = {
-                "error": "premium_narrator",
-                "message": "This narrator is part of PillowTales Premium.",
-                "upgrade_required": True,
-            }
-            raise HTTPException(status_code=403, detail=detail)
-
-        parent_voice_id = None
-        if requested_voice == "parent_voice":
-            self._enforce_parent_voice_security(user_id=user_id, client_ip=client_ip)
-
-            parent_voice_access = self.subscription_service.feature_allowed(subscription, "parent_voice")
-            if not parent_voice_access["allowed"]:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "error": "insufficient_parent_voice_credits",
-                        "message": "Parent Voice requires a credit or your first free story.",
-                        "upgrade_required": True,
-                        "credits": subscription.parent_voice_credits,
-                        "intro_offer_available": subscription.parent_voice_intro_available,
-                    },
-                )
-            parent_voice_id = profile.get("parent_voice_id")
-            parent_status = profile.get("parent_voice_status", "none")
-            if not parent_voice_id or parent_status != "ready":
-                raise HTTPException(
-                    status_code=400,
-                    detail={
-                        "error": "parent_voice_not_ready",
-                        "message": "Parent Voice is not set up yet. Please record your voice first.",
-                        "setup_required": True,
-                    },
-                )
-
-        if requested_voice == "parent_voice":
-            existing_parent_voice_languages = self._list_existing_parent_voice_languages(user_id, story["id"])
-            if existing_parent_voice_languages and language_code not in existing_parent_voice_languages:
-                raise HTTPException(
-                    status_code=403,
-                    detail={
-                        "error": "parent_voice_language_locked",
-                        "message": "Parent Voice is locked to the original language for this story. Please purchase a new Parent Voice narration to switch language.",
-                        "locked_languages": existing_parent_voice_languages,
-                    },
-                )
-
         cache_voice = requested_voice if requested_voice != "parent_voice" else "parent_voice"
         total_pages = len(story.get("pages") or [])
         requested_start_page = max(1, min(int(request.startPage or 1), total_pages)) if total_pages > 0 else 1
@@ -624,7 +582,11 @@ class NarrationService:
             story.get("child_name_pronunciation"),
         )
 
+        # PRODUCT RULE: generation can consume allowance/credits; cached playback never should.
+        # So cached pages and existing jobs are handled before entitlement/credit checks.
         ready_pages = self._list_ready_pages(user_id, story["id"], cache_voice, language_code)
+        continuing_cached_generation = bool(ready_pages)
+        parent_voice_id = profile.get("parent_voice_id") if requested_voice == "parent_voice" else None
 
         # Only trust cache when the full page set exists for this narrator/language.
         # This prevents mixed-language playback caused by partial stale caches.
@@ -715,11 +677,89 @@ class NarrationService:
                 jobId=job_id,
             )
 
+
+        if continuing_cached_generation:
+            print(
+                f"[NARRATION] Continuing cached narration without new entitlement charge "
+                f"story_id={story['id']} voice={cache_voice} language={language_code} ready_pages={ready_pages}"
+            )
+        else:
+            narration_access = self.subscription_service.feature_allowed(subscription, "narration")
+            if not narration_access["allowed"]:
+                raise HTTPException(status_code=403, detail=narration_access)
+
+            voice_access = self.subscription_service.feature_allowed(subscription, "narrator", requested_voice)
+            if not voice_access["allowed"]:
+                detail = {
+                    "error": "premium_narrator",
+                    "message": "This narrator is part of PillowTales Premium.",
+                    "upgrade_required": True,
+                }
+                raise HTTPException(status_code=403, detail=detail)
+
+        if requested_voice == "parent_voice":
+            parent_status = profile.get("parent_voice_status", "none")
+            if not parent_voice_id or parent_status != "ready":
+                raise HTTPException(
+                    status_code=400,
+                    detail={
+                        "error": "parent_voice_not_ready",
+                        "message": "Parent Voice is not set up yet. Please record your voice first.",
+                        "setup_required": True,
+                    },
+                )
+
+            existing_parent_voice_languages = self._list_existing_parent_voice_languages(user_id, story["id"])
+            if existing_parent_voice_languages and language_code not in existing_parent_voice_languages:
+                raise HTTPException(
+                    status_code=403,
+                    detail={
+                        "error": "parent_voice_language_locked",
+                        "message": "Parent Voice is locked to the original language for this story. Please purchase a new Parent Voice narration to switch language.",
+                        "locked_languages": existing_parent_voice_languages,
+                    },
+                )
+
+            if not continuing_cached_generation:
+                self._enforce_parent_voice_security(user_id=user_id, client_ip=client_ip)
+                parent_voice_access = self.subscription_service.feature_allowed(subscription, "parent_voice")
+                if not parent_voice_access["allowed"]:
+                    raise HTTPException(
+                        status_code=403,
+                        detail={
+                            "error": "insufficient_parent_voice_credits",
+                            "message": "Parent Voice requires a credit or your first free story.",
+                            "upgrade_required": True,
+                            "credits": subscription.parent_voice_credits,
+                            "intro_offer_available": subscription.parent_voice_intro_available,
+                        },
+                    )
+
         credit_charged = False
-        if requested_voice == "parent_voice" and not subscription.parent_voice_bypass:
+        intro_charged = False
+        if requested_voice == "parent_voice" and not subscription.parent_voice_bypass and not continuing_cached_generation:
             wallet = self.user_repo.get_parent_voice_wallet(user_id)
             credits = int(wallet.get("credits", 0))
-            if credits <= 0:
+            intro_used = bool(wallet.get("intro_used", False))
+
+            if credits > 0:
+                self.user_repo.save_parent_voice_wallet(
+                    user_id,
+                    credits=credits - 1,
+                    intro_used=intro_used,
+                )
+                credit_charged = True
+                print(f"[NARRATION] Parent Voice credit charged user_id={user_id} ip={self._normalize_client_ip(client_ip)}")
+            elif not intro_used:
+                self.user_repo.save_parent_voice_wallet(
+                    user_id,
+                    credits=0,
+                    intro_used=True,
+                )
+                credit_charged = True
+                intro_charged = True
+                print(f"[NARRATION] Parent Voice intro consumed user_id={user_id} ip={self._normalize_client_ip(client_ip)}")
+            else:
                 raise HTTPException(
                     status_code=403,
                     detail={
@@ -728,31 +768,33 @@ class NarrationService:
                         "upgrade_required": True,
                     },
                 )
-            self.user_repo.save_parent_voice_wallet(
-                user_id,
-                credits=credits - 1,
-                intro_used=bool(wallet.get("intro_used", False)),
-            )
-            credit_charged = True
-            print(f"[NARRATION] Parent Voice credit charged user_id={user_id} ip={self._normalize_client_ip(client_ip)}")
 
+        initial_ready_pages = sorted(set(ready_pages))
+        initial_page_paths = {
+            idx: self._storage_path(user_id, story["id"], cache_voice, language_code, idx)
+            for idx in initial_ready_pages
+        }
+        missing_pages = [i for i in range(1, total_pages + 1) if i not in set(initial_ready_pages)]
+        priority_page = requested_start_page if requested_start_page in missing_pages else (missing_pages[0] if missing_pages else requested_start_page)
+        initial_generating_pages = [priority_page] if missing_pages else []
         _chunked_jobs[job_id] = {
             "story_id": story["id"],
             "user_id": user_id,
             "voice": cache_voice,
             "language_code": language_code,
             "status": "generating",
-            "pages_ready": [],
-            "pages_generating": [requested_start_page],
+            "pages_ready": initial_ready_pages,
+            "pages_generating": initial_generating_pages,
             "pages_failed": [],
-            "page_paths": {},
+            "page_paths": initial_page_paths,
             "total_pages": total_pages,
             "voice_mode": "parent" if requested_voice == "parent_voice" else "standard",
             "started_at": datetime.now(timezone.utc).isoformat(),
             "last_error": None,
             "credit_charged": credit_charged,
             "credit_refunded": False,
-            "priority_page": requested_start_page,
+            "intro_charged": intro_charged,
+            "priority_page": priority_page,
         }
 
         asyncio.create_task(
@@ -763,7 +805,7 @@ class NarrationService:
                 voice=cache_voice,
                 language_code=language_code,
                 parent_voice_id=parent_voice_id,
-                start_page=requested_start_page,
+                start_page=priority_page,
             )
         )
 
@@ -772,7 +814,7 @@ class NarrationService:
             message=f"Generating page {requested_start_page} narration... (~10-15 seconds)",
             currentPage=requested_start_page,
             totalPages=total_pages,
-            pagesReady=[],
+            pagesReady=initial_ready_pages,
             voice_mode="parent" if requested_voice == "parent_voice" else "standard",
             jobId=job_id,
         )
