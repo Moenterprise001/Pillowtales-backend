@@ -27,10 +27,6 @@ OPENING_SEEDS = [
 ]
 
 FIRST_PAGE_TIMEOUT_SECONDS = 30
-# User-facing consistency target: if Gemini has not produced page 1
-# quickly enough, return a deterministic page-1 fallback so Reader can open.
-# The full story still completes in the normal background Gemini path.
-FIRST_PAGE_SOFT_LIMIT_SECONDS = 22
 
 
 class StoryService:
@@ -425,18 +421,14 @@ OUTPUT QUALITY RULES:
             print(f"[PERF] first_page prompt chars={len(prompt)}")
             t_gemini = time.time()
             try:
-                # Consistency guard: do not let a slow Gemini first-page call hold
-                # the user on the generation screen. If page 1 is not back within
-                # the soft limit, return a polished deterministic page 1 and let
-                # the remaining story continue through the normal background path.
                 response = await asyncio.wait_for(
                     asyncio.to_thread(self.model.generate_content, prompt),
-                    timeout=FIRST_PAGE_SOFT_LIMIT_SECONDS,
+                    timeout=FIRST_PAGE_TIMEOUT_SECONDS,
                 )
             except asyncio.TimeoutError:
                 elapsed = time.time() - t_gemini
                 print(
-                    f"[PERF] first_page Gemini soft limit hit after {elapsed:.2f}s; "
+                    f"[PERF] first_page Gemini timed out after {elapsed:.2f}s; "
                     "using fast fallback page 1"
                 )
                 fallback = self._build_first_page_fallback(request, companion)
@@ -444,8 +436,7 @@ OUTPUT QUALITY RULES:
                 print("[PERF] ========================================")
                 return fallback
 
-            elapsed = time.time() - t_gemini
-            print(f"[PERF] first_page Gemini took {elapsed:.2f}s")
+            print(f"[PERF] first_page Gemini took {time.time() - t_gemini:.2f}s")
 
             response_text = getattr(response, 'text', None)
             if not response_text or not isinstance(response_text, str):
