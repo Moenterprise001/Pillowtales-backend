@@ -26,6 +26,9 @@ OPENING_SEEDS = [
     "The moonlight stretched across the room, and {childName} felt something special was about to begin."
 ]
 
+FIRST_PAGE_TIMEOUT_SECONDS = 30
+
+
 class StoryService:
     def __init__(self, story_repo: StoryRepository):
         self.story_repo = story_repo
@@ -260,6 +263,76 @@ Return ONLY valid JSON:
 {{"title":"Short magical title","pages":["page 1 text"]}}
 """
 
+    def _build_first_page_fallback(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, Any]:
+        """Fast deterministic page-1 fallback used only when Gemini is too slow.
+
+        This protects the launch UX from occasional LLM latency spikes. The
+        remaining pages still complete through Gemini in the normal background
+        flow, so full story quality is preserved after the reader opens.
+        """
+        child = request.childName or "the child"
+        language_code = (request.storyLanguageCode or "en").lower()
+        expected_pages = self._intended_page_count(request)
+
+        fallback_by_lang = {
+            "es": {
+                "title": f"El brillo tranquilo de {child}",
+                "page": (
+                    f"Bajo una luna plateada y suave, {child} se acurrucó en la cama cuando un pequeño brillo mágico apareció junto a la ventana. "
+                    "La luz parecía respirar despacio, como si trajera un secreto amable de la noche. "
+                    f"{child} levantó la manta con cuidado y sonrió al notar que el cuarto se llenaba de estrellas diminutas. "
+                    "Todo estaba en calma, y aquella chispa invitaba a comenzar un cuento lleno de ternura, valor y dulces sueños."
+                ),
+            },
+            "it": {
+                "title": f"Il dolce luccichio di {child}",
+                "page": (
+                    f"Sotto una luna d'argento morbida e silenziosa, {child} si rannicchiò nel letto quando un piccolo bagliore magico brillò vicino alla finestra. "
+                    "La luce si muoveva piano, come se portasse un gentile segreto della notte. "
+                    f"{child} sollevò la coperta con curiosità e vide minuscole stelle danzare nell'aria. "
+                    "Tutto era calmo, caldo e sicuro, e quel luccichio sembrava invitare a un racconto pieno di meraviglia, gentilezza e sogni sereni."
+                ),
+            },
+            "fr": {
+                "title": f"La douce lueur de {child}",
+                "page": (
+                    f"Sous une lune argentée et douce, {child} se blottit dans son lit lorsqu'une petite lueur magique scintilla près de la fenêtre. "
+                    "La lumière avançait lentement, comme si elle portait un secret tendre de la nuit. "
+                    f"{child} souleva la couverture avec curiosité et vit de minuscules étoiles flotter dans la chambre. "
+                    "Tout était calme, chaud et rassurant, et cette lueur semblait inviter à une histoire pleine de douceur, de courage et de beaux rêves."
+                ),
+            },
+            "de": {
+                "title": f"Das sanfte Leuchten von {child}",
+                "page": (
+                    f"Unter einem weichen silbernen Mond kuschelte sich {child} ins Bett, als ein kleines magisches Licht am Fenster funkelte. "
+                    "Es schwebte ganz langsam durch das Zimmer, als trüge es ein freundliches Geheimnis der Nacht bei sich. "
+                    f"{child} zog die Decke ein wenig höher und lächelte, während winzige Sterne leise in der Luft glitzerten. "
+                    "Alles fühlte sich ruhig, warm und sicher an, und das Licht lud zu einer sanften Geschichte voller Wunder, Mut und schöner Träume ein."
+                ),
+            },
+            "en": {
+                "title": f"{child}'s Gentle Glow",
+                "page": (
+                    f"Under a soft silver moon, {child} snuggled into bed when something tiny and magical flickered near the window. "
+                    "The little light drifted slowly through the room, as if it carried a kind secret from the night. "
+                    f"{child} pulled the blanket close and smiled as tiny stars shimmered in the quiet air. "
+                    "Everything felt calm, warm, and safe, and the gentle glow seemed to invite a story filled with wonder, kindness, and peaceful dreams."
+                ),
+            },
+        }
+
+        fallback = fallback_by_lang.get(language_code, fallback_by_lang["en"])
+        pages = postprocess_story_pages([fallback["page"]])[:1]
+        return {
+            'title': fallback['title'],
+            'pages': pages,
+            'companion': companion,
+            'expected_pages': expected_pages,
+            'generation_status': 'partial',
+            'generation_fallback_reason': 'first_page_timeout',
+        }
+
     def _build_remaining_pages_prompt(
         self,
         request: GenerateStoryRequest,
@@ -347,7 +420,22 @@ OUTPUT QUALITY RULES:
             prompt = self._build_first_page_prompt(request, companion)
             print(f"[PERF] first_page prompt chars={len(prompt)}")
             t_gemini = time.time()
-            response = await asyncio.to_thread(self.model.generate_content, prompt)
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(self.model.generate_content, prompt),
+                    timeout=FIRST_PAGE_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                elapsed = time.time() - t_gemini
+                print(
+                    f"[PERF] first_page Gemini timed out after {elapsed:.2f}s; "
+                    "using fast fallback page 1"
+                )
+                fallback = self._build_first_page_fallback(request, companion)
+                print(f"[PERF] generate_story_first_page DONE fallback total={time.time() - start_total:.2f}s")
+                print("[PERF] ========================================")
+                return fallback
+
             print(f"[PERF] first_page Gemini took {time.time() - t_gemini:.2f}s")
 
             response_text = getattr(response, 'text', None)
