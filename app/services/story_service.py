@@ -198,6 +198,30 @@ OUTPUT QUALITY RULES:
         blocks = self._language_and_character_blocks(request, companion)
 
         opening = random.choice(OPENING_SEEDS).replace("{childName}", request.childName)
+        language_code = (request.storyLanguageCode or "en").lower()
+        is_english = language_code == "en"
+
+        if is_english:
+            page_length_rule = "110-140 words total, including the opening sentence"
+            sentence_rule = "4-6 calm, read-aloud sentences"
+            instruction_block = f"""- Continue naturally from the opening above
+- Keep the tone warm, magical, calm, and bedtime-safe
+- Use soft sensory details (light, stars, quiet, comfort)
+- Let {request.childName} notice or choose something meaningful
+- Do NOT introduce danger, fear, or fast pacing
+- Do NOT resolve the story yet"""
+        else:
+            # Non-English first pages can be slower because the model must obey
+            # language-only output while generating valid JSON. Keep the same
+            # bedtime shape, but reduce output length and instruction load so
+            # page 1 is ready faster. The full 7-page story remains unchanged.
+            page_length_rule = "85-115 words total, including the opening sentence"
+            sentence_rule = "3-5 calm, read-aloud sentences"
+            instruction_block = f"""- Continue naturally from the opening above
+- Keep the tone warm, magical, calm, and bedtime-safe
+- Include one clear, gentle story moment for {request.childName}
+- Do NOT introduce danger, fear, or fast pacing
+- Do NOT resolve the story yet"""
 
         return f"""You are continuing a premium children's bedtime story.
 
@@ -217,17 +241,12 @@ START THE STORY WITH THIS EXACT SENTENCE:
 Then continue immediately from it.
 
 INSTRUCTIONS:
-- Continue naturally from the opening above
-- Keep the tone warm, magical, calm, and bedtime-safe
-- Use soft sensory details (light, stars, quiet, comfort)
-- Let {request.childName} notice or choose something meaningful
-- Do NOT introduce danger, fear, or fast pacing
-- Do NOT resolve the story yet
+{instruction_block}
 
 PAGE 1 STRUCTURE:
-- 110-140 words total, including the opening sentence
+- {page_length_rule}
 - 1-2 gentle paragraphs
-- 4-6 calm, read-aloud sentences
+- {sentence_rule}
 - Clear emotional hook into the story
 
 COMPANION:
