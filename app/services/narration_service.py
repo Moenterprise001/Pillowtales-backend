@@ -27,16 +27,63 @@ _parent_voice_ip_log: dict[str, list[float]] = {}
 _parent_voice_user_log: dict[str, list[float]] = {}
 
 def prepare_narration_text(text: str) -> str:
+    """Prepare story text for natural TTS pacing across all standard voices.
+
+    Keep this provider-neutral: OpenAI TTS does not support SSML break tags,
+    so we use punctuation and spacing that both OpenAI and ElevenLabs handle
+    naturally.
+    """
     if not text:
         return text
 
     text = text.strip()
 
-    # Add natural pauses
-    text = text.replace(". ", ".<break time='400ms'/> ")
-    text = text.replace(", ", ",<break time='200ms'/> ")
+    # Normalise existing whitespace first so repeated processing is safe.
+    text = re.sub(r"\s+", " ", text)
 
-    return text
+    # Sentence-level pauses for all languages.
+    text = re.sub(r"([.!?])\s+", r"\1  ", text)
+
+    # Softer clause pauses.
+    text = re.sub(r"([,;:])\s+", r"\1 ", text)
+
+    # Dashes often signal a small dramatic beat in bedtime stories.
+    text = text.replace(" — ", "... ").replace("--", "...")
+
+    # Keep spacing tidy while preserving intentional double spaces after sentences.
+    text = re.sub(r" {3,}", "  ", text)
+    return text.strip()
+
+
+def adapt_spanish_castellano(text: str) -> str:
+    """Nudge Spanish narration toward European Spanish wording.
+
+    OpenAI TTS does not expose a reliable es-ES accent flag, so this uses
+    conservative vocabulary/phrase choices that bias the reading toward Spain
+    without changing story meaning.
+    """
+    if not text:
+        return text
+
+    replacements = [
+        (r"\bustedes están\b", "vosotros estáis"),
+        (r"\bustedes son\b", "vosotros sois"),
+        (r"\bustedes tienen\b", "vosotros tenéis"),
+        (r"\bustedes pueden\b", "vosotros podéis"),
+        (r"\bustedes\b", "vosotros"),
+        (r"\bcomputadora\b", "ordenador"),
+        (r"\bcarro\b", "coche"),
+        (r"\bauto\b", "coche"),
+        (r"\bplaticar\b", "charlar"),
+        (r"\blindo\b", "bonito"),
+        (r"\blinda\b", "bonita"),
+    ]
+
+    adjusted = text
+    for pattern, replacement in replacements:
+        adjusted = re.sub(pattern, replacement, adjusted, flags=re.IGNORECASE)
+
+    return adjusted
 
 
 class NarrationService:
@@ -413,7 +460,9 @@ class NarrationService:
         print(f"[NARRATION] Translated text preview for {language_code}={translated[:160]!r}")
         tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
-	tts_text = prepare_narration_text(tts_text)
+        if language_code == "es":
+            tts_text = adapt_spanish_castellano(tts_text)
+        tts_text = prepare_narration_text(tts_text)
 
         if not tts_text:
             raise RuntimeError("Page has no text")
