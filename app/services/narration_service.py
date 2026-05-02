@@ -21,6 +21,11 @@ from app.services.text_cleaner import clean_text_for_tts, apply_pronunciation
 # Good enough for a single Render instance launch setup.
 _chunked_jobs: dict[str, dict] = {}
 
+# Cache versioning. Keep non-English/other narrator caches stable for launch,
+# but isolate Wise Owl English audio so old mixed chunks cannot be reused.
+DEFAULT_AUDIO_CACHE_VERSION = "v5"
+WISE_OWL_AUDIO_CACHE_VERSION = "v6"
+
 # In-memory abuse/rate limiting state.
 # Also single-instance only, but enough for launch while on one Render instance.
 _parent_voice_ip_log: dict[str, list[float]] = {}
@@ -116,6 +121,44 @@ class NarrationService:
             "it": "night_owl_italian",
         }.get(language_code, "wise_owl")
 
+    def _preset_language_for_voice(self, voice: str) -> str:
+        preset = VOICE_PRESETS.get(voice, {}) or {}
+        preset_lang = (
+            preset.get("language_code")
+            or preset.get("language")
+            or "all"
+        )
+        preset_lang = str(preset_lang).strip().lower()
+        return preset_lang[:2] if preset_lang != "all" else "all"
+
+    def _enforce_standard_voice_language(self, voice: str, language_code: str) -> str:
+        """
+        Runtime safety guard: standard narrator presets must always use their
+        configured language. This prevents stale frontend params or saved story
+        metadata from pairing Wise Owl with non-English narration. Parent Voice
+        remains multilingual and is intentionally excluded.
+        """
+        if voice == "parent_voice":
+            return language_code
+
+        preset_lang = self._preset_language_for_voice(voice)
+        if preset_lang != "all" and preset_lang in SUPPORTED_LANGUAGES:
+            if language_code != preset_lang:
+                print(
+                    f"[NARRATION] Enforcing narrator language voice={voice} "
+                    f"requested_language={language_code} enforced_language={preset_lang}"
+                )
+            return preset_lang
+
+        return language_code
+
+    def _audio_cache_version(self, voice: str, language_code: str) -> str:
+        # Only bump Wise Owl English to avoid reusing any older mixed/partial
+        # chunks while keeping other launch narration caches untouched.
+        if voice == "wise_owl" and language_code == "en":
+            return WISE_OWL_AUDIO_CACHE_VERSION
+        return DEFAULT_AUDIO_CACHE_VERSION
+
     def resolve_voice(self, requested_voice: Optional[str], language_code: str) -> str:
         # Product rule: default narrator must remain Wise Owl / standard narrator family,
         # never Parent Voice unless explicitly selected.
@@ -131,13 +174,7 @@ class NarrationService:
         if requested_voice == "parent_voice":
             return requested_voice
 
-        preset = VOICE_PRESETS.get(requested_voice, {}) or {}
-        preset_lang = (
-            preset.get("language_code")
-            or preset.get("language")
-            or "all"
-        )
-        preset_lang = str(preset_lang).strip().lower()[:2] if preset_lang != "all" else "all"
+        preset_lang = self._preset_language_for_voice(requested_voice)
 
         # Only allow exact-language or universal narrators.
         if preset_lang == "all" or preset_lang == language_code:
@@ -156,10 +193,12 @@ class NarrationService:
         pronunciation: Optional[str] = None,
     ) -> str:
         safe_pronunciation = (pronunciation or "").strip().lower()
-        return f"{user_id}:{story_id}:{voice}:{language_code}:{safe_pronunciation}:v5"
+        version = self._audio_cache_version(voice, language_code)
+        return f"{user_id}:{story_id}:{voice}:{language_code}:{safe_pronunciation}:{version}"
 
     def _storage_prefix(self, user_id: str, story_id: str, voice: str, language_code: str) -> str:
-        return f"{user_id}/{story_id}/chunked/{voice}_{language_code}_v5"
+        version = self._audio_cache_version(voice, language_code)
+        return f"{user_id}/{story_id}/chunked/{voice}_{language_code}_{version}"
 
     def _storage_path(self, user_id: str, story_id: str, voice: str, language_code: str, page: int) -> str:
         return f"{self._storage_prefix(user_id, story_id, voice, language_code)}/page_{page}.mp3"
@@ -622,6 +661,7 @@ class NarrationService:
 
         language_code = self.resolve_language(story, request.narrationLanguageCode)
         requested_voice = self.resolve_voice(request.voicePreference, language_code)
+        language_code = self._enforce_standard_voice_language(requested_voice, language_code)
         cache_voice = requested_voice if requested_voice != "parent_voice" else "parent_voice"
         total_pages = len(story.get("pages") or [])
         requested_start_page = max(1, min(int(request.startPage or 1), total_pages)) if total_pages > 0 else 1
@@ -874,6 +914,7 @@ class NarrationService:
         story = self._get_story_for_user(story_id, user_id)
         language_code = self.resolve_language(story, lang)
         voice = self.resolve_voice(narrator, language_code)
+        language_code = self._enforce_standard_voice_language(voice, language_code)
         cache_voice = voice if voice != "parent_voice" else "parent_voice"
         job_id = self._cache_key(
             user_id,
@@ -913,6 +954,7 @@ class NarrationService:
         story = self._get_story_for_user(story_id, user_id)
         language_code = self.resolve_language(story, lang)
         voice = self.resolve_voice(narrator, language_code)
+        language_code = self._enforce_standard_voice_language(voice, language_code)
         cache_voice = voice if voice != "parent_voice" else "parent_voice"
         storage_path = self._storage_path(user_id, story_id, cache_voice, language_code, page)
         signed = self._signed_url(storage_path)
