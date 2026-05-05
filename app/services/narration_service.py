@@ -343,31 +343,43 @@ class NarrationService:
             )
 
     async def _generate_openai_tts(self, text: str, voice: str) -> bytes:
-        api_key = os.getenv("OPENAI_API_KEY", "")
-        if not api_key:
-            raise RuntimeError("OPENAI_API_KEY not configured")
+    api_key = os.getenv("OPENAI_API_KEY", "")
+    if not api_key:
+        raise RuntimeError("OPENAI_API_KEY not configured")
 
-        provider_voice = VOICE_PRESETS.get(voice, {}).get("voice_id") or "shimmer"
+    provider_voice = VOICE_PRESETS.get(voice, {}).get("voice_id") or "shimmer"
 
-        async with httpx.AsyncClient(timeout=120.0) as client:
-            response = await client.post(
-                "https://api.openai.com/v1/audio/speech",
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "gpt-4o-mini-tts",
-                    "voice": provider_voice,
-                    "input": text,
-                    "format": "mp3",
-                },
-            )
+    retries = 2
 
-        if response.status_code != 200:
-            raise RuntimeError(f"OpenAI TTS failed: {response.status_code} {response.text[:300]}")
+    for attempt in range(retries + 1):
+        try:
+            async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, read=180.0)) as client:
+                response = await client.post(
+                    "https://api.openai.com/v1/audio/speech",
+                    headers={
+                        "Authorization": f"Bearer {api_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json={
+                        "model": "gpt-4o-mini-tts",
+                        "voice": provider_voice,
+                        "input": text,
+                        "format": "mp3",
+                    },
+                )
 
-        return response.content
+            if response.status_code != 200:
+                raise RuntimeError(f"OpenAI TTS failed: {response.status_code} {response.text[:300]}")
+
+            return response.content
+
+        except (httpx.ReadTimeout, httpx.ConnectTimeout) as e:
+            print(f"[NARRATION] TTS timeout attempt {attempt+1}/{retries+1}")
+
+            if attempt == retries:
+                raise RuntimeError("TTS failed after retries")
+
+            await asyncio.sleep(1.5)  # small backoff
 
     async def _generate_elevenlabs_tts(self, text: str, voice_id: str, language_code: str) -> bytes:
         api_key = os.getenv("ELEVENLABS_API_KEY", "")
@@ -631,7 +643,7 @@ class NarrationService:
                 self._refund_parent_voice_credit_once(user_id, job)
                 return
 
-            await asyncio.sleep(0.2)
+            await asyncio.sleep(0.05)
 
         job["pages_generating"] = []
         job["status"] = "all_ready"
