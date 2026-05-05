@@ -939,6 +939,35 @@ class NarrationService:
         ready_pages = self._list_ready_pages(user_id, story_id, cache_voice, language_code)
         job = _chunked_jobs.get(job_id)
 
+        # Launch-safety self-heal:
+        # If the frontend is polling page-status before it successfully called
+        # /narration/request, there will be no in-memory job and no cached audio.
+        # In that exact case, start the existing chunked narration flow so page 1
+        # can be generated instead of leaving testers on an endless spinner.
+        #
+        # Parent Voice is intentionally excluded here to avoid silently consuming
+        # Parent Voice credits from a polling call. Parent Voice should still be
+        # started explicitly through request_narration(), where all credit and
+        # security checks already live.
+        if not job and not ready_pages and total_pages > 0 and cache_voice != "parent_voice":
+            print(
+                f"[NARRATION] SELF-HEAL starting standard narration from page-status "
+                f"story_id={story_id} voice={cache_voice} language={language_code}"
+            )
+            try:
+                self.request_narration(
+                    user_id,
+                    NarrationRequest(
+                        story_id=story_id,
+                        voice_preference=cache_voice,
+                        narration_language_code=language_code,
+                        start_page=1,
+                    ),
+                )
+                job = _chunked_jobs.get(job_id)
+            except Exception as e:
+                print(f"[NARRATION] SELF-HEAL failed story_id={story_id}: {repr(e)}")
+
         if job and job.get("last_error"):
             print(f"[NARRATION] Job {job_id} last_error: {job['last_error']}")
 
