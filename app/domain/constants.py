@@ -39,7 +39,7 @@ SUBSCRIPTION_TIERS: Dict[str, Dict[str, Any]] = {
     'premium': {
         'weekly_story_limit': None,
         'weekly_narration_limit': None,
-        'max_saved_stories': None,
+        'max_saved_stories': 30,
         'narrators': list(VOICE_PRESETS.keys()),
         'companions': list(STORY_COMPANIONS.keys()),
         'parent_voice': True,
