@@ -101,44 +101,6 @@ class StoryService:
             "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment."
         )
 
-        language_style_block = ""
-
-        if request.storyLanguageCode == "fr":
-            language_style_block = """
-FRENCH STORY STYLE:
-- Write with soft, poetic, emotionally warm French suitable for young children.
-- Prefer natural bedtime French over formal literary French.
-- Use gentle magical imagery and flowing sentence rhythm.
-- The story should feel cozy, dreamy, comforting, and originally written in French.
-"""
-
-        elif request.storyLanguageCode == "es":
-            language_style_block = """
-SPANISH STORY STYLE:
-- Use Spain Spanish (Castellano).
-- Avoid Latin American vocabulary and phrasing.
-- Keep the storytelling warm, calm, magical, natural, and child-friendly.
-- The story should feel cozy, dreamy, comforting, and originally written in Spanish from Spain.
-"""
-
-        elif request.storyLanguageCode == "it":
-            language_style_block = """
-ITALIAN STORY STYLE:
-- Write with warm, natural Italian suitable for young children.
-- Avoid overly formal, stiff, or literal phrasing.
-- Use gentle, musical bedtime rhythm and soft magical imagery.
-- The story should feel cozy, tender, dreamy, comforting, and originally written in Italian.
-"""
-
-        elif request.storyLanguageCode == "de":
-            language_style_block = """
-GERMAN STORY STYLE:
-- Write with warm, natural German suitable for young children.
-- Avoid overly formal, stiff, academic, or literal phrasing.
-- Use gentle bedtime rhythm, cozy imagery, and emotionally comforting language.
-- The story should feel soft, magical, reassuring, read-aloud friendly, and originally written in German.
-"""
-
         return f"""You are a premium children's bedtime storyteller.
 
 IMPORTANT LANGUAGE RULE:
@@ -146,12 +108,6 @@ IMPORTANT LANGUAGE RULE:
 - Do NOT use English unless the language is English.
 - Do NOT mix languages.
 - All narration, title, and dialogue MUST be in {language_name}.
-- Write naturally for native-speaking children in {language_name}.
-- The story must feel like it was originally written in {language_name}, not translated from English.
-- Use warm, magical, emotionally comforting bedtime storytelling.
-- Avoid overly formal, academic, rigid, or literal phrasing.
-- Use natural rhythm and gentle emotional pacing suitable for read-aloud bedtime stories.
-{language_style_block}
 
 STORY REQUIREMENTS:
 - Child name: {request.childName}
@@ -266,8 +222,14 @@ OUTPUT QUALITY RULES:
             # language-only output while generating valid JSON. Keep the same
             # bedtime shape, but reduce output length and instruction load so
             # page 1 is ready faster. The full 7-page story remains unchanged.
-            page_length_rule = "85-115 words total, including the opening sentence"
-            sentence_rule = "3-5 calm, read-aloud sentences"
+            # German TTS is naturally longer/slower, so give page 1 a slightly
+            # longer prewarm window to avoid a pause before page 2.
+            if language_code == "de":
+                page_length_rule = "105-135 words total, including the opening sentence"
+                sentence_rule = "4-6 calm, read-aloud sentences"
+            else:
+                page_length_rule = "85-115 words total, including the opening sentence"
+                sentence_rule = "3-5 calm, read-aloud sentences"
             instruction_block = f"""- Continue naturally from the opening above
 - Keep the tone warm, magical, calm, and bedtime-safe
 - Include one clear, gentle story moment for {request.childName}
