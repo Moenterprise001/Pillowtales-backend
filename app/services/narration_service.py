@@ -566,207 +566,92 @@ class NarrationService:
         parent_voice_id: Optional[str],
         start_page: int = 1,
     ) -> None:
-        """
-        Owns chunked narration generation for a story/narrator/language.
-
-        Critical launch rule:
-        - request_narration starts/owns workers.
-        - page-status only observes.
-
-        Lean story generation may return page 1 first, then expand the same
-        story to 7 pages in the background. This worker therefore stays alive
-        briefly after page 1 if the story is still partial, then continues
-        pages 2+ as soon as the story text expands. This restores Page 2
-        prewarm without putting orchestration back into page-status.
-        """
+        pages = story.get("pages") or []
         job = _chunked_jobs[job_id]
 
-        max_wait_seconds = int(os.getenv("NARRATION_EXPANSION_WAIT_SECONDS", "150"))
-        poll_interval_seconds = float(os.getenv("NARRATION_EXPANSION_POLL_SECONDS", "1.5"))
-        expansion_deadline = datetime.now(timezone.utc).timestamp() + max_wait_seconds
-
-        async def generate_available_pages(current_story: dict, priority: int) -> dict:
-            pages = current_story.get("pages") or []
-            if not pages:
-                job["pages_failed"] = [1]
-                job["pages_generating"] = []
-                job["status"] = "failed"
-                job["last_error"] = "Story has no pages"
-                self._refund_parent_voice_credit_once(user_id, job)
-                return current_story
-
-            expected_total = int(current_story.get("expected_pages") or len(pages) or 0)
-            job["total_pages"] = max(int(job.get("total_pages") or 0), expected_total, len(pages))
-
-            initial_voice_mode = "parent" if voice == "parent_voice" and parent_voice_id else "standard"
-            job["voice_mode"] = job.get("voice_mode") or initial_voice_mode
-
-            ready_set = set(job.get("pages_ready", [])) | set(
-                self._list_ready_pages(user_id, current_story["id"], voice, language_code)
-            )
-            if ready_set:
-                job["pages_ready"] = sorted(ready_set)
-                job["page_paths"].update({
-                    idx: self._storage_path(user_id, current_story["id"], voice, language_code, idx)
-                    for idx in ready_set
-                })
-
-            available_page_numbers = list(range(1, len(pages) + 1))
-            missing_available = [idx for idx in available_page_numbers if idx not in set(job.get("pages_ready", []))]
-            if not missing_available:
-                job["pages_generating"] = []
-                generation_status = str(current_story.get("generation_status") or "complete").strip().lower()
-                if generation_status in {"complete", "completed", "failed"} and len(job.get("pages_ready", [])) >= len(pages):
-                    job["status"] = "all_ready"
-                else:
-                    job["status"] = "page_ready"
-                return current_story
-
-            safe_priority = max(1, min(int(priority or 1), len(pages)))
-            page_order = []
-            if safe_priority in missing_available:
-                page_order.append(safe_priority)
-            if 2 in missing_available and 2 not in page_order:
-                # Page 2 is the critical prewarm target after fast Page 1.
-                page_order.append(2)
-            page_order.extend([idx for idx in missing_available if idx not in page_order])
-            job["priority_page"] = page_order[0]
-
-            for idx in page_order:
-                storage_path = self._storage_path(user_id, current_story["id"], voice, language_code, idx)
-                if self._signed_url(storage_path):
-                    if idx not in job["pages_ready"]:
-                        job["pages_ready"].append(idx)
-                    job["page_paths"][idx] = storage_path
-                    job["pages_ready"] = sorted(set(job["pages_ready"]))
-                    if idx in job["pages_failed"]:
-                        job["pages_failed"].remove(idx)
-                    job["last_error"] = None
-                    job["status"] = "page_ready" if idx < job["total_pages"] else "all_ready"
-                    await asyncio.sleep(0.05)
-                    continue
-
-                page_text = pages[idx - 1]
-                job["pages_generating"] = [idx]
-                job["status"] = "generating"
-                try:
-                    storage_path, actual_mode = await self._generate_page_audio(
-                        user_id=user_id,
-                        story_id=current_story["id"],
-                        page=idx,
-                        page_text=page_text,
-                        voice=voice,
-                        language_code=language_code,
-                        voice_mode=job["voice_mode"],
-                        parent_voice_id=parent_voice_id,
-                        child_name=current_story.get("child_name"),
-                        child_name_pronunciation=current_story.get("child_name_pronunciation"),
-                        story_language_code=self.resolve_language(
-                            current_story,
-                            current_story.get("language")
-                            or current_story.get("language_code")
-                            or current_story.get("story_language")
-                            or current_story.get("preferred_language"),
-                        ),
-                    )
-
-                    job["voice_mode"] = actual_mode
-                    if idx not in job["pages_ready"]:
-                        job["pages_ready"].append(idx)
-                    job["page_paths"][idx] = storage_path
-                    job["pages_ready"] = sorted(set(job["pages_ready"]))
-                    if idx in job["pages_failed"]:
-                        job["pages_failed"].remove(idx)
-                    job["last_error"] = None
-                    job["status"] = "page_ready" if idx < job["total_pages"] else "all_ready"
-
-                    if idx == 1:
-                        try:
-                            first_url = self._signed_url(storage_path)
-                            update_payload = {
-                                "audio_status": "ready",
-                                "audio_url": first_url,
-                                "audio_created_at": datetime.now(timezone.utc).isoformat(),
-                                "audio_language_code": language_code,
-                                "audio_voice_id": voice,
-                            }
-                            self.story_repo.update(current_story["id"], user_id, update_payload)
-                        except Exception:
-                            pass
-
-                except Exception as e:
-                    print(f"[NARRATION] Page {idx} generation failed for story {current_story['id']}: {repr(e)}")
-                    if idx not in job["pages_failed"]:
-                        job["pages_failed"].append(idx)
-                    job["pages_generating"] = []
-                    job["status"] = "failed"
-                    job["last_error"] = str(e)
-                    self._refund_parent_voice_credit_once(user_id, job)
-                    return current_story
-
-                await asyncio.sleep(0.05)
-
+        if not pages:
+            job["pages_failed"] = [1]
             job["pages_generating"] = []
-            return current_story
-
-        story = await generate_available_pages(story, start_page)
-        if job.get("status") == "failed":
+            job["status"] = "failed"
+            job["last_error"] = "Story has no pages"
+            self._refund_parent_voice_credit_once(user_id, job)
             return
 
-        while datetime.now(timezone.utc).timestamp() < expansion_deadline:
-            generation_status = str(story.get("generation_status") or "complete").strip().lower()
-            expected_total = int(story.get("expected_pages") or job.get("total_pages") or len(story.get("pages") or []) or 0)
-            current_pages_count = len(story.get("pages") or [])
-            ready_count = len(set(job.get("pages_ready", [])))
+        initial_voice_mode = "parent" if voice == "parent_voice" and parent_voice_id else "standard"
+        job["voice_mode"] = initial_voice_mode
 
-            if generation_status in {"complete", "completed", "failed"} and ready_count >= current_pages_count:
+        safe_start_page = max(1, min(int(start_page or 1), len(pages)))
+        page_order = [safe_start_page] + [i for i in range(1, len(pages) + 1) if i != safe_start_page]
+        job["priority_page"] = safe_start_page
+
+        for idx in page_order:
+            storage_path = self._storage_path(user_id, story["id"], voice, language_code, idx)
+            if self._signed_url(storage_path):
+                if idx not in job["pages_ready"]:
+                    job["pages_ready"].append(idx)
+                job["page_paths"][idx] = storage_path
+                job["pages_ready"] = sorted(job["pages_ready"])
+                if idx in job["pages_failed"]:
+                    job["pages_failed"].remove(idx)
+                job["last_error"] = None
+                job["status"] = "page_ready" if idx < len(pages) else "all_ready"
+                await asyncio.sleep(0.05)
+                continue
+            page_text = pages[idx - 1]
+            job["pages_generating"] = [idx]
+            try:
+                storage_path, actual_mode = await self._generate_page_audio(
+                    user_id=user_id,
+                    story_id=story["id"],
+                    page=idx,
+                    page_text=page_text,
+                    voice=voice,
+                    language_code=language_code,
+                    voice_mode=job["voice_mode"],
+                    parent_voice_id=parent_voice_id,
+                    child_name=story.get("child_name"),
+                    child_name_pronunciation=story.get("child_name_pronunciation"),
+                    story_language_code=self.resolve_language(story, story.get("language") or story.get("language_code") or story.get("story_language") or story.get("preferred_language")),
+                )
+
+                job["voice_mode"] = actual_mode
+                if idx not in job["pages_ready"]:
+                    job["pages_ready"].append(idx)
+                job["page_paths"][idx] = storage_path
+                job["pages_ready"] = sorted(job["pages_ready"])
+                if idx in job["pages_failed"]:
+                    job["pages_failed"].remove(idx)
+                job["last_error"] = None
+                job["status"] = "page_ready" if idx < len(pages) else "all_ready"
+
+                if idx == 1:
+                    try:
+                        first_url = self._signed_url(storage_path)
+                        update_payload = {
+                            "audio_status": "ready",
+                            "audio_url": first_url,
+                            "audio_created_at": datetime.now(timezone.utc).isoformat(),
+                            "audio_language_code": language_code,
+                            "audio_voice_id": voice,
+                        }
+                        self.story_repo.update(story["id"], user_id, update_payload)
+                    except Exception:
+                        pass
+
+            except Exception as e:
+                print(f"[NARRATION] Page {idx} generation failed for story {story['id']}: {repr(e)}")
+                if idx not in job["pages_failed"]:
+                    job["pages_failed"].append(idx)
                 job["pages_generating"] = []
-                job["status"] = "all_ready" if ready_count >= expected_total or generation_status == "failed" else "page_ready"
+                job["status"] = "failed"
+                job["last_error"] = str(e)
+                self._refund_parent_voice_credit_once(user_id, job)
                 return
 
-            # Stay alive while text generation is partial so Page 2+ can be
-            # generated immediately when the story expands. This is the safe
-            # owner-side prewarm replacement for the removed page-status worker.
-            try:
-                latest_story = self.story_repo.get(story["id"], user_id) or story
-            except Exception as refresh_err:
-                print(f"[NARRATION] Story refresh failed during prewarm story_id={story.get('id')}: {repr(refresh_err)}")
-                latest_story = story
-
-            latest_pages_count = len(latest_story.get("pages") or [])
-            if latest_pages_count > current_pages_count:
-                print(
-                    f"[NARRATION] Owner prewarm detected story expansion story_id={story['id']} "
-                    f"from pages={current_pages_count} to pages={latest_pages_count}"
-                )
-                story = latest_story
-                missing = [
-                    idx for idx in range(1, latest_pages_count + 1)
-                    if idx not in set(job.get("pages_ready", []))
-                ]
-                priority = 2 if 2 in missing else (missing[0] if missing else 1)
-                story = await generate_available_pages(story, priority)
-                if job.get("status") == "failed":
-                    return
-                continue
-
-            # If the story has not expanded yet, expose a passive waiting state
-            # but do not create duplicate workers or mutate from page-status.
-            if current_pages_count < expected_total and generation_status not in {"complete", "completed", "failed"}:
-                job["status"] = "page_ready" if ready_count else "generating"
-                job["pages_generating"] = []
-                await asyncio.sleep(poll_interval_seconds)
-                continue
-
-            break
+            await asyncio.sleep(0.05)
 
         job["pages_generating"] = []
-        if job.get("last_error"):
-            job["status"] = "failed"
-        elif len(set(job.get("pages_ready", []))) >= int(job.get("total_pages") or 0):
-            job["status"] = "all_ready"
-        else:
-            job["status"] = "page_ready"
+        job["status"] = "all_ready"
 
     def _get_story_for_user(self, story_id: str, user_id: str) -> dict:
         story = self.story_repo.get(story_id, user_id)
@@ -795,15 +680,8 @@ class NarrationService:
         requested_voice = self.resolve_voice(request.voicePreference, language_code)
         language_code = self._enforce_standard_voice_language(requested_voice, language_code)
         cache_voice = requested_voice if requested_voice != "parent_voice" else "parent_voice"
-        available_pages_count = len(story.get("pages") or [])
-        generation_status = str(story.get("generation_status") or "complete").strip().lower()
-        expected_pages = int(story.get("expected_pages") or available_pages_count or 0)
-        # For lean generation, Page 1 can arrive while the story is still partial.
-        # The narration job should know the intended final page count, while only
-        # generating pages whose text exists. This prevents Page 1 being treated
-        # as the final narrated page.
-        total_pages = max(available_pages_count, expected_pages) if generation_status not in {"complete", "completed", "failed"} else available_pages_count
-        requested_start_page = max(1, min(int(request.startPage or 1), max(available_pages_count, 1))) if total_pages > 0 else 1
+        total_pages = len(story.get("pages") or [])
+        requested_start_page = max(1, min(int(request.startPage or 1), total_pages)) if total_pages > 0 else 1
         job_id = self._cache_key(
             user_id,
             story["id"],

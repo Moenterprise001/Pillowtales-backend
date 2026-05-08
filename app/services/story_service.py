@@ -108,8 +108,12 @@ IMPORTANT LANGUAGE RULE:
 - Do NOT use English unless the language is English.
 - Do NOT mix languages.
 - All narration, title, and dialogue MUST be in {language_name}.
-- Write naturally for native-speaking children in {language_name}; the story must feel originally written in {language_name}, not translated from English.
+- Write naturally for native-speaking children in {language_name}.
+- The story must feel like it was originally written in {language_name}, not translated from English.
+- Use warm, magical, emotionally comforting bedtime storytelling.
 - Avoid overly formal, academic, rigid, or literal phrasing.
+- Use natural rhythm and gentle emotional pacing suitable for read-aloud bedtime stories.
+{language_style_block}
 
 STORY REQUIREMENTS:
 - Child name: {request.childName}

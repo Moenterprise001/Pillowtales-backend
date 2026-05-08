@@ -62,5 +62,5 @@ def apply_pronunciation(text: str, child_name: str | None, pronunciation: str | 
         return text
 
     # Replace the child's visible name with a phonetic pronunciation in the TTS copy only
-    pattern = rf"(?i)(?<!\w){escaped_name}(?!\w)"
-    return re.sub(pattern, pronunciation.strip(), text)
+    pattern = rf"\b{escaped_name}\b"
+    return re.sub(pattern, pronunciation.strip(), text, flags=re.IGNORECASE)
