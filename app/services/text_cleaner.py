@@ -35,14 +35,18 @@ def clean_text_for_tts(text: str) -> str:
             lines.append("")
             continue
 
+        # Drop isolated punctuation/symbol lines, including orphan apostrophes/quotes.
+        # Python's stdlib re does not support \p{...}, so use Unicode categories.
         if _is_punctuation_or_symbol_only(stripped):
             continue
 
+        # Drop isolated single letters
         if len(stripped) == 1 and stripped.isalpha():
             continue
 
         lines.append(line.rstrip())
 
+    # Collapse excessive blank lines
     cleaned = "\n".join(lines)
     cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)
 
@@ -57,6 +61,6 @@ def apply_pronunciation(text: str, child_name: str | None, pronunciation: str | 
     if not escaped_name:
         return text
 
+    # Replace the child's visible name with a phonetic pronunciation in the TTS copy only
     pattern = rf"(?i)(?<!\w){escaped_name}(?!\w)"
-
     return re.sub(pattern, pronunciation.strip(), text)

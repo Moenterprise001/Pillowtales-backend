@@ -108,6 +108,8 @@ IMPORTANT LANGUAGE RULE:
 - Do NOT use English unless the language is English.
 - Do NOT mix languages.
 - All narration, title, and dialogue MUST be in {language_name}.
+- Write naturally for native-speaking children in {language_name}; the story must feel originally written in {language_name}, not translated from English.
+- Avoid overly formal, academic, rigid, or literal phrasing.
 
 STORY REQUIREMENTS:
 - Child name: {request.childName}
@@ -358,6 +360,9 @@ IMPORTANT LANGUAGE RULE:
 - Continue ONLY in {blocks['language_name']}.
 - Do NOT use English unless the language is English.
 - Do NOT mix languages.
+- Continue as if the story was originally written in {blocks['language_name']}.
+- Keep the language natural, warm, magical, emotionally comforting, and read-aloud friendly.
+- Avoid formal, stiff, academic, or literal phrasing.
 
 ORIGINAL STORY REQUIREMENTS:
 - Child name: {request.childName}
