@@ -568,6 +568,8 @@ class NarrationService:
     ) -> None:
         pages = story.get("pages") or []
         job = _chunked_jobs[job_id]
+        expected_total_pages = max(int(job.get("total_pages") or 0), self._expected_total_pages(story))
+        job["total_pages"] = expected_total_pages
 
         if not pages:
             job["pages_failed"] = [1]
@@ -594,7 +596,7 @@ class NarrationService:
                 if idx in job["pages_failed"]:
                     job["pages_failed"].remove(idx)
                 job["last_error"] = None
-                job["status"] = "page_ready" if idx < len(pages) else "all_ready"
+                job["status"] = "page_ready" if idx < expected_total_pages else "all_ready"
                 await asyncio.sleep(0.05)
                 continue
             page_text = pages[idx - 1]
@@ -622,7 +624,7 @@ class NarrationService:
                 if idx in job["pages_failed"]:
                     job["pages_failed"].remove(idx)
                 job["last_error"] = None
-                job["status"] = "page_ready" if idx < len(pages) else "all_ready"
+                job["status"] = "page_ready" if idx < expected_total_pages else "all_ready"
 
                 if idx == 1:
                     try:
@@ -651,7 +653,13 @@ class NarrationService:
             await asyncio.sleep(0.05)
 
         job["pages_generating"] = []
-        job["status"] = "all_ready"
+        # If the story text is still expanding, do not mark the job all_ready just
+        # because the first available page finished. The request-owned watcher will
+        # continue generation as soon as pages 2+ exist.
+        if len(set(job.get("pages_ready", []))) >= expected_total_pages:
+            job["status"] = "all_ready"
+        else:
+            job["status"] = "page_ready"
 
     def _get_story_for_user(self, story_id: str, user_id: str) -> dict:
         story = self.story_repo.get(story_id, user_id)
@@ -665,6 +673,107 @@ class NarrationService:
         profile = self.user_repo.get_profile(user_id) or {}
         subscription = self.subscription_service.get_subscription(user_id, profile.get("email"))
         return profile, subscription
+
+    def _expected_total_pages(self, story: dict) -> int:
+        """Return the best known final page count without trusting early 1-page text.
+
+        Lean story generation returns page 1 first and stores expected_pages=7.
+        Narration must use that expected count for progress/prewarm decisions, while
+        only generating pages whose text actually exists.
+        """
+        pages_count = len(story.get("pages") or [])
+        raw_expected = story.get("expected_pages") or story.get("total_pages") or pages_count
+        try:
+            expected = int(raw_expected)
+        except Exception:
+            expected = pages_count
+        return max(pages_count, expected, 1)
+
+    async def _watch_story_expansion_and_continue_job(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+        story_id: str,
+        voice: str,
+        language_code: str,
+        parent_voice_id: Optional[str],
+        preferred_next_page: int = 2,
+        max_seconds: float = 120.0,
+    ) -> None:
+        """Request-owned watcher for lean story expansion.
+
+        page-status must remain passive. This watcher is created only by
+        request_narration(), so narration generation ownership stays with the
+        request endpoint while allowing page 2+ to start as soon as text expands
+        from 1 page to the final story.
+        """
+        started = asyncio.get_event_loop().time()
+        last_seen_pages = 0
+
+        while asyncio.get_event_loop().time() - started < max_seconds:
+            await asyncio.sleep(0.75)
+
+            job = _chunked_jobs.get(job_id)
+            if not job or job.get("last_error"):
+                return
+
+            try:
+                fresh_story = self.story_repo.get(story_id, user_id)
+            except Exception as exc:
+                print(f"[NARRATION] Story expansion watcher read failed story_id={story_id}: {repr(exc)}")
+                continue
+
+            if not fresh_story:
+                return
+
+            pages = fresh_story.get("pages") or []
+            pages_count = len(pages)
+            expected_total = self._expected_total_pages(fresh_story)
+            generation_status = str(fresh_story.get("generation_status") or "complete").strip().lower()
+            text_complete = generation_status in {"complete", "completed", "failed"} or pages_count >= expected_total
+
+            if expected_total > int(job.get("total_pages") or 0):
+                job["total_pages"] = expected_total
+
+            if pages_count <= last_seen_pages and not text_complete:
+                continue
+            last_seen_pages = max(last_seen_pages, pages_count)
+
+            ready = set(job.get("pages_ready", [])) | set(self._list_ready_pages(user_id, story_id, voice, language_code))
+            generating = set(job.get("pages_generating", []))
+            available_missing = [i for i in range(1, pages_count + 1) if i not in ready]
+
+            if available_missing and not generating:
+                if preferred_next_page in available_missing:
+                    start_page = preferred_next_page
+                else:
+                    start_page = available_missing[0]
+
+                job["pages_generating"] = [start_page]
+                job["status"] = "generating"
+                job["total_pages"] = expected_total
+                print(
+                    f"[NARRATION] Story text expanded; continuing chunked worker "
+                    f"story_id={story_id} start_page={start_page} pages_count={pages_count} expected={expected_total}"
+                )
+                asyncio.create_task(
+                    self._process_chunked_job(
+                        job_id=job_id,
+                        user_id=user_id,
+                        story=fresh_story,
+                        voice=voice,
+                        language_code=language_code,
+                        parent_voice_id=parent_voice_id,
+                        start_page=start_page,
+                    )
+                )
+
+            if text_complete:
+                # One final pass above starts any available missing pages. After the
+                # full text exists, the worker will continue through all remaining
+                # pages, so the watcher can exit safely.
+                return
 
     def request_narration(
         self,
@@ -680,8 +789,11 @@ class NarrationService:
         requested_voice = self.resolve_voice(request.voicePreference, language_code)
         language_code = self._enforce_standard_voice_language(requested_voice, language_code)
         cache_voice = requested_voice if requested_voice != "parent_voice" else "parent_voice"
-        total_pages = len(story.get("pages") or [])
-        requested_start_page = max(1, min(int(request.startPage or 1), total_pages)) if total_pages > 0 else 1
+        available_pages = len(story.get("pages") or [])
+        total_pages = self._expected_total_pages(story)
+        # Clamp requested playback to available text, but keep expected total pages
+        # for progress/prewarm so early totalPages: 1 is never treated as final.
+        requested_start_page = max(1, min(int(request.startPage or 1), max(available_pages, 1))) if total_pages > 0 else 1
         job_id = self._cache_key(
             user_id,
             story["id"],
@@ -768,6 +880,20 @@ class NarrationService:
             start_storage = existing.get("page_paths", {}).get(requested_start_page)
             start_url = self._signed_url(start_storage) if start_storage else None
             page_is_ready = requested_start_page in existing.get("pages_ready", [])
+
+            if total_pages > available_pages and not existing.get("expansion_watcher_started"):
+                existing["expansion_watcher_started"] = True
+                asyncio.create_task(
+                    self._watch_story_expansion_and_continue_job(
+                        job_id=job_id,
+                        user_id=user_id,
+                        story_id=story["id"],
+                        voice=cache_voice,
+                        language_code=language_code,
+                        parent_voice_id=parent_voice_id,
+                        preferred_next_page=2 if requested_start_page == 1 else requested_start_page,
+                    )
+                )
 
             return NarrationResponse(
                 status="page_ready" if page_is_ready else "generating",
@@ -903,6 +1029,7 @@ class NarrationService:
             "credit_refunded": False,
             "intro_charged": intro_charged,
             "priority_page": priority_page,
+            "expansion_watcher_started": total_pages > available_pages,
         }
 
         asyncio.create_task(
@@ -916,6 +1043,18 @@ class NarrationService:
                 start_page=priority_page,
             )
         )
+        if total_pages > available_pages:
+            asyncio.create_task(
+                self._watch_story_expansion_and_continue_job(
+                    job_id=job_id,
+                    user_id=user_id,
+                    story_id=story["id"],
+                    voice=cache_voice,
+                    language_code=language_code,
+                    parent_voice_id=parent_voice_id,
+                    preferred_next_page=2 if requested_start_page == 1 else requested_start_page,
+                )
+            )
 
         return NarrationResponse(
             status="generating",
@@ -940,7 +1079,7 @@ class NarrationService:
             language_code,
             story.get("child_name_pronunciation"),
         )
-        total_pages = len(story.get("pages") or [])
+        total_pages = self._expected_total_pages(story)
         ready_pages = self._list_ready_pages(user_id, story_id, cache_voice, language_code)
         job = _chunked_jobs.get(job_id)
 
