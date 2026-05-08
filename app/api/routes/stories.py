@@ -25,10 +25,19 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         raise HTTPException(status_code=404, detail='User profile not found')
     subscription = subscription_service.get_subscription(user_id, profile.get('email'))
     story_service.validate_story_limits(user_id, subscription)
-    story_data = await story_service.generate_story_first_page(request, subscription)
-    full_text = '\n\n'.join(story_data['pages'])
-    generation_status = story_data.get('generation_status', 'partial')
-    expected_pages = story_data.get('expected_pages', len(story_data.get('pages') or []))
+
+    # Backend-only stability rollback:
+    # The current frontend loads the story once in reader.tsx and does not poll
+    # generation_status/expected_pages for story text completion. Returning only
+    # page 1 here therefore makes the app treat page 1 as the whole story.
+    # Generate the complete story before saving/returning so the reader receives
+    # the canonical 7-page story immediately. Do not touch narration ownership.
+    story_data = await story_service.generate_story(request, subscription)
+    pages = story_data.get('pages') or []
+    full_text = '\n\n'.join(pages)
+    generation_status = 'complete'
+    expected_pages = len(pages)
+
     record = {
         'user_id': user_id,
         'title': story_data['title'],
@@ -42,7 +51,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         'story_language_code': request.storyLanguageCode,
         'narration_language_code': request.narrationLanguageCode or request.storyLanguageCode,
         'child_name_pronunciation': request.childNamePronunciation,
-        'pages': story_data['pages'],
+        'pages': pages,
         'full_text': full_text,
         'audio_url': None,
         'audio_status': 'none',
@@ -56,39 +65,27 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
     }
     saved_story = story_repo.insert(record)
 
-    if generation_status == 'partial':
-        asyncio.create_task(story_service.complete_story_background(
-            request=request,
-            user_id=user_id,
-            story_id=saved_story['id'],
-            title=story_data['title'],
-            current_pages=story_data['pages'],
-            companion=story_data.get('companion'),
-            expected_pages=expected_pages,
-        ))
-    else:
-        metadata = await story_service.extract_metadata(story_data['title'], full_text)
-        try:
-            story_repo.update(saved_story['id'], user_id, {
-                'story_summary': metadata.get('summary', ''),
-                'characters': metadata.get('characters', []),
-                'setting': metadata.get('setting', ''),
-                'generation_status': 'complete',
-                'expected_pages': expected_pages,
-                'generation_error': None,
-            })
-        except Exception:
-            pass
+    metadata = await story_service.extract_metadata(story_data['title'], full_text)
+    try:
+        story_repo.update(saved_story['id'], user_id, {
+            'story_summary': metadata.get('summary', ''),
+            'characters': metadata.get('characters', []),
+            'setting': metadata.get('setting', ''),
+            'generation_status': 'complete',
+            'expected_pages': expected_pages,
+            'generation_error': None,
+        })
+    except Exception:
+        pass
 
     return StoryResponse(
         storyId=saved_story['id'],
         title=story_data['title'],
-        pages=story_data['pages'],
+        pages=pages,
         generation_status=generation_status,
         expected_pages=expected_pages,
         generation_error=None,
     )
-
 
 @router.get('/stories')
 async def list_stories(user_id: str = Depends(get_current_user), story_repo: StoryRepository = Depends(get_story_repo)) -> dict:
