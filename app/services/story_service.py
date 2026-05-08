@@ -18,43 +18,13 @@ from app.repositories.story_repository import StoryRepository
 from app.utils.story_text import postprocess_story_pages
 
 
-OPENING_SEEDS_BY_LANG = {
-    "en": [
-        "Under a soft silver moon, {childName} snuggled into bed when something tiny and magical flickered near the window.",
-        "As the stars began to glow, {childName} pulled the blanket close and noticed a gentle shimmer in the room.",
-        "The night was calm and quiet when {childName} felt a soft, magical presence nearby.",
-        "Just as {childName} was getting cosy, a small glowing light appeared, as if the night had a secret to share.",
-        "The moonlight stretched across the room, and {childName} felt something special was about to begin.",
-    ],
-    "es": [
-        "Bajo una luna plateada y suave, {childName} se acurrucó en la cama cuando un pequeño destello mágico brilló junto a la ventana.",
-        "Mientras las estrellas empezaban a iluminarse, {childName} abrazó la manta y notó un resplandor tranquilo en la habitación.",
-        "La noche estaba calmada y silenciosa cuando {childName} sintió una presencia suave y mágica muy cerca.",
-        "Justo cuando {childName} se acomodaba en la cama, una lucecita brillante apareció como si la noche quisiera contar un secreto.",
-        "La luz de la luna cruzó despacio la habitación, y {childName} sintió que algo especial estaba a punto de comenzar.",
-    ],
-    "fr": [
-        "Sous une douce lune argentée, {childName} se blottit dans son lit lorsqu'une petite lueur magique scintilla près de la fenêtre.",
-        "Alors que les étoiles commençaient à briller, {childName} serra la couverture contre soi et remarqua un doux reflet dans la chambre.",
-        "La nuit était calme et silencieuse lorsque {childName} sentit une présence douce et magique tout près.",
-        "Juste au moment où {childName} s'installait confortablement, une petite lumière apparut comme si la nuit avait un secret à partager.",
-        "Le clair de lune glissa dans la chambre, et {childName} sentit que quelque chose de merveilleux allait commencer.",
-    ],
-    "de": [
-        "Unter einem sanften silbernen Mond kuschelte sich {childName} ins Bett, als ein kleines magisches Licht am Fenster funkelte.",
-        "Als die Sterne zu leuchten begannen, zog {childName} die Decke näher heran und bemerkte einen ruhigen Schimmer im Zimmer.",
-        "Die Nacht war still und friedlich, als {childName} eine sanfte, magische Nähe spürte.",
-        "Gerade als {childName} es sich im Bett gemütlich machte, erschien ein kleines Leuchten, als hätte die Nacht ein Geheimnis zu erzählen.",
-        "Das Mondlicht glitt durch das Zimmer, und {childName} spürte, dass etwas Besonderes beginnen würde.",
-    ],
-    "it": [
-        "Sotto una morbida luna d'argento, {childName} si rannicchiò nel letto quando un piccolo luccichio magico brillò vicino alla finestra.",
-        "Mentre le stelle iniziavano a brillare, {childName} strinse la coperta e notò una luce gentile nella stanza.",
-        "La notte era calma e silenziosa quando {childName} sentì una presenza dolce e magica lì vicino.",
-        "Proprio mentre {childName} si sistemava nel letto, una piccola luce apparve come se la notte avesse un segreto da raccontare.",
-        "La luce della luna attraversò piano la stanza, e {childName} sentì che qualcosa di speciale stava per cominciare.",
-    ],
-}
+OPENING_SEEDS = [
+    "Under a soft silver moon, {childName} snuggled into bed when something tiny and magical flickered near the window.",
+    "As the stars began to glow, {childName} pulled the blanket close and noticed a gentle shimmer in the room.",
+    "The night was calm and quiet when {childName} felt a soft, magical presence nearby.",
+    "Just as {childName} was getting cosy, a small glowing light appeared, as if the night had a secret to share.",
+    "The moonlight stretched across the room, and {childName} felt something special was about to begin."
+]
 
 FIRST_PAGE_TIMEOUT_SECONDS = 30
 # User-facing consistency target: if Gemini has not produced page 1
@@ -80,11 +50,6 @@ class StoryService:
             companion['id'] = request.companionId
             return companion
         return None
-
-    def _opening_seed_for_language(self, language_code: str) -> str:
-        normalized = (language_code or "en").lower().split("-")[0]
-        seeds = OPENING_SEEDS_BY_LANG.get(normalized) or OPENING_SEEDS_BY_LANG["en"]
-        return random.choice(seeds)
 
     def _storycraft_rules(self) -> str:
         return """STORYCRAFT QUALITY RULES:
@@ -129,11 +94,11 @@ class StoryService:
         target_pages = "7"
         paragraphs_per_page = "2"
         sentence_range = "5-7"
-        target_words = "850-1100"
-        max_words_per_page = "175"
+        target_words = "1050-1300"
+        max_words_per_page = "210"
         pacing_note = (
             "Create a substantial but calm bedtime story suitable for an approximately eight-minute bedtime experience. "
-            "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment."
+            "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment with sensory detail, child agency, and emotional warmth."
         )
 
         return f"""You are a premium children's bedtime storyteller.
@@ -164,10 +129,10 @@ LENGTH AND STRUCTURE REQUIREMENTS (STRICT PERFORMANCE RULES):
 - EACH page should contain {paragraphs_per_page} gentle paragraphs.
 - EACH page should contain approximately {sentence_range} bedtime-friendly sentences in total.
 - TOTAL story length MUST be approximately {target_words} words.
-- Each page should be substantial, normally 120-165 words, but DO NOT exceed {max_words_per_page} words on any single page.
+- Each page should be substantial, normally 145-190 words, but DO NOT exceed {max_words_per_page} words on any single page.
 - Use simple, natural sentences suitable for spoken bedtime narration.
 - Do not make pages too short. Avoid summarising scenes in only one or two sentences.
-- Every page must move the story forward gently and include one memorable story beat.
+- Every page must move the story forward gently and include one memorable story beat, a small choice or discovery from the child, and warm bedtime imagery.
 - The moral should be discovered through the child's actions, not explained like a lesson.
 - The final page must end peacefully and softly.
 - {pacing_note}
@@ -239,8 +204,8 @@ OUTPUT QUALITY RULES:
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         blocks = self._language_and_character_blocks(request, companion)
 
+        opening = random.choice(OPENING_SEEDS).replace("{childName}", request.childName)
         language_code = (request.storyLanguageCode or "en").lower()
-        opening = self._opening_seed_for_language(language_code).replace("{childName}", request.childName)
         is_english = language_code == "en"
 
         if is_english:
@@ -419,11 +384,11 @@ CONTINUATION REQUIREMENTS:
 - Continue naturally from page 1.
 - Do not recap page 1.
 - Do not contradict page 1.
-- Each page should contain 2-3 gentle paragraphs.
-- Each page should be approximately 120-170 words.
+- Each page should contain 2-3 gentle, story-rich paragraphs.
+- Each page should be approximately 150-205 words.
 - Each page should contain around 5-7 bedtime-friendly sentences in total.
-- Do not make pages too short; each page should feel like a complete story moment, not a summary.
-- Every page must move the story forward gently and include one memorable story beat.
+- Do not make pages too short; each page should feel like a complete story scene with action, sensory detail, and emotional progression, not a summary.
+- Every page must move the story forward gently and include one memorable story beat, a small choice or discovery from the child, and warm bedtime imagery.
 - The moral should be discovered through the child's actions, not explained like a lesson.
 - The final page must end peacefully and softly.
 
@@ -666,23 +631,9 @@ OUTPUT QUALITY RULES:
 
         # Hard guard for production performance: Gemini may occasionally exceed
         # the requested page count. Trim to the intended count so narration cost,
-        # timing, and reader sync remain predictable. Also reject under-paginated
-        # full-story responses instead of saving a broken 1-page story as complete.
-        intended_page_count = self._intended_page_count(request)
-        if len(pages) < intended_page_count:
-            print(
-                f"[PERF] generate_story FAILED under-paginated "
-                f"pages={len(pages)} expected={intended_page_count} total={time.time() - start_total:.2f}s"
-            )
-            print("[PERF] ========================================")
-            raise HTTPException(
-                status_code=500,
-                detail=f"Story generation returned only {len(pages)} of {intended_page_count} pages",
-            )
-
+        # timing, and reader sync remain predictable.
+        intended_page_count = 7
         story_data['pages'] = pages[:intended_page_count]
-        story_data['expected_pages'] = intended_page_count
-        story_data['generation_status'] = 'complete'
         story_data['companion'] = companion
 
         total_words = sum(len(str(page).split()) for page in story_data['pages'])
