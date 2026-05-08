@@ -26,17 +26,14 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
     subscription = subscription_service.get_subscription(user_id, profile.get('email'))
     story_service.validate_story_limits(user_id, subscription)
 
-    # Backend-only stability rollback:
-    # The current frontend loads the story once in reader.tsx and does not poll
-    # generation_status/expected_pages for story text completion. Returning only
-    # page 1 here therefore makes the app treat page 1 as the whole story.
-    # Generate the complete story before saving/returning so the reader receives
-    # the canonical 7-page story immediately. Do not touch narration ownership.
-    story_data = await story_service.generate_story(request, subscription)
+    # Page-1-first story generation is required for PillowTales performance.
+    # Return page 1 as soon as it is ready, then complete pages 2+ in the
+    # background. Do not block this route on the full 7-page story.
+    story_data = await story_service.generate_story_first_page(request, subscription)
     pages = story_data.get('pages') or []
     full_text = '\n\n'.join(pages)
-    generation_status = 'complete'
-    expected_pages = len(pages)
+    expected_pages = story_data.get('expected_pages') or 7
+    generation_status = story_data.get('generation_status') or ('complete' if len(pages) >= expected_pages else 'partial')
 
     record = {
         'user_id': user_id,
@@ -65,18 +62,31 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
     }
     saved_story = story_repo.insert(record)
 
-    metadata = await story_service.extract_metadata(story_data['title'], full_text)
-    try:
-        story_repo.update(saved_story['id'], user_id, {
-            'story_summary': metadata.get('summary', ''),
-            'characters': metadata.get('characters', []),
-            'setting': metadata.get('setting', ''),
-            'generation_status': 'complete',
-            'expected_pages': expected_pages,
-            'generation_error': None,
-        })
-    except Exception:
-        pass
+    if generation_status == 'complete' or len(pages) >= expected_pages:
+        metadata = await story_service.extract_metadata(story_data['title'], full_text)
+        try:
+            story_repo.update(saved_story['id'], user_id, {
+                'story_summary': metadata.get('summary', ''),
+                'characters': metadata.get('characters', []),
+                'setting': metadata.get('setting', ''),
+                'generation_status': 'complete',
+                'expected_pages': expected_pages,
+                'generation_error': None,
+            })
+        except Exception:
+            pass
+    else:
+        # Background completion owns pages 2+. This keeps generation fast while
+        # allowing the frontend to poll /stories/{id} until expected_pages arrive.
+        asyncio.create_task(story_service.complete_story_background(
+            request=request,
+            user_id=user_id,
+            story_id=saved_story['id'],
+            title=story_data['title'],
+            current_pages=pages,
+            companion=story_data.get('companion'),
+            expected_pages=expected_pages,
+        ))
 
     return StoryResponse(
         storyId=saved_story['id'],
