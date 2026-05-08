@@ -950,10 +950,78 @@ class NarrationService:
         generation_status = str(story.get("generation_status") or "complete").strip().lower()
         text_generation_complete = generation_status in {"complete", "completed", "failed"}
 
-        # CRITICAL ARCHITECTURE RULE:
-        # page-status is a passive observer only.
-        # Do not start, restart, prewarm, or expand narration workers from here.
-        # Generation ownership must remain inside the request-narration endpoint.
+        # Launch-safety self-heal:
+        # If the frontend is polling page-status before it successfully called
+        # /narration/request, there will be no in-memory job and no cached audio.
+        # In that exact case, start the existing chunked narration flow so page 1
+        # can be generated instead of leaving testers on an endless spinner.
+        # Parent Voice is intentionally excluded here to avoid silently consuming
+        # Parent Voice credits from a polling call.
+        if not job and not ready_pages and total_pages > 0 and cache_voice != "parent_voice":
+            print(
+                f"[NARRATION] SELF-HEAL starting standard narration from page-status "
+                f"story_id={story_id} voice={cache_voice} language={language_code}"
+            )
+            try:
+                self.request_narration(
+                    user_id,
+                    NarrationRequest(
+                        story_id=story_id,
+                        voice_preference=cache_voice,
+                        narration_language_code=language_code,
+                        start_page=1,
+                    ),
+                )
+                job = _chunked_jobs.get(job_id)
+            except Exception as e:
+                print(f"[NARRATION] SELF-HEAL failed story_id={story_id}: {repr(e)}")
+
+        # If Lean Chunking expands the story after an earlier 1-page narration job,
+        # immediately restart the existing worker for missing pages. This prewarms
+        # page 2 while page 1 is still playing, instead of waiting for page 1 to end.
+        if job and total_pages > 0:
+            existing_total_pages = int(job.get("total_pages") or 0)
+            if total_pages > existing_total_pages:
+                print(
+                    f"[NARRATION] Page-status expanding chunked job story_id={story_id} "
+                    f"from total_pages={existing_total_pages} to total_pages={total_pages}"
+                )
+                job["total_pages"] = total_pages
+                if job.get("status") == "all_ready":
+                    job["status"] = "page_ready"
+
+            if ready_pages:
+                job["pages_ready"] = sorted(set([*job.get("pages_ready", []), *ready_pages]))
+
+            existing_ready = set(job.get("pages_ready", []))
+            existing_generating = set(job.get("pages_generating", []))
+            missing_pages = [i for i in range(1, total_pages + 1) if i not in existing_ready]
+
+            if missing_pages and not existing_generating and not job.get("last_error"):
+                priority_page = 2 if 2 in missing_pages else missing_pages[0]
+                job["pages_generating"] = [priority_page]
+                job["priority_page"] = priority_page
+                job["status"] = "generating"
+                parent_voice_id = None
+                if cache_voice == "parent_voice":
+                    profile = self.user_repo.get_profile(user_id) or {}
+                    parent_voice_id = profile.get("parent_voice_id")
+
+                print(
+                    f"[NARRATION] Page-status prewarming missing narration "
+                    f"story_id={story_id} priority_page={priority_page} missing_pages={missing_pages}"
+                )
+                asyncio.create_task(
+                    self._process_chunked_job(
+                        job_id=job_id,
+                        user_id=user_id,
+                        story=story,
+                        voice=cache_voice,
+                        language_code=language_code,
+                        parent_voice_id=parent_voice_id,
+                        start_page=priority_page,
+                    )
+                )
 
         if job and job.get("last_error"):
             print(f"[NARRATION] Job {job_id} last_error: {job['last_error']}")

@@ -94,12 +94,50 @@ class StoryService:
         target_pages = "7"
         paragraphs_per_page = "2"
         sentence_range = "5-7"
-        target_words = "1050-1300"
-        max_words_per_page = "210"
+        target_words = "850-1100"
+        max_words_per_page = "175"
         pacing_note = (
             "Create a substantial but calm bedtime story suitable for an approximately eight-minute bedtime experience. "
-            "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment with sensory detail, child agency, and emotional warmth."
+            "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment."
         )
+
+        language_style_block = ""
+
+        if request.storyLanguageCode == "fr":
+            language_style_block = """
+FRENCH STORY STYLE:
+- Write with soft, poetic, emotionally warm French suitable for young children.
+- Prefer natural bedtime French over formal literary French.
+- Use gentle magical imagery and flowing sentence rhythm.
+- The story should feel cozy, dreamy, comforting, and originally written in French.
+"""
+
+        elif request.storyLanguageCode == "es":
+            language_style_block = """
+SPANISH STORY STYLE:
+- Use Spain Spanish (Castellano).
+- Avoid Latin American vocabulary and phrasing.
+- Keep the storytelling warm, calm, magical, natural, and child-friendly.
+- The story should feel cozy, dreamy, comforting, and originally written in Spanish from Spain.
+"""
+
+        elif request.storyLanguageCode == "it":
+            language_style_block = """
+ITALIAN STORY STYLE:
+- Write with warm, natural Italian suitable for young children.
+- Avoid overly formal, stiff, or literal phrasing.
+- Use gentle, musical bedtime rhythm and soft magical imagery.
+- The story should feel cozy, tender, dreamy, comforting, and originally written in Italian.
+"""
+
+        elif request.storyLanguageCode == "de":
+            language_style_block = """
+GERMAN STORY STYLE:
+- Write with warm, natural German suitable for young children.
+- Avoid overly formal, stiff, academic, or literal phrasing.
+- Use gentle bedtime rhythm, cozy imagery, and emotionally comforting language.
+- The story should feel soft, magical, reassuring, read-aloud friendly, and originally written in German.
+"""
 
         return f"""You are a premium children's bedtime storyteller.
 
@@ -135,10 +173,10 @@ LENGTH AND STRUCTURE REQUIREMENTS (STRICT PERFORMANCE RULES):
 - EACH page should contain {paragraphs_per_page} gentle paragraphs.
 - EACH page should contain approximately {sentence_range} bedtime-friendly sentences in total.
 - TOTAL story length MUST be approximately {target_words} words.
-- Each page should be substantial, normally 145-190 words, but DO NOT exceed {max_words_per_page} words on any single page.
+- Each page should be substantial, normally 120-165 words, but DO NOT exceed {max_words_per_page} words on any single page.
 - Use simple, natural sentences suitable for spoken bedtime narration.
 - Do not make pages too short. Avoid summarising scenes in only one or two sentences.
-- Every page must move the story forward gently and include one memorable story beat, a small choice or discovery from the child, and warm bedtime imagery.
+- Every page must move the story forward gently and include one memorable story beat.
 - The moral should be discovered through the child's actions, not explained like a lesson.
 - The final page must end peacefully and softly.
 - {pacing_note}
@@ -228,14 +266,8 @@ OUTPUT QUALITY RULES:
             # language-only output while generating valid JSON. Keep the same
             # bedtime shape, but reduce output length and instruction load so
             # page 1 is ready faster. The full 7-page story remains unchanged.
-            # German TTS is naturally longer/slower, so give page 1 a slightly
-            # longer prewarm window to avoid a pause before page 2.
-            if language_code == "de":
-                page_length_rule = "105-135 words total, including the opening sentence"
-                sentence_rule = "4-6 calm, read-aloud sentences"
-            else:
-                page_length_rule = "85-115 words total, including the opening sentence"
-                sentence_rule = "3-5 calm, read-aloud sentences"
+            page_length_rule = "85-115 words total, including the opening sentence"
+            sentence_rule = "3-5 calm, read-aloud sentences"
             instruction_block = f"""- Continue naturally from the opening above
 - Keep the tone warm, magical, calm, and bedtime-safe
 - Include one clear, gentle story moment for {request.childName}
@@ -364,9 +396,6 @@ IMPORTANT LANGUAGE RULE:
 - Continue ONLY in {blocks['language_name']}.
 - Do NOT use English unless the language is English.
 - Do NOT mix languages.
-- Continue as if the story was originally written in {blocks['language_name']}.
-- Keep the language natural, warm, magical, emotionally comforting, and read-aloud friendly.
-- Avoid formal, stiff, academic, or literal phrasing.
 
 ORIGINAL STORY REQUIREMENTS:
 - Child name: {request.childName}
@@ -393,11 +422,11 @@ CONTINUATION REQUIREMENTS:
 - Continue naturally from page 1.
 - Do not recap page 1.
 - Do not contradict page 1.
-- Each page should contain 2-3 gentle, story-rich paragraphs.
-- Each page should be approximately 150-205 words.
+- Each page should contain 2-3 gentle paragraphs.
+- Each page should be approximately 120-170 words.
 - Each page should contain around 5-7 bedtime-friendly sentences in total.
-- Do not make pages too short; each page should feel like a complete story scene with action, sensory detail, and emotional progression, not a summary.
-- Every page must move the story forward gently and include one memorable story beat, a small choice or discovery from the child, and warm bedtime imagery.
+- Do not make pages too short; each page should feel like a complete story moment, not a summary.
+- Every page must move the story forward gently and include one memorable story beat.
 - The moral should be discovered through the child's actions, not explained like a lesson.
 - The final page must end peacefully and softly.
 
