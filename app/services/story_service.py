@@ -74,11 +74,11 @@ class StoryService:
                 "The moonlight stretched across the room, and {childName} felt something special was about to begin.",
             ],
             "es": [
-                "Bajo una luna plateada y tranquila, {childName} se acurrucó en la cama cuando algo pequeño y mágico brilló junto a la ventana.",
-                "Mientras las estrellas empezaban a encenderse, {childName} se tapó bien y vio un resplandor suave en la habitación.",
-                "La noche estaba serena y silenciosa cuando {childName} notó una presencia mágica y amable muy cerca.",
-                "Justo cuando {childName} se acomodaba en la cama, apareció una luz cálida y suave, como si la noche quisiera contarle un secreto.",
-                "La luz de la luna cruzó despacio la habitación, y {childName} notó, con una calma muy dulce, que algo especial estaba a punto de comenzar.",
+                "Bajo una luna tranquila, {childName} se arropó en la cama y vio una luz suave junto a la ventana.",
+                "Mientras la casa se quedaba en silencio, {childName} se tapó bien y notó un brillo sereno en la habitación.",
+                "La noche estaba en calma cuando {childName} sintió cerca una presencia amable, pequeña y llena de magia.",
+                "Justo cuando {childName} estaba a punto de cerrar los ojos, una luz tenue apareció despacio junto a la cama.",
+                "La luz de la luna entró poco a poco en la habitación, y {childName} sintió que aquella noche traía algo especial.",
             ],
             "fr": [
                 "Sous une lune douce et argentée, {childName} se blottit dans son lit lorsqu'une petite lumière magique scintilla près de la fenêtre.",
@@ -120,16 +120,18 @@ FRENCH STORY STYLE — MATCH ENGLISH QUALITY:
 """
         if language_code == "es":
             return """
-SPANISH STORY STYLE — CASTILIAN/SPAIN ONLY:
-- Write in natural Spanish from Spain (Castellano), as a warm bedtime storyteller from Spain would speak.
-- The Spanish must sound clearly Spain/Castilian, not Latin American, neutral-dubbed, or translated Spanish.
-- Avoid Latin American vocabulary, rhythm, and phrasing. Avoid: computadora, carro, lindo/linda as the main adjective, platicar, ustedes for family/child address, celular.
-- Also avoid overly LATAM/neutral diminutives or phrasing such as “dragoncito”, “lucecita” when a natural Spain bedtime phrase like “pequeño dragón” or “luz suave” is better.
-- Prefer Spain-friendly bedtime wording such as: cuento, habitación, manta, cariño, dormir, sueños, despacio, suave, tranquilo/a, pequeño/a, con cuidado, poco a poco.
-- Use tú-style warmth for the child’s world. Do not use “ustedes” for family/child address.
+SPANISH STORY STYLE — STRICT CASTILIAN/SPAIN ONLY:
+- Write in natural Spanish from Spain (castellano peninsular), like a parent in Spain gently reading a bedtime story aloud.
+- The result must sound originally written in Spain, not Latin American, neutral-dubbed, AI-translated, or Disney-dub Spanish.
+- Use Spain bedtime cadence: warm, close, calm, simple, and softly musical. Sentences should feel spoken naturally at bedtime, not over-described.
+- Prefer natural Spain wording: cuento, habitación, manta, arroparse, cariño, dormir, sueños, despacio, suave, tranquilo/a, pequeño/a, con cuidado, poco a poco, una pizca de magia, al lado de la cama.
+- Avoid Latin American vocabulary and rhythm. Do not use: computadora, carro, lindo/linda as the main adjective, platicar, celular, ustedes for family/child address, chiquito/chiquita, calientito/calientita, colorido as a filler adjective.
+- Avoid neutral/Latin-American-style diminutives for magical things. Do not write “dragoncito”, “lucecita”, “estrellitas”, “chispitas”, or similar if “pequeño dragón”, “luz suave”, “pequeñas estrellas”, or “destellos suaves” sounds more Spain-native.
+- Avoid phrases that feel translated or over-dramatic, such as “la noche quería contarle un secreto” repeated too often, “pura curiosidad”, or “comienzo de una aventura muy especial” unless it sounds fully natural in context.
+- Use tú-style warmth and Spain-family intimacy. Do not use “ustedes” for the child/family voice.
 - Keep the same emotional shape as the English stories: warm opening, gentle discovery, child-led kindness, magical wonder, peaceful ending.
-- Use soft, natural, read-aloud sentences for young children. Do not sound like a literal translation.
-- Avoid stiff, neutral, textbook, or cartoon-dub Spanish. Make it cosy, magical, tender, and recognisably Spanish from Spain.
+- Keep it child-friendly and read-aloud: concrete images, gentle feelings, and cosy actions. Do not sound textbook, stiff, theatrical, or cartoon-dubbed.
+- If choosing between a generic Spanish phrase and a Spain-native phrase, always choose the Spain-native phrase.
 """
         if language_code == "it":
             return """
@@ -382,9 +384,9 @@ Return ONLY valid JSON:
                 "title": f"El brillo tranquilo de {child}",
                 "page": (
                     f"Bajo una luna plateada y suave, {child} se acurrucó en la cama cuando un pequeño brillo mágico apareció junto a la ventana. "
-                    "La luz parecía respirar despacio, como si trajera un secreto amable de la noche. "
-                    f"{child} levantó la manta con cuidado y sonrió al notar que el cuarto se llenaba de estrellas diminutas. "
-                    "Todo estaba en calma, y aquella chispa invitaba a comenzar un cuento lleno de ternura, valor y dulces sueños."
+                    "La luz se movía despacio, como si trajera una pizca de magia desde la noche. "
+                    f"{child} levantó la manta con cuidado y sonrió al ver pequeños destellos por la habitación. "
+                    "Todo estaba en calma, y aquel brillo suave invitaba a comenzar un cuento lleno de ternura, valor y buenos sueños."
                 ),
             },
             "it": {
