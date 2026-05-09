@@ -175,7 +175,9 @@ ENGLISH STORY STYLE:
             characters_block = '\n'.join(character_lines)
             character_instruction = (
                 "Include these family members, friends, or pets naturally in the story if possible. "
-                "Make sure each named character appears clearly at least once without overwhelming the bedtime tone:\n"
+                "Make sure each named character appears clearly at least once without overwhelming the bedtime tone. "
+                "For pets, use ONLY the pet name and animal type provided. Do not invent colour, breed, markings, size, collar, eye colour, or other physical details. "
+                "If a pet is named Luna (cat), write about Luna the cat, not a fluffy/black/orange/striped cat unless the parent explicitly provided that detail.\n"
                 f"{characters_block}"
             )
         else:
@@ -289,7 +291,9 @@ OUTPUT QUALITY RULES:
             characters_block = '\n'.join(character_lines)
             character_instruction = (
                 "Include these family members, friends, or pets naturally in the story if possible. "
-                "Make sure each named character appears clearly at least once without overwhelming the bedtime tone:\n"
+                "Make sure each named character appears clearly at least once without overwhelming the bedtime tone. "
+                "For pets, use ONLY the pet name and animal type provided. Do not invent colour, breed, markings, size, collar, eye colour, or other physical details. "
+                "If a pet is named Luna (cat), write about Luna the cat, not a fluffy/black/orange/striped cat unless the parent explicitly provided that detail.\n"
                 f"{characters_block}"
             )
         else:
