@@ -62,6 +62,94 @@ class StoryService:
 - Keep the mood safe for bedtime: no danger, no frightening villains, no peril, no sadness-heavy ending.
 - Do not copy or imitate any existing franchise, character, studio, film, song, or copyrighted story world."""
 
+    def _localized_opening_sentence(self, request: GenerateStoryRequest) -> str:
+        child = request.childName
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
+        openings_by_lang = {
+            "en": [
+                "Under a soft silver moon, {childName} snuggled into bed when something tiny and magical flickered near the window.",
+                "As the stars began to glow, {childName} pulled the blanket close and noticed a gentle shimmer in the room.",
+                "The night was calm and quiet when {childName} felt a soft, magical presence nearby.",
+                "Just as {childName} was getting cosy, a small glowing light appeared, as if the night had a secret to share.",
+                "The moonlight stretched across the room, and {childName} felt something special was about to begin.",
+            ],
+            "es": [
+                "Bajo una luna plateada y tranquila, {childName} se acurrucó en la cama cuando algo pequeño y mágico brilló junto a la ventana.",
+                "Mientras las estrellas empezaban a encenderse, {childName} se tapó bien y vio un resplandor suave en la habitación.",
+                "La noche estaba serena y silenciosa cuando {childName} notó una presencia mágica y amable muy cerca.",
+                "Justo cuando {childName} se acomodaba en la cama, apareció una lucecita cálida, como si la noche quisiera contarle un secreto.",
+                "La luz de la luna cruzó despacio la habitación, y {childName} sintió que algo especial estaba a punto de comenzar.",
+            ],
+            "fr": [
+                "Sous une lune douce et argentée, {childName} se blottit dans son lit lorsqu'une petite lumière magique scintilla près de la fenêtre.",
+                "Alors que les étoiles commençaient à briller, {childName} remonta la couverture et aperçut une lueur toute douce dans la chambre.",
+                "La nuit était calme et paisible lorsque {childName} sentit une présence magique et rassurante tout près.",
+                "Au moment où {childName} se préparait à dormir, une petite lumière chaude apparut, comme si la nuit avait un secret à lui confier.",
+                "La clarté de la lune glissa doucement dans la chambre, et {childName} sentit qu'une chose merveilleuse allait commencer.",
+            ],
+            "it": [
+                "Sotto una luna d'argento morbida e tranquilla, {childName} si rannicchiò nel letto quando qualcosa di piccolo e magico brillò vicino alla finestra.",
+                "Mentre le stelle iniziavano a brillare, {childName} tirò su la coperta e notò una luce dolce nella stanza.",
+                "La notte era calma e silenziosa quando {childName} sentì una presenza magica e gentile lì vicino.",
+                "Proprio mentre {childName} si sistemava nel letto, apparve una piccola luce calda, come se la notte avesse un segreto da raccontare.",
+                "La luce della luna scivolò piano nella stanza, e {childName} sentì che qualcosa di speciale stava per cominciare.",
+            ],
+            "de": [
+                "Unter einem sanften silbernen Mond kuschelte sich {childName} ins Bett, als etwas Kleines und Magisches am Fenster funkelte.",
+                "Als die Sterne zu leuchten begannen, zog {childName} die Decke ein wenig höher und bemerkte ein sanftes Schimmern im Zimmer.",
+                "Die Nacht war ruhig und friedlich, als {childName} eine freundliche magische Nähe spürte.",
+                "Gerade als {childName} es sich im Bett gemütlich machte, erschien ein warmes kleines Licht, als hätte die Nacht ein Geheimnis zu erzählen.",
+                "Das Mondlicht glitt leise durch das Zimmer, und {childName} spürte, dass gleich etwas Besonderes beginnen würde.",
+            ],
+        }
+        options = openings_by_lang.get(language_code, openings_by_lang["en"])
+        return random.choice(options).replace("{childName}", child)
+
+    def _language_style_block(self, language_code: Optional[str]) -> str:
+        language_code = (language_code or "en").lower()[:2]
+        if language_code == "fr":
+            return """
+FRENCH STORY STYLE — MATCH ENGLISH QUALITY:
+- Write as a native French bedtime storyteller, not as a translation from English.
+- Keep the same emotional shape as the English stories: warm opening, gentle discovery, child-led kindness, magical wonder, peaceful ending.
+- Use simple, beautiful French that sounds natural when read aloud to a child aged 4-8.
+- Avoid formal, academic, old-fashioned, abstract, or overly literary phrasing.
+- Prefer short flowing sentences, soft sensory details, and intimate bedtime warmth.
+- Do not make the French version stranger, darker, more philosophical, or more complicated than the English tone.
+- The story should feel tender, magical, cosy, clear, and reassuring.
+"""
+        if language_code == "es":
+            return """
+SPANISH STORY STYLE — CASTILIAN/SPAIN ONLY:
+- Write in natural Spanish from Spain (Castellano), as a warm bedtime storyteller from Spain would speak.
+- Avoid Latin American vocabulary, rhythm, and phrasing. Avoid: computadora, carro, lindo/linda as the main adjective, platicar, ustedes for family/child address, celular.
+- Prefer Spain-friendly bedtime wording such as: cuento, habitación, manta, cariño, peque, dormir, sueños, despacio, suave, tranquilo/a.
+- Keep the same emotional shape as the English stories: warm opening, gentle discovery, child-led kindness, magical wonder, peaceful ending.
+- Use soft, natural, read-aloud sentences for young children. Do not sound like a literal translation.
+- Avoid stiff, neutral, or textbook Spanish. Make it cosy, magical, tender, and recognisably Spanish from Spain.
+"""
+        if language_code == "it":
+            return """
+ITALIAN STORY STYLE:
+- Write with warm, natural Italian suitable for young children.
+- Avoid overly formal, stiff, or literal phrasing.
+- Use gentle, musical bedtime rhythm and soft magical imagery.
+- The story should feel cozy, tender, dreamy, comforting, and originally written in Italian.
+"""
+        if language_code == "de":
+            return """
+GERMAN STORY STYLE:
+- Write with warm, natural German suitable for young children.
+- Avoid overly formal, stiff, academic, or literal phrasing.
+- Use gentle bedtime rhythm, cozy imagery, and emotionally comforting language.
+- The story should feel soft, magical, reassuring, read-aloud friendly, and originally written in German.
+"""
+        return """
+ENGLISH STORY STYLE:
+- Use warm, premium British bedtime storytelling with soft rhythm, clear emotion, and child-friendly magic.
+- Keep the story gentle, imaginative, cosy, and easy to read aloud.
+"""
+
     def _build_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
         effective_theme = request.customTheme or request.theme
@@ -101,43 +189,7 @@ class StoryService:
             "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment."
         )
 
-        language_style_block = ""
-
-        if request.storyLanguageCode == "fr":
-            language_style_block = """
-FRENCH STORY STYLE:
-- Write with soft, poetic, emotionally warm French suitable for young children.
-- Prefer natural bedtime French over formal literary French.
-- Use gentle magical imagery and flowing sentence rhythm.
-- The story should feel cozy, dreamy, comforting, and originally written in French.
-"""
-
-        elif request.storyLanguageCode == "es":
-            language_style_block = """
-SPANISH STORY STYLE:
-- Use Spain Spanish (Castellano).
-- Avoid Latin American vocabulary and phrasing.
-- Keep the storytelling warm, calm, magical, natural, and child-friendly.
-- The story should feel cozy, dreamy, comforting, and originally written in Spanish from Spain.
-"""
-
-        elif request.storyLanguageCode == "it":
-            language_style_block = """
-ITALIAN STORY STYLE:
-- Write with warm, natural Italian suitable for young children.
-- Avoid overly formal, stiff, or literal phrasing.
-- Use gentle, musical bedtime rhythm and soft magical imagery.
-- The story should feel cozy, tender, dreamy, comforting, and originally written in Italian.
-"""
-
-        elif request.storyLanguageCode == "de":
-            language_style_block = """
-GERMAN STORY STYLE:
-- Write with warm, natural German suitable for young children.
-- Avoid overly formal, stiff, academic, or literal phrasing.
-- Use gentle bedtime rhythm, cozy imagery, and emotionally comforting language.
-- The story should feel soft, magical, reassuring, read-aloud friendly, and originally written in German.
-"""
+        language_style_block = self._language_style_block(request.storyLanguageCode)
 
         return f"""You are a premium children's bedtime storyteller.
 
@@ -248,7 +300,7 @@ OUTPUT QUALITY RULES:
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         blocks = self._language_and_character_blocks(request, companion)
 
-        opening = random.choice(OPENING_SEEDS).replace("{childName}", request.childName)
+        opening = self._localized_opening_sentence(request)
         language_code = (request.storyLanguageCode or "en").lower()
         is_english = language_code == "en"
 
@@ -279,7 +331,7 @@ OUTPUT QUALITY RULES:
 IMPORTANT LANGUAGE RULE:
 - Write ONLY in {blocks['language_name']}
 - Do NOT mix languages
-
+{self._language_style_block(request.storyLanguageCode)}
 STORY CONTEXT:
 - Child: {request.childName}, age {request.age}
 - Theme: {blocks['effective_theme']}
@@ -396,7 +448,7 @@ IMPORTANT LANGUAGE RULE:
 - Continue ONLY in {blocks['language_name']}.
 - Do NOT use English unless the language is English.
 - Do NOT mix languages.
-
+{self._language_style_block(request.storyLanguageCode)}
 ORIGINAL STORY REQUIREMENTS:
 - Child name: {request.childName}
 - Age: {request.age}
