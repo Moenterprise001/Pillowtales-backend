@@ -770,6 +770,17 @@ class NarrationService:
                 )
 
             if text_complete:
+                # If the full story text appears while Page 1 is still generating,
+                # do NOT exit early. That was the source of intermittent Page 2
+                # prewarm failures: the watcher returned while pages_generating=[1],
+                # then Page 1 finished with no owner left to start Page 2.
+                # Stay alive until either a missing-page worker has been started or
+                # all available pages are ready. page-status remains passive.
+                refreshed_ready = set(job.get("pages_ready", [])) | set(self._list_ready_pages(user_id, story_id, voice, language_code))
+                refreshed_generating = set(job.get("pages_generating", []))
+                refreshed_missing = [i for i in range(1, pages_count + 1) if i not in refreshed_ready]
+                if refreshed_missing and refreshed_generating:
+                    continue
                 # One final pass above starts any available missing pages. After the
                 # full text exists, the worker will continue through all remaining
                 # pages, so the watcher can exit safely.

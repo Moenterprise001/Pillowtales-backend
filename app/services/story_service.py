@@ -77,8 +77,8 @@ class StoryService:
                 "Bajo una luna plateada y tranquila, {childName} se acurrucó en la cama cuando algo pequeño y mágico brilló junto a la ventana.",
                 "Mientras las estrellas empezaban a encenderse, {childName} se tapó bien y vio un resplandor suave en la habitación.",
                 "La noche estaba serena y silenciosa cuando {childName} notó una presencia mágica y amable muy cerca.",
-                "Justo cuando {childName} se acomodaba en la cama, apareció una lucecita cálida, como si la noche quisiera contarle un secreto.",
-                "La luz de la luna cruzó despacio la habitación, y {childName} sintió que algo especial estaba a punto de comenzar.",
+                "Justo cuando {childName} se acomodaba en la cama, apareció una luz cálida y suave, como si la noche quisiera contarle un secreto.",
+                "La luz de la luna cruzó despacio la habitación, y {childName} notó, con una calma muy dulce, que algo especial estaba a punto de comenzar.",
             ],
             "fr": [
                 "Sous une lune douce et argentée, {childName} se blottit dans son lit lorsqu'une petite lumière magique scintilla près de la fenêtre.",
@@ -122,11 +122,14 @@ FRENCH STORY STYLE — MATCH ENGLISH QUALITY:
             return """
 SPANISH STORY STYLE — CASTILIAN/SPAIN ONLY:
 - Write in natural Spanish from Spain (Castellano), as a warm bedtime storyteller from Spain would speak.
+- The Spanish must sound clearly Spain/Castilian, not Latin American, neutral-dubbed, or translated Spanish.
 - Avoid Latin American vocabulary, rhythm, and phrasing. Avoid: computadora, carro, lindo/linda as the main adjective, platicar, ustedes for family/child address, celular.
-- Prefer Spain-friendly bedtime wording such as: cuento, habitación, manta, cariño, peque, dormir, sueños, despacio, suave, tranquilo/a.
+- Also avoid overly LATAM/neutral diminutives or phrasing such as “dragoncito”, “lucecita” when a natural Spain bedtime phrase like “pequeño dragón” or “luz suave” is better.
+- Prefer Spain-friendly bedtime wording such as: cuento, habitación, manta, cariño, dormir, sueños, despacio, suave, tranquilo/a, pequeño/a, con cuidado, poco a poco.
+- Use tú-style warmth for the child’s world. Do not use “ustedes” for family/child address.
 - Keep the same emotional shape as the English stories: warm opening, gentle discovery, child-led kindness, magical wonder, peaceful ending.
 - Use soft, natural, read-aloud sentences for young children. Do not sound like a literal translation.
-- Avoid stiff, neutral, or textbook Spanish. Make it cosy, magical, tender, and recognisably Spanish from Spain.
+- Avoid stiff, neutral, textbook, or cartoon-dub Spanish. Make it cosy, magical, tender, and recognisably Spanish from Spain.
 """
         if language_code == "it":
             return """
