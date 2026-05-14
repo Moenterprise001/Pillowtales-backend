@@ -594,6 +594,7 @@ class NarrationService:
 
         storage_path = self._storage_path(user_id, story_id, voice, language_code, page)
         await self._upload_audio(storage_path, audio)
+        print(f"[NARRATION] Page {page} audio uploaded story_id={story_id} path={storage_path}")
         return storage_path, used_mode
 
     def _refund_parent_voice_credit_once(self, user_id: str, job: dict) -> None:
@@ -649,6 +650,7 @@ class NarrationService:
         if not job:
             return
 
+        current_story_id = str(story.get("id", ""))
         started = asyncio.get_event_loop().time()
         max_seconds = float(os.getenv("NARRATION_CHUNK_WORKER_MAX_SECONDS", "240"))
         requested_start = max(1, int(start_page or 1))
@@ -662,6 +664,10 @@ class NarrationService:
                 job["pages_ready"].append(idx)
             job["page_paths"][idx] = storage_path
             job["pages_ready"] = sorted(set(job["pages_ready"]))
+            print(
+                f"[NARRATION] Page {idx} marked ready story_id={current_story_id} "
+                f"ready={job['pages_ready']}"
+            )
             if idx in job["pages_failed"]:
                 job["pages_failed"].remove(idx)
             job["last_error"] = None
@@ -671,7 +677,7 @@ class NarrationService:
                 try:
                     first_url = self._signed_url(storage_path)
                     self.story_repo.update(
-                        story_id,
+                        current_story_id,
                         user_id,
                         {
                             "audio_status": "ready",
@@ -686,6 +692,11 @@ class NarrationService:
 
         try:
             story_id = story["id"]
+            current_story_id = str(story_id)
+            print(
+                f"[NARRATION] Chunked worker started job_id={job_id} "
+                f"story_id={story_id} start_page={requested_start} voice={voice} lang={language_code}"
+            )
             initial_voice_mode = "parent" if voice == "parent_voice" and parent_voice_id else "standard"
             job["voice_mode"] = job.get("voice_mode") or initial_voice_mode
 
