@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import BackgroundTasks, HTTPException
+from fastapi import HTTPException
 
 from app.domain.constants import SUPPORTED_LANGUAGES, VOICE_PRESETS
 from app.models.narration import NarrationRequest, NarrationResponse, PageStatusResponse
@@ -250,7 +250,6 @@ class NarrationService:
     def _spawn_chunked_worker(
         self,
         *,
-        background_tasks: Optional[BackgroundTasks],
         job_id: str,
         user_id: str,
         story: dict,
@@ -259,39 +258,45 @@ class NarrationService:
         parent_voice_id: Optional[str],
         start_page: int,
     ) -> None:
-        """Schedule the deterministic narration worker through FastAPI BackgroundTasks.
+        """Start the deterministic narration worker and surface silent task failures.
 
-        Do not use raw asyncio.create_task() from the request/service layer here.
-        On Render/Uvicorn that detached task path can fail silently after the
-        response returns, leaving the frontend polling 0/N forever. BackgroundTasks
-        gives the request route explicit ownership of the worker launch while
-        page-status remains a passive observer.
+        This keeps generation ownership inside request_narration while making sure
+        a background task crash cannot leave the frontend polling forever with no
+        useful backend log.
         """
-        if background_tasks is None:
-            job = _chunked_jobs.get(job_id)
-            if job is not None:
-                job["pages_generating"] = []
-                job["status"] = "failed"
-                job["last_error"] = "Narration worker was not scheduled: missing FastAPI BackgroundTasks"
-                if 1 not in job.get("pages_ready", []):
-                    job["pages_failed"] = sorted(set([*job.get("pages_failed", []), 1]))
-            print(f"[NARRATION] Worker NOT scheduled job_id={job_id}: missing BackgroundTasks")
-            return
+        task = asyncio.create_task(
+            self._process_chunked_job(
+                job_id=job_id,
+                user_id=user_id,
+                story=story,
+                voice=voice,
+                language_code=language_code,
+                parent_voice_id=parent_voice_id,
+                start_page=start_page,
+            )
+        )
 
-        print(
-            f"[NARRATION] Scheduling chunked worker via BackgroundTasks "
-            f"job_id={job_id} story_id={story.get('id')} start_page={start_page}"
-        )
-        background_tasks.add_task(
-            self._process_chunked_job,
-            job_id=job_id,
-            user_id=user_id,
-            story=story,
-            voice=voice,
-            language_code=language_code,
-            parent_voice_id=parent_voice_id,
-            start_page=start_page,
-        )
+        def _log_task_failure(done_task: asyncio.Task) -> None:
+            try:
+                exc = done_task.exception()
+            except asyncio.CancelledError:
+                print(f"[NARRATION] Chunked worker task cancelled job_id={job_id}")
+                return
+            except Exception as callback_err:
+                print(f"[NARRATION] Chunked worker callback failed job_id={job_id}: {repr(callback_err)}")
+                return
+
+            if exc:
+                job = _chunked_jobs.get(job_id)
+                if job is not None:
+                    job["pages_generating"] = []
+                    job["status"] = "failed"
+                    job["last_error"] = str(exc)
+                    if 1 not in job.get("pages_ready", []):
+                        job["pages_failed"] = sorted(set([*job.get("pages_failed", []), 1]))
+                print(f"[NARRATION] Chunked worker task failed job_id={job_id}: {repr(exc)}")
+
+        task.add_done_callback(_log_task_failure)
 
     def _clean_page_text(self, page_text: str) -> str:
         text = page_text or ""
@@ -677,7 +682,7 @@ class NarrationService:
                         },
                     )
                 except Exception as update_err:
-                    print(f"[NARRATION] Page 1 ready metadata update failed story_id={current_story_id}: {repr(update_err)}")
+                    print(f"[NARRATION] Page 1 ready metadata update failed story_id={story_id}: {repr(update_err)}")
 
         try:
             story_id = story["id"]
@@ -908,7 +913,6 @@ class NarrationService:
                     f"story_id={story_id} start_page={start_page} pages_count={pages_count} expected={expected_total}"
                 )
                 self._spawn_chunked_worker(
-                    background_tasks=None,
                     job_id=job_id,
                     user_id=user_id,
                     story=fresh_story,
@@ -941,7 +945,6 @@ class NarrationService:
         request: NarrationRequest,
         *,
         client_ip: Optional[str] = None,
-        background_tasks: Optional[BackgroundTasks] = None,
     ) -> NarrationResponse:
         story = self._get_story_for_user(request.storyId, user_id)
         profile, subscription = self._get_subscription(user_id)
@@ -1027,7 +1030,6 @@ class NarrationService:
                     f"priority_page={priority_page} missing_pages={missing_pages}"
                 )
                 self._spawn_chunked_worker(
-                    background_tasks=background_tasks,
                     job_id=job_id,
                     user_id=user_id,
                     story=story,
@@ -1110,8 +1112,8 @@ class NarrationService:
                     raise HTTPException(
                         status_code=403,
                         detail={
-                            "error": "insufficient_parent_voice_credits",
-                            "message": "Parent Voice requires a credit or your first free story.",
+                            "error": "parent_voice_credit_required",
+                            "message": "Parent Voice requires a story credit. If your free intro is available, tap the free Parent Voice button first.",
                             "upgrade_required": True,
                             "credits": subscription.parent_voice_credits,
                             "intro_offer_available": subscription.parent_voice_intro_available,
@@ -1133,22 +1135,14 @@ class NarrationService:
                 )
                 credit_charged = True
                 print(f"[NARRATION] Parent Voice credit charged user_id={user_id} ip={self._normalize_client_ip(client_ip)}")
-            elif not intro_used:
-                self.user_repo.save_parent_voice_wallet(
-                    user_id,
-                    credits=0,
-                    intro_used=True,
-                )
-                credit_charged = True
-                intro_charged = True
-                print(f"[NARRATION] Parent Voice intro consumed user_id={user_id} ip={self._normalize_client_ip(client_ip)}")
             else:
                 raise HTTPException(
                     status_code=403,
                     detail={
-                        "error": "insufficient_parent_voice_credits",
+                        "error": "parent_voice_credit_required",
                         "message": "No Parent Voice credits remaining.",
                         "upgrade_required": True,
+                        "intro_offer_available": not intro_used,
                     },
                 )
 
@@ -1183,7 +1177,6 @@ class NarrationService:
         }
 
         self._spawn_chunked_worker(
-            background_tasks=background_tasks,
             job_id=job_id,
             user_id=user_id,
             story=story,

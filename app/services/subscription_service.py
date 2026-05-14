@@ -81,11 +81,14 @@ class SubscriptionService:
         if feature == 'companion' and item_id and item_id not in tier['companions']:
             return {'allowed': False, 'upgrade_required': True, 'reason': 'premium_companion'}
         if feature == 'parent_voice':
-            allowed = subscription.parent_voice_bypass or subscription.parent_voice_credits > 0 or subscription.parent_voice_intro_available
+            # Parent Voice story generation must require an actual credit/bypass.
+            # The free intro remains visible via parent_voice_intro_available, but it
+            # must be explicitly redeemed first so parents do not consume it by accident.
+            allowed = subscription.parent_voice_bypass or subscription.parent_voice_credits > 0
             return {
                 'allowed': allowed,
                 'upgrade_required': not allowed,
-                'reason': None if allowed else 'parent_voice_purchase_required',
+                'reason': None if allowed else 'parent_voice_credit_required',
                 'credits': subscription.parent_voice_credits,
                 'intro_offer_available': subscription.parent_voice_intro_available,
             }
