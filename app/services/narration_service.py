@@ -582,100 +582,188 @@ class NarrationService:
         parent_voice_id: Optional[str],
         start_page: int = 1,
     ) -> None:
-        pages = story.get("pages") or []
-        job = _chunked_jobs[job_id]
-        expected_total_pages = max(int(job.get("total_pages") or 0), self._expected_total_pages(story))
-        job["total_pages"] = expected_total_pages
+        """Single-owner deterministic chunk worker.
 
-        if not pages:
-            job["pages_failed"] = [1]
-            job["pages_generating"] = []
-            job["status"] = "failed"
-            job["last_error"] = "Story has no pages"
-            self._refund_parent_voice_credit_once(user_id, job)
+        Backend ownership rule:
+        - Generate the requested/priority page first, normally page 1.
+        - As soon as page 1 is uploaded, it is marked ready for frontend playback.
+        - Keep this same worker alive to prewarm pages 2+ as story text expands.
+        - page-status remains a passive observer only.
+
+        This replaces the fragile separate expansion watcher layer that could race
+        the main worker and leave the frontend polling forever.
+        """
+        job = _chunked_jobs.get(job_id)
+        if not job:
             return
 
-        initial_voice_mode = "parent" if voice == "parent_voice" and parent_voice_id else "standard"
-        job["voice_mode"] = initial_voice_mode
+        started = asyncio.get_event_loop().time()
+        max_seconds = float(os.getenv("NARRATION_CHUNK_WORKER_MAX_SECONDS", "240"))
+        requested_start = max(1, int(start_page or 1))
+        job["priority_page"] = requested_start
+        job["status"] = "generating"
 
-        safe_start_page = max(1, min(int(start_page or 1), len(pages)))
-        page_order = [safe_start_page] + [i for i in range(1, len(pages) + 1) if i != safe_start_page]
-        job["priority_page"] = safe_start_page
-
-        for idx in page_order:
-            storage_path = self._storage_path(user_id, story["id"], voice, language_code, idx)
-            if self._signed_url(storage_path):
-                if idx not in job["pages_ready"]:
-                    job["pages_ready"].append(idx)
-                job["page_paths"][idx] = storage_path
-                job["pages_ready"] = sorted(job["pages_ready"])
-                if idx in job["pages_failed"]:
-                    job["pages_failed"].remove(idx)
-                job["last_error"] = None
-                job["status"] = "page_ready" if idx < expected_total_pages else "all_ready"
-                await asyncio.sleep(0.05)
-                continue
-            page_text = pages[idx - 1]
-            job["pages_generating"] = [idx]
-            try:
-                storage_path, actual_mode = await self._generate_page_audio(
-                    user_id=user_id,
-                    story_id=story["id"],
-                    page=idx,
-                    page_text=page_text,
-                    voice=voice,
-                    language_code=language_code,
-                    voice_mode=job["voice_mode"],
-                    parent_voice_id=parent_voice_id,
-                    child_name=story.get("child_name"),
-                    child_name_pronunciation=story.get("child_name_pronunciation"),
-                    story_language_code=self.resolve_language(story, story.get("language") or story.get("language_code") or story.get("story_language") or story.get("preferred_language")),
-                )
-
+        async def mark_ready(idx: int, storage_path: str, actual_mode: Optional[str] = None) -> None:
+            if actual_mode:
                 job["voice_mode"] = actual_mode
-                if idx not in job["pages_ready"]:
-                    job["pages_ready"].append(idx)
-                job["page_paths"][idx] = storage_path
-                job["pages_ready"] = sorted(job["pages_ready"])
-                if idx in job["pages_failed"]:
-                    job["pages_failed"].remove(idx)
-                job["last_error"] = None
-                job["status"] = "page_ready" if idx < expected_total_pages else "all_ready"
+            if idx not in job["pages_ready"]:
+                job["pages_ready"].append(idx)
+            job["page_paths"][idx] = storage_path
+            job["pages_ready"] = sorted(set(job["pages_ready"]))
+            if idx in job["pages_failed"]:
+                job["pages_failed"].remove(idx)
+            job["last_error"] = None
+            job["pages_generating"] = []
 
-                if idx == 1:
-                    try:
-                        first_url = self._signed_url(storage_path)
-                        update_payload = {
+            if idx == 1:
+                try:
+                    first_url = self._signed_url(storage_path)
+                    self.story_repo.update(
+                        story_id,
+                        user_id,
+                        {
                             "audio_status": "ready",
                             "audio_url": first_url,
                             "audio_created_at": datetime.now(timezone.utc).isoformat(),
                             "audio_language_code": language_code,
                             "audio_voice_id": voice,
-                        }
-                        self.story_repo.update(story["id"], user_id, update_payload)
-                    except Exception:
-                        pass
+                        },
+                    )
+                except Exception as update_err:
+                    print(f"[NARRATION] Page 1 ready metadata update failed story_id={story_id}: {repr(update_err)}")
 
-            except Exception as e:
-                print(f"[NARRATION] Page {idx} generation failed for story {story['id']}: {repr(e)}")
-                if idx not in job["pages_failed"]:
-                    job["pages_failed"].append(idx)
+        try:
+            story_id = story["id"]
+            initial_voice_mode = "parent" if voice == "parent_voice" and parent_voice_id else "standard"
+            job["voice_mode"] = job.get("voice_mode") or initial_voice_mode
+
+            while asyncio.get_event_loop().time() - started < max_seconds:
+                try:
+                    fresh_story = self.story_repo.get(story_id, user_id) or story
+                except Exception as read_err:
+                    print(f"[NARRATION] Worker story refresh failed story_id={story_id}: {repr(read_err)}")
+                    fresh_story = story
+
+                pages = fresh_story.get("pages") or []
+                pages_count = len(pages)
+                expected_total_pages = max(int(job.get("total_pages") or 0), self._expected_total_pages(fresh_story))
+                job["total_pages"] = expected_total_pages
+
+                if not pages:
+                    await asyncio.sleep(0.75)
+                    continue
+
+                storage_ready = set(self._list_ready_pages(user_id, story_id, voice, language_code))
+                if storage_ready:
+                    for ready_idx in storage_ready:
+                        ready_path = self._storage_path(user_id, story_id, voice, language_code, ready_idx)
+                        if ready_idx not in job["pages_ready"]:
+                            job["pages_ready"].append(ready_idx)
+                        job["page_paths"][ready_idx] = ready_path
+                    job["pages_ready"] = sorted(set(job["pages_ready"]))
+
+                ready = set(job.get("pages_ready", []))
+                generation_status = str(fresh_story.get("generation_status") or "complete").strip().lower()
+                text_complete = generation_status in {"complete", "completed", "failed"} or pages_count >= expected_total_pages
+
+                if text_complete and expected_total_pages > 0 and len(ready) >= expected_total_pages:
+                    job["pages_generating"] = []
+                    job["status"] = "all_ready"
+                    print(f"[NARRATION] Chunked job all_ready story_id={story_id} pages={len(ready)}/{expected_total_pages}")
+                    return
+
+                available_missing = [idx for idx in range(1, pages_count + 1) if idx not in ready]
+
+                if available_missing:
+                    if requested_start in available_missing:
+                        idx = requested_start
+                    elif 1 in available_missing:
+                        idx = 1
+                    elif 2 in available_missing:
+                        idx = 2
+                    else:
+                        idx = available_missing[0]
+
+                    storage_path = self._storage_path(user_id, story_id, voice, language_code, idx)
+                    if self._signed_url(storage_path):
+                        await mark_ready(idx, storage_path)
+                        job["status"] = "page_ready" if len(job.get("pages_ready", [])) < expected_total_pages else "all_ready"
+                        await asyncio.sleep(0.05)
+                        continue
+
+                    page_text = pages[idx - 1]
+                    job["pages_generating"] = [idx]
+                    job["status"] = "generating"
+                    print(
+                        f"[NARRATION] Deterministic worker generating page {idx} "
+                        f"story_id={story_id} pages_count={pages_count} expected={expected_total_pages}"
+                    )
+                    storage_path, actual_mode = await self._generate_page_audio(
+                        user_id=user_id,
+                        story_id=story_id,
+                        page=idx,
+                        page_text=page_text,
+                        voice=voice,
+                        language_code=language_code,
+                        voice_mode=job["voice_mode"],
+                        parent_voice_id=parent_voice_id,
+                        child_name=fresh_story.get("child_name"),
+                        child_name_pronunciation=fresh_story.get("child_name_pronunciation"),
+                        story_language_code=self.resolve_language(
+                            fresh_story,
+                            fresh_story.get("story_language_code")
+                            or fresh_story.get("language")
+                            or fresh_story.get("language_code")
+                            or fresh_story.get("story_language")
+                            or fresh_story.get("preferred_language"),
+                        ),
+                    )
+                    await mark_ready(idx, storage_path, actual_mode)
+                    job["status"] = "page_ready" if len(job.get("pages_ready", [])) < expected_total_pages else "all_ready"
+                    await asyncio.sleep(0.05)
+                    continue
+
+                # No available text pages are missing. Keep the single worker alive
+                # briefly for lean story expansion so page 2+ can be prewarmed as soon
+                # as text arrives, without a separate watcher racing this worker.
                 job["pages_generating"] = []
+                job["status"] = "page_ready" if job.get("pages_ready") else "generating"
+
+                if text_complete:
+                    # Text generation ended but there are no available pages left to generate.
+                    # If we have at least the existing text pages ready, finish cleanly.
+                    ready_count = len(set(job.get("pages_ready", [])))
+                    if ready_count >= pages_count:
+                        job["status"] = "all_ready" if ready_count >= expected_total_pages else "page_ready"
+                        return
+
+                await asyncio.sleep(0.75)
+
+            # Worker timed out waiting for story text expansion. Do not fail if page 1
+            # is ready; playback can continue and the frontend can retry/request again.
+            job["pages_generating"] = []
+            if job.get("pages_ready"):
+                job["status"] = "page_ready"
+                print(
+                    f"[NARRATION] Chunked worker timed out after page readiness "
+                    f"story_id={story_id} ready={job.get('pages_ready')} total={job.get('total_pages')}"
+                )
+            else:
                 job["status"] = "failed"
-                job["last_error"] = str(e)
+                job["last_error"] = "Narration worker timed out before page 1 was ready"
+                job["pages_failed"] = [1]
                 self._refund_parent_voice_credit_once(user_id, job)
-                return
+                print(f"[NARRATION] Chunked worker timed out before page 1 story_id={story_id}")
 
-            await asyncio.sleep(0.05)
-
-        job["pages_generating"] = []
-        # If the story text is still expanding, do not mark the job all_ready just
-        # because the first available page finished. The request-owned watcher will
-        # continue generation as soon as pages 2+ exist.
-        if len(set(job.get("pages_ready", []))) >= expected_total_pages:
-            job["status"] = "all_ready"
-        else:
-            job["status"] = "page_ready"
+        except Exception as e:
+            story_id = story.get("id", "unknown") if isinstance(story, dict) else "unknown"
+            print(f"[NARRATION] Chunked worker crashed story_id={story_id}: {repr(e)}")
+            job["pages_generating"] = []
+            job["status"] = "failed"
+            job["last_error"] = str(e)
+            if 1 not in job.get("pages_ready", []):
+                job["pages_failed"] = sorted(set([*job.get("pages_failed", []), 1]))
+            self._refund_parent_voice_credit_once(user_id, job)
 
     def _get_story_for_user(self, story_id: str, user_id: str) -> dict:
         story = self.story_repo.get(story_id, user_id)
@@ -908,19 +996,8 @@ class NarrationService:
             start_url = self._signed_url(start_storage) if start_storage else None
             page_is_ready = requested_start_page in existing.get("pages_ready", [])
 
-            if total_pages > available_pages and not existing.get("expansion_watcher_started"):
-                existing["expansion_watcher_started"] = True
-                asyncio.create_task(
-                    self._watch_story_expansion_and_continue_job(
-                        job_id=job_id,
-                        user_id=user_id,
-                        story_id=story["id"],
-                        voice=cache_voice,
-                        language_code=language_code,
-                        parent_voice_id=parent_voice_id,
-                        preferred_next_page=2 if requested_start_page == 1 else requested_start_page,
-                    )
-                )
+            # No separate expansion watcher here. The deterministic chunk worker
+            # owns page-2+ prewarm as story text expands.
 
             return NarrationResponse(
                 status="page_ready" if page_is_ready else "generating",
@@ -1056,7 +1133,8 @@ class NarrationService:
             "credit_refunded": False,
             "intro_charged": intro_charged,
             "priority_page": priority_page,
-            "expansion_watcher_started": total_pages > available_pages,
+            "deterministic_worker": True,
+            "expansion_watcher_started": False,
         }
 
         asyncio.create_task(
@@ -1070,18 +1148,8 @@ class NarrationService:
                 start_page=priority_page,
             )
         )
-        if total_pages > available_pages:
-            asyncio.create_task(
-                self._watch_story_expansion_and_continue_job(
-                    job_id=job_id,
-                    user_id=user_id,
-                    story_id=story["id"],
-                    voice=cache_voice,
-                    language_code=language_code,
-                    parent_voice_id=parent_voice_id,
-                    preferred_next_page=2 if requested_start_page == 1 else requested_start_page,
-                )
-            )
+        # No separate expansion watcher here. The deterministic chunk worker
+        # stays alive briefly and owns page-2+ prewarm as story text expands.
 
         return NarrationResponse(
             status="generating",
