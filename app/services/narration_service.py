@@ -499,10 +499,26 @@ class NarrationService:
         story_language_code: Optional[str] = None,
     ) -> tuple[str, str]:
         page_text = self._clean_page_text(page_text)
-        translated = await self._translate_text(page_text, language_code, story_language_code)
+
+        # PERFORMANCE SAFETY:
+        # Same-language narration must stay on the fast path.
+        # Do not send page text through the translation model unless the parent
+        # explicitly selected a different narration language from the story language.
+        story_lang = (story_language_code or language_code or "en").strip().lower()[:2]
+        narration_lang = (language_code or "en").strip().lower()[:2]
+
+        if story_lang == narration_lang:
+            translated = page_text
+            print(
+                f"[NARRATION] Skipping translation for same-language narration "
+                f"story_lang={story_lang} narration_lang={narration_lang}"
+            )
+        else:
+            translated = await self._translate_text(page_text, narration_lang, story_lang)
+
         print(f"[NARRATION] Generating page {page} with voice={voice} language={language_code}")
         print(f"[NARRATION] Original page text preview={page_text[:160]!r}")
-        print(f"[NARRATION] Translated text preview for {language_code}={translated[:160]!r}")
+        print(f"[NARRATION] Narration text preview for {language_code}={translated[:160]!r}")
         tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
         tts_text = prepare_narration_text(tts_text)
