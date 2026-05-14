@@ -246,6 +246,58 @@ class NarrationService:
                 ready.append(int(match.group(1)))
         return sorted(set(ready))
 
+
+    def _spawn_chunked_worker(
+        self,
+        *,
+        job_id: str,
+        user_id: str,
+        story: dict,
+        voice: str,
+        language_code: str,
+        parent_voice_id: Optional[str],
+        start_page: int,
+    ) -> None:
+        """Start the deterministic narration worker and surface silent task failures.
+
+        This keeps generation ownership inside request_narration while making sure
+        a background task crash cannot leave the frontend polling forever with no
+        useful backend log.
+        """
+        task = asyncio.create_task(
+            self._process_chunked_job(
+                job_id=job_id,
+                user_id=user_id,
+                story=story,
+                voice=voice,
+                language_code=language_code,
+                parent_voice_id=parent_voice_id,
+                start_page=start_page,
+            )
+        )
+
+        def _log_task_failure(done_task: asyncio.Task) -> None:
+            try:
+                exc = done_task.exception()
+            except asyncio.CancelledError:
+                print(f"[NARRATION] Chunked worker task cancelled job_id={job_id}")
+                return
+            except Exception as callback_err:
+                print(f"[NARRATION] Chunked worker callback failed job_id={job_id}: {repr(callback_err)}")
+                return
+
+            if exc:
+                job = _chunked_jobs.get(job_id)
+                if job is not None:
+                    job["pages_generating"] = []
+                    job["status"] = "failed"
+                    job["last_error"] = str(exc)
+                    if 1 not in job.get("pages_ready", []):
+                        job["pages_failed"] = sorted(set([*job.get("pages_failed", []), 1]))
+                print(f"[NARRATION] Chunked worker task failed job_id={job_id}: {repr(exc)}")
+
+        task.add_done_callback(_log_task_failure)
+
     def _clean_page_text(self, page_text: str) -> str:
         text = page_text or ""
         for marker in (
@@ -685,12 +737,11 @@ class NarrationService:
                         idx = available_missing[0]
 
                     storage_path = self._storage_path(user_id, story_id, voice, language_code, idx)
-                    if self._signed_url(storage_path):
-                        await mark_ready(idx, storage_path)
-                        job["status"] = "page_ready" if len(job.get("pages_ready", [])) < expected_total_pages else "all_ready"
-                        await asyncio.sleep(0.05)
-                        continue
 
+                    # IMPORTANT: do not use create_signed_url() as an existence check.
+                    # Supabase can return a signed URL for a path even when the object
+                    # has not been uploaded yet. Storage list results above are the
+                    # source of truth for ready pages; missing pages must enter TTS.
                     page_text = pages[idx - 1]
                     job["pages_generating"] = [idx]
                     job["status"] = "generating"
@@ -861,16 +912,14 @@ class NarrationService:
                     f"[NARRATION] Story text expanded; continuing chunked worker "
                     f"story_id={story_id} start_page={start_page} pages_count={pages_count} expected={expected_total}"
                 )
-                asyncio.create_task(
-                    self._process_chunked_job(
-                        job_id=job_id,
-                        user_id=user_id,
-                        story=fresh_story,
-                        voice=voice,
-                        language_code=language_code,
-                        parent_voice_id=parent_voice_id,
-                        start_page=start_page,
-                    )
+                self._spawn_chunked_worker(
+                    job_id=job_id,
+                    user_id=user_id,
+                    story=fresh_story,
+                    voice=voice,
+                    language_code=language_code,
+                    parent_voice_id=parent_voice_id,
+                    start_page=start_page,
                 )
 
             if text_complete:
@@ -980,16 +1029,14 @@ class NarrationService:
                     f"[NARRATION] Restarting chunked worker for missing pages story_id={story['id']} "
                     f"priority_page={priority_page} missing_pages={missing_pages}"
                 )
-                asyncio.create_task(
-                    self._process_chunked_job(
-                        job_id=job_id,
-                        user_id=user_id,
-                        story=story,
-                        voice=cache_voice,
-                        language_code=language_code,
-                        parent_voice_id=parent_voice_id,
-                        start_page=priority_page,
-                    )
+                self._spawn_chunked_worker(
+                    job_id=job_id,
+                    user_id=user_id,
+                    story=story,
+                    voice=cache_voice,
+                    language_code=language_code,
+                    parent_voice_id=parent_voice_id,
+                    start_page=priority_page,
                 )
 
             start_storage = existing.get("page_paths", {}).get(requested_start_page)
@@ -1137,16 +1184,14 @@ class NarrationService:
             "expansion_watcher_started": False,
         }
 
-        asyncio.create_task(
-            self._process_chunked_job(
-                job_id=job_id,
-                user_id=user_id,
-                story=story,
-                voice=cache_voice,
-                language_code=language_code,
-                parent_voice_id=parent_voice_id,
-                start_page=priority_page,
-            )
+        self._spawn_chunked_worker(
+            job_id=job_id,
+            user_id=user_id,
+            story=story,
+            voice=cache_voice,
+            language_code=language_code,
+            parent_voice_id=parent_voice_id,
+            start_page=priority_page,
         )
         # No separate expansion watcher here. The deterministic chunk worker
         # stays alive briefly and owns page-2+ prewarm as story text expands.
