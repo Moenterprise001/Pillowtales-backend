@@ -7,7 +7,7 @@ from datetime import datetime, timezone
 from typing import Optional
 
 import httpx
-from fastapi import HTTPException
+from fastapi import BackgroundTasks, HTTPException
 
 from app.domain.constants import SUPPORTED_LANGUAGES, VOICE_PRESETS
 from app.models.narration import NarrationRequest, NarrationResponse, PageStatusResponse
@@ -250,6 +250,7 @@ class NarrationService:
     def _spawn_chunked_worker(
         self,
         *,
+        background_tasks: Optional[BackgroundTasks],
         job_id: str,
         user_id: str,
         story: dict,
@@ -258,45 +259,39 @@ class NarrationService:
         parent_voice_id: Optional[str],
         start_page: int,
     ) -> None:
-        """Start the deterministic narration worker and surface silent task failures.
+        """Schedule the deterministic narration worker through FastAPI BackgroundTasks.
 
-        This keeps generation ownership inside request_narration while making sure
-        a background task crash cannot leave the frontend polling forever with no
-        useful backend log.
+        Do not use raw asyncio.create_task() from the request/service layer here.
+        On Render/Uvicorn that detached task path can fail silently after the
+        response returns, leaving the frontend polling 0/N forever. BackgroundTasks
+        gives the request route explicit ownership of the worker launch while
+        page-status remains a passive observer.
         """
-        task = asyncio.create_task(
-            self._process_chunked_job(
-                job_id=job_id,
-                user_id=user_id,
-                story=story,
-                voice=voice,
-                language_code=language_code,
-                parent_voice_id=parent_voice_id,
-                start_page=start_page,
-            )
+        if background_tasks is None:
+            job = _chunked_jobs.get(job_id)
+            if job is not None:
+                job["pages_generating"] = []
+                job["status"] = "failed"
+                job["last_error"] = "Narration worker was not scheduled: missing FastAPI BackgroundTasks"
+                if 1 not in job.get("pages_ready", []):
+                    job["pages_failed"] = sorted(set([*job.get("pages_failed", []), 1]))
+            print(f"[NARRATION] Worker NOT scheduled job_id={job_id}: missing BackgroundTasks")
+            return
+
+        print(
+            f"[NARRATION] Scheduling chunked worker via BackgroundTasks "
+            f"job_id={job_id} story_id={story.get('id')} start_page={start_page}"
         )
-
-        def _log_task_failure(done_task: asyncio.Task) -> None:
-            try:
-                exc = done_task.exception()
-            except asyncio.CancelledError:
-                print(f"[NARRATION] Chunked worker task cancelled job_id={job_id}")
-                return
-            except Exception as callback_err:
-                print(f"[NARRATION] Chunked worker callback failed job_id={job_id}: {repr(callback_err)}")
-                return
-
-            if exc:
-                job = _chunked_jobs.get(job_id)
-                if job is not None:
-                    job["pages_generating"] = []
-                    job["status"] = "failed"
-                    job["last_error"] = str(exc)
-                    if 1 not in job.get("pages_ready", []):
-                        job["pages_failed"] = sorted(set([*job.get("pages_failed", []), 1]))
-                print(f"[NARRATION] Chunked worker task failed job_id={job_id}: {repr(exc)}")
-
-        task.add_done_callback(_log_task_failure)
+        background_tasks.add_task(
+            self._process_chunked_job,
+            job_id=job_id,
+            user_id=user_id,
+            story=story,
+            voice=voice,
+            language_code=language_code,
+            parent_voice_id=parent_voice_id,
+            start_page=start_page,
+        )
 
     def _clean_page_text(self, page_text: str) -> str:
         text = page_text or ""
@@ -594,7 +589,6 @@ class NarrationService:
 
         storage_path = self._storage_path(user_id, story_id, voice, language_code, page)
         await self._upload_audio(storage_path, audio)
-        print(f"[NARRATION] Page {page} audio uploaded story_id={story_id} path={storage_path}")
         return storage_path, used_mode
 
     def _refund_parent_voice_credit_once(self, user_id: str, job: dict) -> None:
@@ -650,7 +644,6 @@ class NarrationService:
         if not job:
             return
 
-        current_story_id = str(story.get("id", ""))
         started = asyncio.get_event_loop().time()
         max_seconds = float(os.getenv("NARRATION_CHUNK_WORKER_MAX_SECONDS", "240"))
         requested_start = max(1, int(start_page or 1))
@@ -664,10 +657,6 @@ class NarrationService:
                 job["pages_ready"].append(idx)
             job["page_paths"][idx] = storage_path
             job["pages_ready"] = sorted(set(job["pages_ready"]))
-            print(
-                f"[NARRATION] Page {idx} marked ready story_id={current_story_id} "
-                f"ready={job['pages_ready']}"
-            )
             if idx in job["pages_failed"]:
                 job["pages_failed"].remove(idx)
             job["last_error"] = None
@@ -677,7 +666,7 @@ class NarrationService:
                 try:
                     first_url = self._signed_url(storage_path)
                     self.story_repo.update(
-                        current_story_id,
+                        story_id,
                         user_id,
                         {
                             "audio_status": "ready",
@@ -688,15 +677,10 @@ class NarrationService:
                         },
                     )
                 except Exception as update_err:
-                    print(f"[NARRATION] Page 1 ready metadata update failed story_id={story_id}: {repr(update_err)}")
+                    print(f"[NARRATION] Page 1 ready metadata update failed story_id={current_story_id}: {repr(update_err)}")
 
         try:
             story_id = story["id"]
-            current_story_id = str(story_id)
-            print(
-                f"[NARRATION] Chunked worker started job_id={job_id} "
-                f"story_id={story_id} start_page={requested_start} voice={voice} lang={language_code}"
-            )
             initial_voice_mode = "parent" if voice == "parent_voice" and parent_voice_id else "standard"
             job["voice_mode"] = job.get("voice_mode") or initial_voice_mode
 
@@ -924,6 +908,7 @@ class NarrationService:
                     f"story_id={story_id} start_page={start_page} pages_count={pages_count} expected={expected_total}"
                 )
                 self._spawn_chunked_worker(
+                    background_tasks=None,
                     job_id=job_id,
                     user_id=user_id,
                     story=fresh_story,
@@ -956,6 +941,7 @@ class NarrationService:
         request: NarrationRequest,
         *,
         client_ip: Optional[str] = None,
+        background_tasks: Optional[BackgroundTasks] = None,
     ) -> NarrationResponse:
         story = self._get_story_for_user(request.storyId, user_id)
         profile, subscription = self._get_subscription(user_id)
@@ -1041,6 +1027,7 @@ class NarrationService:
                     f"priority_page={priority_page} missing_pages={missing_pages}"
                 )
                 self._spawn_chunked_worker(
+                    background_tasks=background_tasks,
                     job_id=job_id,
                     user_id=user_id,
                     story=story,
@@ -1196,6 +1183,7 @@ class NarrationService:
         }
 
         self._spawn_chunked_worker(
+            background_tasks=background_tasks,
             job_id=job_id,
             user_id=user_id,
             story=story,
