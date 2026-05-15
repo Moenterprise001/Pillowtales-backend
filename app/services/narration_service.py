@@ -945,6 +945,7 @@ class NarrationService:
         request: NarrationRequest,
         *,
         client_ip: Optional[str] = None,
+        background_tasks=None,
     ) -> NarrationResponse:
         story = self._get_story_for_user(request.storyId, user_id)
         profile, subscription = self._get_subscription(user_id)
