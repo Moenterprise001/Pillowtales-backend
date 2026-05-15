@@ -399,11 +399,18 @@ class NarrationService:
 
         provider_voice = VOICE_PRESETS.get(voice, {}).get("voice_id") or "shimmer"
 
-        retries = 2
+        retries = 1
 
         for attempt in range(retries + 1):
             try:
-                async with httpx.AsyncClient(timeout=httpx.Timeout(180.0, read=180.0)) as client:
+                async with httpx.AsyncClient(
+    		    timeout=httpx.Timeout(
+         		connect=15.0,
+        		read=45.0,
+        		write=15.0,
+        		pool=15.0,
+    		    )
+		) as client:
                     response = await client.post(
                         "https://api.openai.com/v1/audio/speech",
                         headers={
