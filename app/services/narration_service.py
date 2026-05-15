@@ -498,7 +498,14 @@ class NarrationService:
                 "If translating into German, use warm, natural German suitable for children, not stiff or academic phrasing. "
                 "Return only the translated text."
             )
-            async with httpx.AsyncClient(timeout=30.0) as client:
+            async with httpx.AsyncClient(
+                timeout=httpx.Timeout(
+                    connect=8.0,
+                    read=18.0,
+                    write=8.0,
+                    pool=8.0,
+                )
+            ) as client:
                 resp = await client.post(
                     "https://api.openai.com/v1/chat/completions",
                     headers={
@@ -525,9 +532,10 @@ class NarrationService:
         except Exception as e:
             print(
                 f"[TRANSLATE] FAILED source_lang={source or 'unknown'} "
-                f"target_lang={target}: {repr(e)} input_preview={text[:120]!r}"
+                f"target_lang={target}: {repr(e)} input_preview={text[:120]!r}. "
+                "Falling back to original text so page 1 narration is not blocked."
             )
-            raise RuntimeError(f"Translation failed from {source or 'unknown'} to {target}")
+            return text
 
 
     async def _generate_page_audio(
