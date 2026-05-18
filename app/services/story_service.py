@@ -18,13 +18,108 @@ from app.repositories.story_repository import StoryRepository
 from app.utils.story_text import postprocess_story_pages
 
 
-OPENING_SEEDS = [
-    "Under a soft silver moon, {childName} snuggled into bed when something tiny and magical flickered near the window.",
-    "As the stars began to glow, {childName} pulled the blanket close and noticed a gentle shimmer in the room.",
-    "The night was calm and quiet when {childName} felt a soft, magical presence nearby.",
-    "Just as {childName} was getting cosy, a small glowing light appeared, as if the night had a secret to share.",
-    "The moonlight stretched across the room, and {childName} felt something special was about to begin."
+OPENING_SEED_FAMILIES = [
+    {
+        "family": "moon_window",
+        "en": "A pale moonbeam slipped across {childName}'s blanket, pointing gently toward the window as if it knew a secret.",
+        "es": "Un rayo de luna se deslizó por la manta de {childName} y señaló suavemente la ventana, como si guardara un secreto.",
+        "fr": "Un rayon de lune glissa sur la couverture de {childName} et montra doucement la fenêtre, comme s'il connaissait un secret.",
+        "it": "Un raggio di luna scivolò sulla coperta di {childName} e indicò piano la finestra, come se custodisse un segreto.",
+        "de": "Ein Mondstrahl glitt über {childName}s Decke und zeigte sanft zum Fenster, als kenne er ein Geheimnis.",
+    },
+    {
+        "family": "dream_door",
+        "en": "Just before sleep arrived, {childName} noticed a tiny door of soft golden light beside the bed.",
+        "es": "Justo antes de quedarse dormido, {childName} vio una pequeña puerta de luz dorada junto a la cama.",
+        "fr": "Juste avant que le sommeil n'arrive, {childName} aperçut une petite porte de lumière dorée près du lit.",
+        "it": "Poco prima che arrivasse il sonno, {childName} vide una piccola porta di luce dorata accanto al letto.",
+        "de": "Kurz bevor der Schlaf kam, bemerkte {childName} neben dem Bett eine kleine Tür aus goldenem Licht.",
+    },
+    {
+        "family": "bedroom_sound",
+        "en": "From somewhere very close, {childName} heard a tiny sleepy tune, softer than a whisper and sweeter than a lullaby.",
+        "es": "Muy cerca, {childName} oyó una melodía pequeñita y soñolienta, más suave que un susurro y más dulce que una nana.",
+        "fr": "Tout près, {childName} entendit une minuscule mélodie endormie, plus douce qu'un murmure et plus tendre qu'une berceuse.",
+        "it": "Da qualche parte lì vicino, {childName} sentì una piccola melodia assonnata, più lieve di un sussurro e più dolce di una ninna nanna.",
+        "de": "Ganz in der Nähe hörte {childName} eine winzige schläfrige Melodie, leiser als ein Flüstern und süßer als ein Schlaflied.",
+    },
+    {
+        "family": "magic_object",
+        "en": "On the bedside table, something ordinary began to glow, and {childName} blinked in quiet surprise.",
+        "es": "En la mesilla, algo de lo más normal empezó a brillar, y {childName} parpadeó con una sorpresa tranquila.",
+        "fr": "Sur la table de chevet, un objet tout simple se mit à briller, et {childName} cligna des yeux, doucement surpris.",
+        "it": "Sul comodino, qualcosa di molto normale cominciò a brillare, e {childName} sbatté le palpebre con una sorpresa tranquilla.",
+        "de": "Auf dem Nachttisch begann etwas ganz Alltägliches zu leuchten, und {childName} blinzelte leise überrascht.",
+    },
+    {
+        "family": "night_garden",
+        "en": "Outside, the night garden rustled so gently that {childName} wondered whether the flowers were trying to say hello.",
+        "es": "Fuera, el jardín nocturno susurró tan despacio que {childName} se preguntó si las flores querían saludar.",
+        "fr": "Dehors, le jardin de nuit frissonna si doucement que {childName} se demanda si les fleurs voulaient dire bonsoir.",
+        "it": "Fuori, il giardino della notte frusciò così piano che {childName} si chiese se i fiori volessero salutare.",
+        "de": "Draußen raschelte der Nachtgarten so sanft, dass {childName} sich fragte, ob die Blumen Guten Abend sagen wollten.",
+    },
+    {
+        "family": "soft_weather",
+        "en": "A hush of warm night air brushed the curtains, and {childName} felt the room grow peaceful and full of possibility.",
+        "es": "Un soplo de aire templado movió las cortinas, y {childName} sintió que la habitación se llenaba de calma y posibilidades.",
+        "fr": "Un souffle d'air tiède remua les rideaux, et {childName} sentit la chambre devenir paisible et pleine de promesses.",
+        "it": "Un soffio d'aria tiepida mosse le tende, e {childName} sentì la stanza farsi calma e piena di possibilità.",
+        "de": "Ein warmer Nachthauch bewegte die Vorhänge, und {childName} spürte, wie das Zimmer friedlich und voller Möglichkeiten wurde.",
+    },
+    {
+        "family": "friendly_helper",
+        "en": "A small friendly shadow waved from the corner of the room, and {childName} knew at once that it was kind.",
+        "es": "Una pequeña sombra amable saludó desde un rincón de la habitación, y {childName} supo enseguida que era buena.",
+        "fr": "Une petite ombre amicale fit signe depuis le coin de la chambre, et {childName} sut aussitôt qu'elle était gentille.",
+        "it": "Una piccola ombra amichevole salutò dall'angolo della stanza, e {childName} capì subito che era buona.",
+        "de": "Ein kleiner freundlicher Schatten winkte aus der Zimmerecke, und {childName} wusste sofort, dass er gut war.",
+    },
+    {
+        "family": "wish_or_memory",
+        "en": "As {childName} thought about the day, one small wish floated up like a bubble and shimmered in the quiet room.",
+        "es": "Mientras {childName} pensaba en el día, un pequeño deseo subió como una burbuja y brilló en la habitación tranquila.",
+        "fr": "Pendant que {childName} repensait à sa journée, un petit souhait monta comme une bulle et scintilla dans la chambre calme.",
+        "it": "Mentre {childName} ripensava alla giornata, un piccolo desiderio salì come una bolla e brillò nella stanza silenziosa.",
+        "de": "Als {childName} an den Tag dachte, stieg ein kleiner Wunsch wie eine Seifenblase auf und schimmerte im ruhigen Zimmer.",
+    },
+    {
+        "family": "blanket_map",
+        "en": "When {childName} smoothed the blanket, the folds suddenly looked like hills, rivers, and a tiny path waiting to be followed.",
+        "es": "Al alisar la manta, {childName} vio que los pliegues parecían colinas, ríos y un caminito esperando ser seguido.",
+        "fr": "En lissant sa couverture, {childName} vit que les plis ressemblaient à des collines, des rivières et un petit chemin à suivre.",
+        "it": "Quando {childName} sistemò la coperta, le pieghe sembrarono colline, fiumi e un piccolo sentiero da seguire.",
+        "de": "Als {childName} die Decke glatt strich, sahen die Falten plötzlich aus wie Hügel, Flüsse und ein kleiner Weg, der wartete.",
+    },
+    {
+        "family": "star_message",
+        "en": "One little star blinked three times above the rooftops, and {childName} felt as if it was sending a message.",
+        "es": "Una pequeña estrella parpadeó tres veces sobre los tejados, y {childName} sintió que le enviaba un mensaje.",
+        "fr": "Une petite étoile cligna trois fois au-dessus des toits, et {childName} eut l'impression qu'elle envoyait un message.",
+        "it": "Una piccola stella lampeggiò tre volte sopra i tetti, e {childName} ebbe l'impressione che mandasse un messaggio.",
+        "de": "Ein kleiner Stern blinkte dreimal über den Dächern, und {childName} hatte das Gefühl, er sende eine Botschaft.",
+    },
+    {
+        "family": "sleepy_toy",
+        "en": "A favourite toy gave the tiniest wiggle, and {childName} sat very still, listening with a smile.",
+        "es": "Un juguete favorito se movió apenas un poquito, y {childName} se quedó muy quieto, escuchando con una sonrisa.",
+        "fr": "Un jouet préféré remua tout doucement, et {childName} resta immobile, en écoutant avec un sourire.",
+        "it": "Un giocattolo preferito si mosse appena appena, e {childName} rimase immobile ad ascoltare con un sorriso.",
+        "de": "Ein Lieblingsspielzeug wackelte ganz winzig, und {childName} blieb ganz still sitzen und lauschte mit einem Lächeln.",
+    },
+    {
+        "family": "book_pages",
+        "en": "The pages of a bedtime book fluttered by themselves, stopping at a picture {childName} had never seen before.",
+        "es": "Las páginas de un cuento se movieron solas y se detuvieron en un dibujo que {childName} nunca había visto.",
+        "fr": "Les pages d'un livre du soir tournèrent toutes seules et s'arrêtèrent sur une image que {childName} n'avait jamais vue.",
+        "it": "Le pagine di un libro della buonanotte si voltarono da sole e si fermarono su un'immagine che {childName} non aveva mai visto.",
+        "de": "Die Seiten eines Gute-Nacht-Buches blätterten von selbst und blieben bei einem Bild stehen, das {childName} noch nie gesehen hatte.",
+    },
 ]
+
+# Backward-compatible English seed list kept for any older imports/tests.
+OPENING_SEEDS = [seed["en"] for seed in OPENING_SEED_FAMILIES]
+
 
 FIRST_PAGE_TIMEOUT_SECONDS = 30
 # User-facing consistency target: if Gemini has not produced page 1
@@ -62,48 +157,36 @@ class StoryService:
 - Keep the mood safe for bedtime: no danger, no frightening villains, no peril, no sadness-heavy ending.
 - Do not copy or imitate any existing franchise, character, studio, film, song, or copyrighted story world."""
 
-    def _localized_opening_sentence(self, request: GenerateStoryRequest) -> str:
-        child = request.childName
+    def _select_opening_seed(self, request: GenerateStoryRequest) -> dict:
+        """Select a fresh-feeling first line locally before Gemini is called.
+
+        This is intentionally fast and deterministic from the backend's point of
+        view: no extra AI call, no database lookup, and no narration/playback
+        impact. A broader pool of opening families prevents repeated
+        moon/window/shimmer beginnings while keeping page 1 generation quick.
+        """
+        child = request.childName or "the child"
         language_code = (request.storyLanguageCode or "en").lower()[:2]
-        openings_by_lang = {
-            "en": [
-                "Under a soft silver moon, {childName} snuggled into bed when something tiny and magical flickered near the window.",
-                "As the stars began to glow, {childName} pulled the blanket close and noticed a gentle shimmer in the room.",
-                "The night was calm and quiet when {childName} felt a soft, magical presence nearby.",
-                "Just as {childName} was getting cosy, a small glowing light appeared, as if the night had a secret to share.",
-                "The moonlight stretched across the room, and {childName} felt something special was about to begin.",
-            ],
-            "es": [
-                "Bajo una luna tranquila, {childName} se arropó en la cama y vio una luz suave junto a la ventana.",
-                "Mientras la casa se quedaba en silencio, {childName} se tapó bien y notó un brillo sereno en la habitación.",
-                "La noche estaba en calma cuando {childName} sintió cerca una presencia amable, pequeña y llena de magia.",
-                "Justo cuando {childName} estaba a punto de cerrar los ojos, una luz tenue apareció despacio junto a la cama.",
-                "La luz de la luna entró poco a poco en la habitación, y {childName} sintió que aquella noche traía algo especial.",
-            ],
-            "fr": [
-                "Sous une lune douce et argentée, {childName} se blottit dans son lit lorsqu'une petite lumière magique scintilla près de la fenêtre.",
-                "Alors que les étoiles commençaient à briller, {childName} remonta la couverture et aperçut une lueur toute douce dans la chambre.",
-                "La nuit était calme et paisible lorsque {childName} sentit une présence magique et rassurante tout près.",
-                "Au moment où {childName} se préparait à dormir, une petite lumière chaude apparut, comme si la nuit avait un secret à lui confier.",
-                "La clarté de la lune glissa doucement dans la chambre, et {childName} sentit qu'une chose merveilleuse allait commencer.",
-            ],
-            "it": [
-                "Sotto una luna d'argento morbida e tranquilla, {childName} si rannicchiò nel letto quando qualcosa di piccolo e magico brillò vicino alla finestra.",
-                "Mentre le stelle iniziavano a brillare, {childName} tirò su la coperta e notò una luce dolce nella stanza.",
-                "La notte era calma e silenziosa quando {childName} sentì una presenza magica e gentile lì vicino.",
-                "Proprio mentre {childName} si sistemava nel letto, apparve una piccola luce calda, come se la notte avesse un segreto da raccontare.",
-                "La luce della luna scivolò piano nella stanza, e {childName} sentì che qualcosa di speciale stava per cominciare.",
-            ],
-            "de": [
-                "Unter einem sanften silbernen Mond kuschelte sich {childName} ins Bett, als etwas Kleines und Magisches am Fenster funkelte.",
-                "Als die Sterne zu leuchten begannen, zog {childName} die Decke ein wenig höher und bemerkte ein sanftes Schimmern im Zimmer.",
-                "Die Nacht war ruhig und friedlich, als {childName} eine freundliche magische Nähe spürte.",
-                "Gerade als {childName} es sich im Bett gemütlich machte, erschien ein warmes kleines Licht, als hätte die Nacht ein Geheimnis zu erzählen.",
-                "Das Mondlicht glitt leise durch das Zimmer, und {childName} spürte, dass gleich etwas Besonderes beginnen würde.",
-            ],
+        seed = random.choice(OPENING_SEED_FAMILIES)
+        template = seed.get(language_code) or seed["en"]
+        family = seed.get("family", "gentle_magic")
+        return {
+            "family": family,
+            "sentence": template.replace("{childName}", child),
         }
-        options = openings_by_lang.get(language_code, openings_by_lang["en"])
-        return random.choice(options).replace("{childName}", child)
+
+    def _opening_transition_rule(self, opening_family: str) -> str:
+        return (
+            f"The first sentence uses the '{opening_family}' opening family. "
+            "After that exact sentence, move quickly into a clearly different story beat. "
+            "Do not linger on the same moon/window/light setup or repeat the same kind of magical arrival. "
+            "Let the selected theme, moral, and child action make the story feel new."
+        )
+
+    def _localized_opening_sentence(self, request: GenerateStoryRequest) -> str:
+        # Compatibility wrapper for any older internal calls. New prompt building
+        # uses _select_opening_seed() so it can also pass the family transition rule.
+        return self._select_opening_seed(request)["sentence"]
 
     def _language_style_block(self, language_code: Optional[str]) -> str:
         language_code = (language_code or "en").lower()[:2]
@@ -309,7 +392,10 @@ OUTPUT QUALITY RULES:
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         blocks = self._language_and_character_blocks(request, companion)
 
-        opening = self._localized_opening_sentence(request)
+        opening_seed = self._select_opening_seed(request)
+        opening = opening_seed["sentence"]
+        opening_family = opening_seed["family"]
+        opening_transition_rule = self._opening_transition_rule(opening_family)
         language_code = (request.storyLanguageCode or "en").lower()
         is_english = language_code == "en"
 
@@ -351,6 +437,9 @@ START THE STORY WITH THIS EXACT SENTENCE:
 "{opening}"
 
 Then continue immediately from it.
+
+FRESHNESS RULE:
+- {opening_transition_rule}
 
 INSTRUCTIONS:
 {instruction_block}
