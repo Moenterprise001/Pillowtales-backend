@@ -39,25 +39,23 @@ def prepare_narration_text(text: str) -> str:
 
     # Add natural pacing using punctuation spacing.
     # This avoids SSML tags so it stays compatible with OpenAI TTS and ElevenLabs.
-    text = re.sub(r"\\s+", " ", text)
-    text = text.replace(". ", ".  ")
-    text = text.replace("? ", "?  ")
-    text = text.replace("! ", "!  ")
-    text = text.replace(", ", ",  ")
-    text = text.replace("; ", ";  ")
-    text = text.replace(": ", ":  ")
+    text = re.sub(r"\s+", " ", text)
+    text = text.replace("...", "…")
+    text = re.sub(r"\s+([,.!?;:])", r"\1", text)
+    text = re.sub(r"([.!?])\s+", r"\1  ", text)
+    text = re.sub(r"([,;:])\s+", r"\1 ", text)
     text = text.replace(" — ", ".  ")
-    text = text.replace("... ", "...  ")
+    text = text.replace(" – ", ".  ")
 
-    return text
+    return text.strip()
 
 
 def adapt_spanish_castellano(text: str) -> str:
     if not text:
         return text
 
-    # Light, safe Spain-Spanish / Castellano biasing for narration.
-    # Keep this conservative: bedtime text should remain natural and child-friendly.
+    # Conservative Spain-Spanish / Castellano biasing for narration.
+    # Keep this safe: bedtime text should remain natural and child-friendly.
     replacements = {
         "ustedes": "vosotros",
         "Ustedes": "Vosotros",
@@ -65,16 +63,78 @@ def adapt_spanish_castellano(text: str) -> str:
         "Computadora": "Ordenador",
         "celular": "móvil",
         "Celular": "Móvil",
+        "carro": "coche",
+        "Carro": "Coche",
         "manejar": "conducir",
         "Manejar": "Conducir",
+        "platicar": "charlar",
+        "Platicar": "Charlar",
         "muy lindo": "muy bonito",
         "Muy lindo": "Muy bonito",
         "lindo": "bonito",
         "Lindo": "Bonito",
+        "linda": "bonita",
+        "Linda": "Bonita",
+        "chiquito": "pequeño",
+        "Chiquito": "Pequeño",
+        "chiquita": "pequeña",
+        "Chiquita": "Pequeña",
+        "calientito": "calentito",
+        "Calientito": "Calentito",
+        "lucecita": "luz suave",
+        "Lucecita": "Luz suave",
+        "dragoncito": "pequeño dragón",
+        "Dragoncito": "Pequeño dragón",
+        "estrellitas": "pequeñas estrellas",
+        "Estrellitas": "Pequeñas estrellas",
+        "chispitas": "destellos suaves",
+        "Chispitas": "Destellos suaves",
     }
 
     for source, target in replacements.items():
         text = text.replace(source, target)
+
+    # Softer Spain bedtime rhythm, without adding anything that sounds like narration instructions.
+    text = re.sub(r"\bde pronto\b", "entonces", text, flags=re.IGNORECASE)
+    text = re.sub(r"\baventura muy especial\b", "camino tranquilo", text, flags=re.IGNORECASE)
+    return text
+
+
+def soften_bedtime_narration_text(text: str, language_code: str) -> str:
+    """Light language-specific spoken-flow shaping before TTS.
+
+    This must stay a text-only polish layer. It must not affect narration job
+    ownership, chunking, playback, page status, or cache logic.
+    """
+    if not text:
+        return text
+
+    lang = (language_code or "en").lower()[:2]
+    text = text.strip()
+
+    if lang == "es":
+        text = adapt_spanish_castellano(text)
+        text = text.replace(". ", ".  ")
+        text = text.replace(", y ", ", y ")
+        return text
+
+    if lang == "fr":
+        # Encourage softer, less robotic French delivery through punctuation rhythm.
+        text = text.replace(". ", ".  ")
+        text = text.replace("; ", ".  ")
+        text = text.replace(": ", ".  ")
+        text = re.sub(r"\btrès très\b", "très", text, flags=re.IGNORECASE)
+        return text
+
+    if lang == "de":
+        text = text.replace(". ", ".  ")
+        text = text.replace("; ", ".  ")
+        return text
+
+    if lang == "it":
+        text = text.replace(". ", ".  ")
+        text = text.replace("; ", ".  ")
+        return text
 
     return text
 
@@ -576,9 +636,8 @@ class NarrationService:
         print(f"[NARRATION] Narration text preview for {language_code}={translated[:160]!r}")
         tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
+        tts_text = soften_bedtime_narration_text(tts_text, language_code)
         tts_text = prepare_narration_text(tts_text)
-        if language_code == "es":
-            tts_text = adapt_spanish_castellano(tts_text)
 
         if not tts_text:
             raise RuntimeError("Page has no text")
