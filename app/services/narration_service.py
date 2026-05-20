@@ -28,10 +28,10 @@ WISE_OWL_AUDIO_CACHE_VERSION = "v6"
 # Bump standard non-English narration caches so improved bedtime/accent shaping
 # is generated fresh. Parent Voice cache paths remain untouched.
 STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
-    "es": "v6",
-    "fr": "v6",
-    "de": "v6",
-    "it": "v6",
+    "es": "v7",
+    "fr": "v7",
+    "de": "v7",
+    "it": "v7",
 }
 
 # In-memory abuse/rate limiting state.
@@ -120,6 +120,60 @@ def adapt_spanish_castellano(text: str) -> str:
         "Estrellitas": "Pequeñas estrellas",
         "chispitas": "destellos suaves",
         "Chispitas": "Destellos suaves",
+        # Stronger neutral-dub / Latin-American diminutive cleanup.
+        # Keep these phrase-based so we do not damage normal Spanish words like "bonito".
+        "poquito": "poco",
+        "Poquito": "Poco",
+        "un poquito": "un poco",
+        "Un poquito": "Un poco",
+        "despacito": "despacio",
+        "Despacito": "Despacio",
+        "suavecito": "suave",
+        "Suavecito": "Suave",
+        "suavecita": "suave",
+        "Suavecita": "Suave",
+        "pequeñito": "pequeño",
+        "Pequeñito": "Pequeño",
+        "pequeñita": "pequeña",
+        "Pequeñita": "Pequeña",
+        "ratito": "rato",
+        "Ratito": "Rato",
+        "momentito": "momento",
+        "Momentito": "Momento",
+        "amiguito": "amigo",
+        "Amiguito": "Amigo",
+        "amiguita": "amiga",
+        "Amiguita": "Amiga",
+        "osito": "oso",
+        "Osito": "Oso",
+        "zorrito": "zorro",
+        "Zorrito": "Zorro",
+        "gatito": "gato",
+        "Gatito": "Gato",
+        "gatita": "gata",
+        "Gatita": "Gata",
+        "perrito": "perro",
+        "Perrito": "Perro",
+        "perrita": "perra",
+        "Perrita": "Perra",
+        "conejito": "conejo",
+        "Conejito": "Conejo",
+        "pajarito": "pájaro",
+        "Pajarito": "Pájaro",
+        "florecita": "flor",
+        "Florecita": "Flor",
+        "nubecita": "nube suave",
+        "Nubecita": "Nube suave",
+        "casita": "casa",
+        "Casita": "Casa",
+        "caminito": "camino",
+        "Caminito": "Camino",
+        "brillito": "brillo suave",
+        "Brillito": "Brillo suave",
+        "besito": "beso",
+        "Besito": "Beso",
+        "abracito": "abrazo",
+        "Abracito": "Abrazo",
     }
 
     text = _replace_phrases(text, replacements)
@@ -136,6 +190,16 @@ def adapt_spanish_castellano(text: str) -> str:
         (r"\bLa noche quería contarle un secreto\b", "La noche parecía guardar algo especial"),
         (r"\bcomenzó una aventura\b", "empezó un camino"),
         (r"\bComenzó una aventura\b", "Empezó un camino"),
+        (r"\buna aventura mágica\b", "un camino lleno de magia"),
+        (r"\bUna aventura mágica\b", "Un camino lleno de magia"),
+        (r"\bmuy emocionado\b", "muy ilusionado"),
+        (r"\bMuy emocionado\b", "Muy ilusionado"),
+        (r"\bmuy emocionada\b", "muy ilusionada"),
+        (r"\bMuy emocionada\b", "Muy ilusionada"),
+        (r"\bse sintió emocionado\b", "se sintió ilusionado"),
+        (r"\bSe sintió emocionado\b", "Se sintió ilusionado"),
+        (r"\bse sintió emocionada\b", "se sintió ilusionada"),
+        (r"\bSe sintió emocionada\b", "Se sintió ilusionada"),
     ]
     for pattern, replacement in phrase_replacements:
         text = re.sub(pattern, replacement, text)
@@ -174,18 +238,26 @@ def soften_bedtime_narration_text(text: str, language_code: str) -> str:
         text = re.sub(r"(;|:)\s+", r".  ", text)
         text = re.sub(r"\btrès très\b", "très", text, flags=re.IGNORECASE)
         text = text.replace(" tout doucement ", " doucement ")
+        text = text.replace(" petite petite ", " petite ")
+        text = text.replace(" petit petit ", " petit ")
+        text = text.replace("d’un seul coup", "doucement")
+        text = text.replace("tout à coup", "alors")
         return text.strip()
 
     if lang == "de":
         text = re.sub(r"([.!?])\s+", r"\1  ", text)
         text = re.sub(r"(;|:)\s+", r".  ", text)
         text = text.replace("ganz ganz", "ganz")
+        text = text.replace("plötzlich", "leise")
+        text = text.replace("auf einmal", "dann")
         return text.strip()
 
     if lang == "it":
         text = re.sub(r"([.!?])\s+", r"\1  ", text)
         text = re.sub(r"(;|:)\s+", r".  ", text)
         text = re.sub(r"\bmolto molto\b", "molto", text, flags=re.IGNORECASE)
+        text = text.replace("all’improvviso", "piano piano")
+        text = text.replace("tutto a un tratto", "poi")
         return text.strip()
 
     return text
