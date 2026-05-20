@@ -24,14 +24,14 @@ _chunked_jobs: dict[str, dict] = {}
 # Cache versioning. Keep non-English/other narrator caches stable for launch,
 # but isolate Wise Owl English audio so old mixed chunks cannot be reused.
 DEFAULT_AUDIO_CACHE_VERSION = "v5"
-WISE_OWL_AUDIO_CACHE_VERSION = "v7"
+WISE_OWL_AUDIO_CACHE_VERSION = "v8"
 # Bump standard non-English narration caches so improved bedtime/accent shaping
 # is generated fresh. Parent Voice cache paths remain untouched.
 STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
-    "es": "v8",
-    "fr": "v8",
-    "de": "v8",
-    "it": "v8",
+    "es": "v9",
+    "fr": "v9",
+    "de": "v9",
+    "it": "v9",
 }
 
 # In-memory abuse/rate limiting state.
@@ -57,6 +57,30 @@ def prepare_narration_text(text: str) -> str:
     text = re.sub(r"([,;:])\s+", r"\1 ", text)
 
     return text.strip()
+
+
+def add_soft_chunk_leadin(text: str) -> str:
+    """Add a tiny non-verbal settling pause at the start of each TTS chunk.
+
+    Chunked TTS can attack the first phoneme too abruptly, which can sound
+    like a swallow, gulp, or clipped consonant at the start of a new page.
+    A leading ellipsis gives OpenAI TTS a soft breath before the first word.
+
+    This is TTS-input polish only: it must not affect narration ownership,
+    chunking, page-status polling, playback, sync, Parent Voice replay, or
+    story text stored in the database.
+    """
+    if not text:
+        return text
+
+    cleaned = text.strip()
+    if not cleaned:
+        return cleaned
+
+    if cleaned.startswith(("…", ".", ",", ";", ":", "?", "!")):
+        return cleaned
+
+    return f"… {cleaned}"
 
 
 def _replace_phrases(text: str, replacements: dict[str, str]) -> str:
@@ -820,6 +844,9 @@ class NarrationService:
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
         tts_text = soften_bedtime_narration_text(tts_text, language_code)
         tts_text = prepare_narration_text(tts_text)
+
+        if voice_mode != "parent":
+            tts_text = add_soft_chunk_leadin(tts_text)
 
         if not tts_text:
             raise RuntimeError("Page has no text")
