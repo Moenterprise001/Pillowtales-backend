@@ -25,6 +25,14 @@ _chunked_jobs: dict[str, dict] = {}
 # but isolate Wise Owl English audio so old mixed chunks cannot be reused.
 DEFAULT_AUDIO_CACHE_VERSION = "v5"
 WISE_OWL_AUDIO_CACHE_VERSION = "v6"
+# Bump standard non-English narration caches so improved bedtime/accent shaping
+# is generated fresh. Parent Voice cache paths remain untouched.
+STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
+    "es": "v6",
+    "fr": "v6",
+    "de": "v6",
+    "it": "v6",
+}
 
 # In-memory abuse/rate limiting state.
 # Also single-instance only, but enough for launch while on one Render instance.
@@ -39,23 +47,32 @@ def prepare_narration_text(text: str) -> str:
 
     # Add natural pacing using punctuation spacing.
     # This avoids SSML tags so it stays compatible with OpenAI TTS and ElevenLabs.
+    # Keep this conservative: it must never add spoken instructions or change story meaning.
     text = re.sub(r"\s+", " ", text)
     text = text.replace("...", "…")
     text = re.sub(r"\s+([,.!?;:])", r"\1", text)
-    text = re.sub(r"([.!?])\s+", r"\1  ", text)
-    text = re.sub(r"([,;:])\s+", r"\1 ", text)
     text = text.replace(" — ", ".  ")
     text = text.replace(" – ", ".  ")
+    text = re.sub(r"([.!?…])\s+", r"\1  ", text)
+    text = re.sub(r"([,;:])\s+", r"\1 ", text)
 
     return text.strip()
+
+
+def _replace_phrases(text: str, replacements: dict[str, str]) -> str:
+    """Case-sensitive phrase replacement used by narration polish only."""
+    for source, target in replacements.items():
+        text = text.replace(source, target)
+    return text
 
 
 def adapt_spanish_castellano(text: str) -> str:
     if not text:
         return text
 
-    # Conservative Spain-Spanish / Castellano biasing for narration.
-    # Keep this safe: bedtime text should remain natural and child-friendly.
+    # Spain-Spanish / Castellano biasing for narration.
+    # This cannot fully force the provider's accent, but it removes common LATAM
+    # wording and pushes the spoken text toward a Spain bedtime register.
     replacements = {
         "ustedes": "vosotros",
         "Ustedes": "Vosotros",
@@ -65,12 +82,24 @@ def adapt_spanish_castellano(text: str) -> str:
         "Celular": "Móvil",
         "carro": "coche",
         "Carro": "Coche",
+        "auto": "coche",
+        "Auto": "Coche",
         "manejar": "conducir",
         "Manejar": "Conducir",
         "platicar": "charlar",
         "Platicar": "Charlar",
+        "enojado": "enfadado",
+        "Enojado": "Enfadado",
+        "enojada": "enfadada",
+        "Enojada": "Enfadada",
+        "sándwich": "bocadillo",
+        "Sándwich": "Bocadillo",
+        "emparedado": "bocadillo",
+        "Emparedado": "Bocadillo",
         "muy lindo": "muy bonito",
         "Muy lindo": "Muy bonito",
+        "muy linda": "muy bonita",
+        "Muy linda": "Muy bonita",
         "lindo": "bonito",
         "Lindo": "Bonito",
         "linda": "bonita",
@@ -81,6 +110,8 @@ def adapt_spanish_castellano(text: str) -> str:
         "Chiquita": "Pequeña",
         "calientito": "calentito",
         "Calientito": "Calentito",
+        "calientita": "calentita",
+        "Calientita": "Calentita",
         "lucecita": "luz suave",
         "Lucecita": "Luz suave",
         "dragoncito": "pequeño dragón",
@@ -91,12 +122,24 @@ def adapt_spanish_castellano(text: str) -> str:
         "Chispitas": "Destellos suaves",
     }
 
-    for source, target in replacements.items():
-        text = text.replace(source, target)
+    text = _replace_phrases(text, replacements)
 
-    # Softer Spain bedtime rhythm, without adding anything that sounds like narration instructions.
-    text = re.sub(r"\bde pronto\b", "entonces", text, flags=re.IGNORECASE)
-    text = re.sub(r"\baventura muy especial\b", "camino tranquilo", text, flags=re.IGNORECASE)
+    # Softer Spain bedtime rhythm, without adding narration instructions.
+    phrase_replacements = [
+        (r"\bde pronto\b", "entonces"),
+        (r"\bDe pronto\b", "Entonces"),
+        (r"\baventura muy especial\b", "camino tranquilo"),
+        (r"\bAventura muy especial\b", "Camino tranquilo"),
+        (r"\bpura curiosidad\b", "curiosidad tranquila"),
+        (r"\bPura curiosidad\b", "Curiosidad tranquila"),
+        (r"\bla noche quería contarle un secreto\b", "la noche parecía guardar algo especial"),
+        (r"\bLa noche quería contarle un secreto\b", "La noche parecía guardar algo especial"),
+        (r"\bcomenzó una aventura\b", "empezó un camino"),
+        (r"\bComenzó una aventura\b", "Empezó un camino"),
+    ]
+    for pattern, replacement in phrase_replacements:
+        text = re.sub(pattern, replacement, text)
+
     return text
 
 
@@ -112,29 +155,38 @@ def soften_bedtime_narration_text(text: str, language_code: str) -> str:
     lang = (language_code or "en").lower()[:2]
     text = text.strip()
 
+    # Normalize long dashes before language-specific shaping.
+    text = text.replace(" — ", ". ").replace(" – ", ". ")
+
     if lang == "es":
         text = adapt_spanish_castellano(text)
-        text = text.replace(". ", ".  ")
-        text = text.replace(", y ", ", y ")
-        return text
+        # Spain bedtime speech benefits from short, clear breaths. Keep commas
+        # light and sentence pauses soft; avoid adding words or instructions.
+        text = re.sub(r"([.!?])\s+", r"\1  ", text)
+        text = re.sub(r"(;|:)\s+", r".  ", text)
+        text = re.sub(r",\s+(y|pero|porque|cuando|mientras)\s+", r", \1 ", text, flags=re.IGNORECASE)
+        return text.strip()
 
     if lang == "fr":
-        # Encourage softer, less robotic French delivery through punctuation rhythm.
-        text = text.replace(". ", ".  ")
-        text = text.replace("; ", ".  ")
-        text = text.replace(": ", ".  ")
+        # Encourage softer, less robotic French delivery through breathing rhythm,
+        # without altering meaning or adding unspoken directions.
+        text = re.sub(r"([.!?])\s+", r"\1  ", text)
+        text = re.sub(r"(;|:)\s+", r".  ", text)
         text = re.sub(r"\btrès très\b", "très", text, flags=re.IGNORECASE)
-        return text
+        text = text.replace(" tout doucement ", " doucement ")
+        return text.strip()
 
     if lang == "de":
-        text = text.replace(". ", ".  ")
-        text = text.replace("; ", ".  ")
-        return text
+        text = re.sub(r"([.!?])\s+", r"\1  ", text)
+        text = re.sub(r"(;|:)\s+", r".  ", text)
+        text = text.replace("ganz ganz", "ganz")
+        return text.strip()
 
     if lang == "it":
-        text = text.replace(". ", ".  ")
-        text = text.replace("; ", ".  ")
-        return text
+        text = re.sub(r"([.!?])\s+", r"\1  ", text)
+        text = re.sub(r"(;|:)\s+", r".  ", text)
+        text = re.sub(r"\bmolto molto\b", "molto", text, flags=re.IGNORECASE)
+        return text.strip()
 
     return text
 
@@ -211,10 +263,16 @@ class NarrationService:
         return language_code
 
     def _audio_cache_version(self, voice: str, language_code: str) -> str:
-        # Only bump Wise Owl English to avoid reusing any older mixed/partial
-        # chunks while keeping other launch narration caches untouched.
+        # Keep Parent Voice cache-first and untouched. Parent Voice replay must
+        # remain free and stable. Standard narrator cache bumps are only used
+        # to avoid replaying older robotic / non-Castilian generated chunks.
+        if voice == "parent_voice":
+            return DEFAULT_AUDIO_CACHE_VERSION
         if voice == "wise_owl" and language_code == "en":
             return WISE_OWL_AUDIO_CACHE_VERSION
+        standard_version = STANDARD_LANGUAGE_AUDIO_CACHE_VERSION.get((language_code or "").lower()[:2])
+        if standard_version:
+            return standard_version
         return DEFAULT_AUDIO_CACHE_VERSION
 
     def resolve_voice(self, requested_voice: Optional[str], language_code: str) -> str:
