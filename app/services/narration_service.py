@@ -24,14 +24,14 @@ _chunked_jobs: dict[str, dict] = {}
 # Cache versioning. Keep non-English/other narrator caches stable for launch,
 # but isolate Wise Owl English audio so old mixed chunks cannot be reused.
 DEFAULT_AUDIO_CACHE_VERSION = "v5"
-WISE_OWL_AUDIO_CACHE_VERSION = "v6"
+WISE_OWL_AUDIO_CACHE_VERSION = "v7"
 # Bump standard non-English narration caches so improved bedtime/accent shaping
 # is generated fresh. Parent Voice cache paths remain untouched.
 STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
-    "es": "v7",
-    "fr": "v7",
-    "de": "v7",
-    "it": "v7",
+    "es": "v8",
+    "fr": "v8",
+    "de": "v8",
+    "it": "v8",
 }
 
 # In-memory abuse/rate limiting state.
@@ -577,12 +577,63 @@ class NarrationService:
                 detail="Too many Parent Voice requests on this account. Please try again later.",
             )
 
+    def _openai_tts_instructions(self, voice: str) -> str:
+        """Performance direction for OpenAI standard narrators.
+
+        Keep this as a TTS-only quality layer. It must not affect narration
+        ownership, chunking, page-status polling, playback, Parent Voice, or
+        cache-first replay rules.
+        """
+        preset = VOICE_PRESETS.get(voice, {}) or {}
+        lang = str(preset.get("language_code") or "en").strip().lower()[:2]
+
+        if lang == "es":
+            return (
+                "Read as a calm parent from Spain telling a bedtime story in Castilian Spanish. "
+                "Use a clearly peninsular Spain accent and rhythm, not Latin American or neutral-dub Spanish. "
+                "Keep the delivery warm, soft, intimate, and sleepy, with gentle natural pauses. "
+                "Avoid sounding theatrical, commercial, robotic, cartoon-like, or overly bright. "
+                "Speak slowly enough for a young child at bedtime, with tender reassurance and a peaceful tone."
+            )
+
+        if lang == "fr":
+            return (
+                "Read as a warm French parent telling a bedtime story to a young child. "
+                "Use soft, natural French intonation with gentle breathing pauses and a calm sleepy rhythm. "
+                "Avoid robotic, formal, academic, theatrical, or announcement-style delivery. "
+                "Keep the voice tender, reassuring, emotionally warm, and suitable for falling asleep."
+            )
+
+        if lang == "de":
+            return (
+                "Read as a warm German parent telling a bedtime story to a young child. "
+                "Use soft natural German intonation, gentle pauses, and a slow comforting bedtime rhythm. "
+                "Avoid stiff, robotic, formal, theatrical, or audiobook-announcer delivery. "
+                "Keep the voice calm, tender, reassuring, and sleepy."
+            )
+
+        if lang == "it":
+            return (
+                "Read as a warm Italian parent telling a bedtime story to a young child. "
+                "Use soft natural Italian intonation, gentle musical rhythm, and calm bedtime pacing. "
+                "Avoid robotic, theatrical, overly energetic, or announcement-style delivery. "
+                "Keep the voice tender, reassuring, dreamy, and suitable for sleep."
+            )
+
+        return (
+            "Read as a calm, warm bedtime storyteller for a young child, with the gentle reassurance of a loving grandparent. "
+            "Use soft, sleepy pacing, natural breathing pauses, and tender sentence endings. "
+            "Keep the delivery comforting, intimate, unhurried, and emotionally safe, as if helping a child settle peacefully for sleep. "
+            "Avoid robotic, theatrical, commercial, audiobook-announcer, cartoon-granny, or overly energetic delivery."
+        )
+
     async def _generate_openai_tts(self, text: str, voice: str) -> bytes:
         api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not configured")
 
         provider_voice = VOICE_PRESETS.get(voice, {}).get("voice_id") or "shimmer"
+        instructions = self._openai_tts_instructions(voice)
 
         retries = 2
 
@@ -599,6 +650,7 @@ class NarrationService:
                             "model": "gpt-4o-mini-tts",
                             "voice": provider_voice,
                             "input": text,
+                            "instructions": instructions,
                             "format": "mp3",
                         },
                     )
