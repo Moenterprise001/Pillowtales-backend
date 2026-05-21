@@ -851,7 +851,10 @@ class NarrationService:
         tts_text = soften_bedtime_narration_text(tts_text, language_code)
         tts_text = prepare_narration_text(tts_text)
 
-        if voice_mode != "parent":
+        # Keep page 1 as fast as possible for bedtime startup speed.
+        # Apply the soft anti-gulp lead-in only for later pages where
+        # page-transition mouth artefacts are more noticeable.
+        if voice_mode != "parent" and page > 1:
             tts_text = add_soft_chunk_leadin(tts_text)
 
         if not tts_text:
