@@ -60,12 +60,12 @@ def prepare_narration_text(text: str) -> str:
 
 
 def add_soft_chunk_leadin(text: str) -> str:
-    """Do not prefix page audio with punctuation.
+    """Add a tiny fast start-buffer for standard OpenAI TTS chunks.
 
-    Earlier testing used a leading ellipsis to soften chunk starts, but that
-    could slow first-page TTS generation. Keep this function as a safe no-op
-    compatibility layer so call sites do not need to change. Chunk-start
-    softness is now handled by OpenAI TTS performance instructions only.
+    A leading ellipsis softened page starts but could slow first-page TTS.
+    No prefix was faster, but allowed occasional hard first-phoneme mouth/gulp
+    artefacts. A single period is a lighter TTS reset: it gives the model a
+    clean start cue without the long emotional pause of an ellipsis.
 
     This is TTS-input polish only: it must not affect narration ownership,
     chunking, page-status polling, playback, sync, Parent Voice replay, or
@@ -73,7 +73,15 @@ def add_soft_chunk_leadin(text: str) -> str:
     """
     if not text:
         return text
-    return text.strip()
+
+    cleaned = text.strip()
+    if not cleaned:
+        return cleaned
+
+    if cleaned.startswith((".", "…", ",", ";", ":", "?", "!")):
+        return cleaned
+
+    return f". {cleaned}"
 
 
 def _replace_phrases(text: str, replacements: dict[str, str]) -> str:
