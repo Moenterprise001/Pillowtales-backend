@@ -4,7 +4,7 @@ from fastapi import Depends, FastAPI, HTTPException
 from starlette.middleware.cors import CORSMiddleware
 
 from app.api.deps import get_story_repo
-from app.api.routes import auth, catalog, narration, parent_voice, stories, subscription, system, user
+from app.api.routes import auth, catalog, narration, parent_voice, stories, subscription, system, user, revenuecat
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.repositories.story_repository import StoryRepository
@@ -29,6 +29,7 @@ app.include_router(user.router, prefix=settings.api_prefix)
 app.include_router(parent_voice.router, prefix=settings.api_prefix)
 app.include_router(stories.router, prefix=settings.api_prefix)
 app.include_router(narration.router, prefix=settings.api_prefix)
+app.include_router(revenuecat.router, prefix=settings.api_prefix)
 
 
 def _public_story_payload(story: dict) -> dict:
