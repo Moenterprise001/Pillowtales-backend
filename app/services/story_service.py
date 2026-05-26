@@ -543,7 +543,14 @@ PAGE 1 STRUCTURE:
 - {page_length_rule}
 - 1-2 gentle paragraphs
 - {sentence_rule}
-- Clear emotional hook into the story
+- The first page MUST clearly set the scene:
+  - where {request.childName} is,
+  - what has happened,
+  - what gentle problem, mystery, wish, or task now needs to be fixed,
+  - and why it matters emotionally.
+- By the end of page 1, the child must understand what the story is about and what needs to happen next.
+- Avoid vague atmospheric openings where beautiful things happen but the story problem is still unclear.
+- Keep the setup magical, warm, bedtime-safe, and easy for a child to follow.
 
 COMPANION:
 - {blocks['companion_line']}
