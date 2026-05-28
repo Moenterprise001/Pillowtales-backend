@@ -72,8 +72,15 @@ async def revenuecat_webhook(
     webhook_secret = os.getenv("REVENUECAT_WEBHOOK_SECRET", "").strip()
 
     if webhook_secret:
-        expected = f"Bearer {webhook_secret}"
-        if authorization != expected:
+        raw_secret = webhook_secret.strip()
+        auth_value = (authorization or "").strip()
+
+        valid_authorization_values = {
+            raw_secret,
+            f"Bearer {raw_secret}",
+        }
+
+        if auth_value not in valid_authorization_values:
             raise HTTPException(status_code=401, detail="Invalid RevenueCat webhook secret")
 
     payload = await request.json()
