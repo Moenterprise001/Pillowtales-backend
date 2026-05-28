@@ -27,8 +27,14 @@ class SubscriptionService:
         is_tester = bool(normalized_email and normalized_email in PREMIUM_TESTER_EMAILS)
         parent_voice_bypass = bool(normalized_email and normalized_email in QA_PARENT_VOICE_BYPASS_EMAILS)
         profile = self.user_repo.get_profile(user_id) or {}
-        status_value = profile.get('subscription_status') or profile.get('plan') or 'free'
-        is_premium = is_tester or status_value == 'premium'
+        plan_value = (profile.get('plan') or '').strip().lower()
+	subscription_value = (profile.get('subscription_status') or '').strip().lower()
+
+	is_premium = (
+    	    is_tester
+    	    or plan_value == 'premium'
+   	    or subscription_value == 'premium'
+	  )
         week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
         narration_count = self.story_repo.count_narrations_since(user_id, week_ago)
         weekly_limit = None if is_premium else SUBSCRIPTION_TIERS['free']['weekly_narration_limit']
