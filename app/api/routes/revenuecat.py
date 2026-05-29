@@ -112,10 +112,11 @@ def _supabase_env() -> tuple[str, str]:
 
 
 async def _set_user_plan_premium(user_id: str) -> bool:
-    """Mirror RevenueCat premium subscription status into users_profile.plan.
+    """Mirror RevenueCat premium subscription status into users_profile.
 
-    The story-generation limit check still reads the legacy users_profile.plan
-    field, so subscription webhooks must update it after monthly/yearly purchases.
+    Story generation and settings have historically read more than one profile
+    field, so subscription webhooks must keep both fields aligned after
+    monthly/yearly purchases or restores.
     """
     supabase_url, service_key = _supabase_env()
 
@@ -130,8 +131,13 @@ async def _set_user_plan_premium(user_id: str) -> bool:
         "Prefer": "return=minimal",
     }
 
+    payload = {
+        "plan": "premium",
+        "subscription_status": "premium",
+    }
+
     async with httpx.AsyncClient(timeout=10.0) as client:
-        response = await client.patch(url, headers=headers, json={"plan": "premium"})
+        response = await client.patch(url, headers=headers, json=payload)
         response.raise_for_status()
 
     return True
