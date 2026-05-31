@@ -21,7 +21,7 @@ from app.utils.story_text import postprocess_story_pages
 OPENING_SEED_FAMILIES = [
     {
         "family": "sleepy_forest_path",
-        "en": "At the edge of the sleepy forest behind {childName}'s home, a small lantern began to glow beside a mossy path.",
+        "en": "{childName} lived near the edge of a sleepy forest, where a mossy path curled between soft ferns and quiet trees.",
         "es": "Al borde del bosque tranquilo detrás de la casa de {childName}, una pequeña linterna empezó a brillar junto a un sendero cubierto de musgo.",
         "fr": "À l’orée de la forêt endormie derrière la maison de {childName}, une petite lanterne se mit à briller près d’un sentier moussu.",
         "it": "Ai margini del bosco addormentato dietro casa di {childName}, una piccola lanterna cominciò a brillare accanto a un sentiero di muschio.",
@@ -29,7 +29,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "lantern_treehouse",
-        "en": "Inside a warm treehouse lit by tiny lanterns, {childName} found a little wooden sign pointing toward the stars.",
+        "en": "{childName} loved spending evenings inside a warm treehouse lit by tiny lanterns, where the wooden walls creaked softly in the breeze.",
         "es": "Dentro de una casita en un árbol iluminada por farolillos cálidos, {childName} encontró un pequeño cartel de madera que señalaba hacia las estrellas.",
         "fr": "Dans une cabane perchée toute chaude, éclairée par de petites lanternes, {childName} trouva un panneau de bois qui indiquait les étoiles.",
         "it": "Dentro una casetta sull’albero illuminata da piccole lanterne calde, {childName} trovò un cartello di legno che indicava le stelle.",
@@ -37,7 +37,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "hidden_garden_gate",
-        "en": "Beyond the quiet garden gate, {childName} stepped into a moonlit place where every flower seemed ready to whisper hello.",
+        "en": "{childName} loved helping in the little garden beside home, where every flower seemed to have its own secret.",
         "es": "Más allá de la verja tranquila del jardín, {childName} entró en un lugar iluminado por la luna donde cada flor parecía a punto de susurrar hola.",
         "fr": "Au-delà du petit portail du jardin, {childName} entra dans un lieu baigné de lune où chaque fleur semblait prête à murmurer bonsoir.",
         "it": "Oltre il cancelletto silenzioso del giardino, {childName} entrò in un luogo illuminato dalla luna dove ogni fiore sembrava pronto a salutare piano.",
@@ -45,7 +45,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "cloud_island",
-        "en": "On a soft island of clouds floating above the rooftops, {childName} noticed a silver bridge curling gently into the night.",
+        "en": "{childName} spent many evenings watching soft clouds drift above the rooftops, imagining little islands hidden in the sky.",
         "es": "En una suave isla de nubes sobre los tejados, {childName} vio un puente plateado que se curvaba despacio hacia la noche.",
         "fr": "Sur une douce île de nuages au-dessus des toits, {childName} aperçut un pont argenté qui s’arrondissait dans la nuit.",
         "it": "Su una morbida isola di nuvole sopra i tetti, {childName} vide un ponte d’argento che curvava piano nella notte.",
@@ -53,7 +53,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "moonlit_library",
-        "en": "In a quiet moonlit library where the books breathed softly, {childName} saw one storybook open by itself.",
+        "en": "{childName} loved listening to stories in a quiet moonlit library, where the books rested on warm wooden shelves like sleepy friends.",
         "es": "En una biblioteca tranquila iluminada por la luna, donde los libros parecían respirar despacito, {childName} vio que un cuento se abría solo.",
         "fr": "Dans une bibliothèque calme éclairée par la lune, où les livres semblaient respirer tout doucement, {childName} vit un album s’ouvrir tout seul.",
         "it": "In una biblioteca silenziosa illuminata dalla luna, dove i libri sembravano respirare piano, {childName} vide un libro aprirsi da solo.",
@@ -61,7 +61,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "seaside_cave",
-        "en": "Inside a cosy little cave beside the calm sea, {childName} heard the waves hum a bedtime tune.",
+        "en": "{childName} lived near a cosy little cave beside the calm sea, where the waves hummed softly against the shore each evening.",
         "es": "Dentro de una pequeña cueva acogedora junto al mar en calma, {childName} oyó cómo las olas tarareaban una nana.",
         "fr": "Dans une petite grotte douillette au bord de la mer calme, {childName} entendit les vagues fredonner une berceuse.",
         "it": "Dentro una piccola grotta accogliente vicino al mare calmo, {childName} sentì le onde canticchiare una ninna nanna.",
@@ -69,7 +69,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "sleepy_castle_hall",
-        "en": "Along a sleepy castle hallway lined with glowing pictures, {childName} found one golden door left slightly open.",
+        "en": "{childName} lived in a sleepy castle with long quiet hallways, where glowing pictures watched kindly from the walls.",
         "es": "Por un pasillo de castillo adormecido, lleno de cuadros brillantes, {childName} encontró una puerta dorada entreabierta.",
         "fr": "Dans un couloir de château endormi bordé de tableaux lumineux, {childName} trouva une porte dorée entrouverte.",
         "it": "Lungo un corridoio di castello addormentato, pieno di quadri luminosi, {childName} trovò una porta dorata socchiusa.",
@@ -77,7 +77,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "glowing_attic",
-        "en": "In the little attic above the stairs, {childName} discovered an old map glowing gently on the floorboards.",
+        "en": "{childName} often wondered what was hidden in the little attic above the stairs, where dusty boxes and old stories waited quietly.",
         "es": "En el pequeño desván sobre las escaleras, {childName} descubrió un mapa antiguo que brillaba suavemente sobre las tablas del suelo.",
         "fr": "Dans le petit grenier au-dessus de l’escalier, {childName} découvrit une vieille carte qui brillait doucement sur le plancher.",
         "it": "Nella piccola soffitta sopra le scale, {childName} scoprì una vecchia mappa che brillava piano sulle assi del pavimento.",
@@ -85,7 +85,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "snowy_village",
-        "en": "In a tiny snowy village tucked beneath the stars, {childName} saw warm windows blinking like friendly eyes.",
+        "en": "{childName} lived in a tiny snowy village tucked beneath the stars, where warm windows glowed on cosy winter evenings.",
         "es": "En una pequeña aldea nevada bajo las estrellas, {childName} vio ventanas cálidas que parpadeaban como ojos amables.",
         "fr": "Dans un minuscule village enneigé blotti sous les étoiles, {childName} vit des fenêtres chaudes cligner comme des yeux gentils.",
         "it": "In un piccolo villaggio innevato sotto le stelle, {childName} vide finestre calde lampeggiare come occhi gentili.",
@@ -93,7 +93,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "river_of_stars",
-        "en": "Beside a slow river that reflected every star, {childName} found a tiny paper boat waiting at the bank.",
+        "en": "{childName} lived beside a slow river that reflected every star, where the water moved as gently as a bedtime song.",
         "es": "Junto a un río lento que reflejaba todas las estrellas, {childName} encontró un barquito de papel esperando en la orilla.",
         "fr": "Au bord d’une rivière lente qui reflétait toutes les étoiles, {childName} trouva un petit bateau de papier qui attendait sur la rive.",
         "it": "Accanto a un fiume lento che rifletteva tutte le stelle, {childName} trovò una barchetta di carta in attesa sulla riva.",
@@ -101,7 +101,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "meadow_clock",
-        "en": "In a quiet meadow where the grass shone silver, {childName} noticed a tiny clock ticking inside a bluebell.",
+        "en": "{childName} loved walking through a quiet meadow where the grass shone silver and bluebells nodded softly in the evening breeze.",
         "es": "En un prado tranquilo donde la hierba brillaba plateada, {childName} vio un diminuto reloj haciendo tic-tac dentro de una campanilla azul.",
         "fr": "Dans une prairie calme où l’herbe brillait d’argent, {childName} remarqua une minuscule horloge qui tic-taquait dans une jacinthe des bois.",
         "it": "In un prato silenzioso dove l’erba brillava d’argento, {childName} notò un minuscolo orologio che ticchettava dentro una campanula blu.",
@@ -109,7 +109,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "pillow_harbour",
-        "en": "At a tiny harbour made of pillows and blankets, {childName} found a little moon boat bobbing beside the bed.",
+        "en": "{childName} built a tiny harbour from pillows and blankets, where pretend boats rested safely before bedtime.",
         "es": "En un pequeño puerto hecho de almohadas y mantas, {childName} encontró una barquita lunar balanceándose junto a la cama.",
         "fr": "Dans un petit port fait d’oreillers et de couvertures, {childName} trouva une barque de lune qui flottait près du lit.",
         "it": "In un piccolo porto fatto di cuscini e coperte, {childName} trovò una barchetta di luna che dondolava accanto al letto.",
@@ -117,7 +117,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "amazon_treehouse",
-        "en": "High in a rainforest treehouse wrapped in green leaves and warm lantern light, {childName} heard a golden butterfly tapping gently on the wooden rail.",
+        "en": "{childName} lived high in a rainforest treehouse wrapped in green leaves and warm lantern light, where colourful birds greeted each morning.",
         "es": "En lo alto de una casita en un árbol de la selva, rodeada de hojas verdes y farolillos cálidos, {childName} oyó a una mariposa dorada tocar suavemente la barandilla de madera.",
         "fr": "Très haut dans une cabane de forêt tropicale entourée de feuilles vertes et de petites lanternes, {childName} entendit un papillon doré tapoter doucement la rambarde de bois.",
         "it": "In alto, in una casa sull’albero nella foresta tropicale, tra foglie verdi e piccole lanterne calde, {childName} sentì una farfalla dorata bussare piano alla ringhiera di legno.",
@@ -125,7 +125,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "nile_river_boat",
-        "en": "On a quiet little boat drifting along a wide moonlit river, {childName} noticed ancient reeds bending as if they were pointing the way.",
+        "en": "{childName} travelled with family on a quiet little boat drifting along a wide moonlit river, where the water shimmered softly beneath the stars.",
         "es": "En una barquita tranquila que avanzaba por un río ancho iluminado por la luna, {childName} vio unos juncos antiguos inclinarse como si señalaran el camino.",
         "fr": "Sur une petite barque tranquille qui glissait sur un large fleuve éclairé par la lune, {childName} vit de grands roseaux anciens se pencher comme s’ils montraient le chemin.",
         "it": "Su una piccola barca tranquilla che scivolava lungo un grande fiume illuminato dalla luna, {childName} vide antiche canne piegarsi come per indicare la strada.",
@@ -133,7 +133,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "desert_caravan",
-        "en": "Beside a gentle desert caravan resting under violet stars, {childName} found a cool blue pebble humming softly in the sand.",
+        "en": "{childName} travelled with a gentle desert caravan that rested under violet stars, where the sand felt cool and quiet at night.",
         "es": "Junto a una tranquila caravana del desierto que descansaba bajo estrellas violetas, {childName} encontró una piedra azul y fresca que zumbaba suavemente en la arena.",
         "fr": "Près d’une douce caravane du désert arrêtée sous des étoiles violettes, {childName} trouva un galet bleu et frais qui bourdonnait doucement dans le sable.",
         "it": "Accanto a una tranquilla carovana del deserto ferma sotto stelle violette, {childName} trovò un sassolino blu e fresco che vibrava piano nella sabbia.",
@@ -141,7 +141,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "underwater_palace",
-        "en": "In a glowing underwater palace where silver fish swam through archways, {childName} saw a pearl door open without a sound.",
+        "en": "{childName} lived in a glowing underwater palace where silver fish swam through archways and gentle lights shimmered through the water each evening.",
         "es": "En un palacio submarino brillante, donde peces plateados pasaban bajo los arcos, {childName} vio abrirse una puerta de perla sin hacer ruido.",
         "fr": "Dans un palais sous-marin lumineux où des poissons argentés passaient sous les arches, {childName} vit une porte de nacre s’ouvrir sans bruit.",
         "it": "In un palazzo sottomarino luminoso, dove pesci d’argento nuotavano tra gli archi, {childName} vide una porta di perla aprirsi senza rumore.",
@@ -149,7 +149,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "pirate_harbour",
-        "en": "At a peaceful pirate harbour full of sleepy sails and lanterns, {childName} discovered a tiny compass spinning toward a secret island.",
+        "en": "{childName} lived in a peaceful pirate harbour where lanterns glowed on sleepy ships and sailors shared stories beneath the stars.",
         "es": "En un puerto pirata tranquilo, lleno de velas dormidas y faroles, {childName} descubrió una pequeña brújula que giraba hacia una isla secreta.",
         "fr": "Dans un port de pirates paisible, rempli de voiles endormies et de lanternes, {childName} découvrit une petite boussole qui tournait vers une île secrète.",
         "it": "In un porto di pirati tranquillo, pieno di vele addormentate e lanterne, {childName} scoprì una piccola bussola che girava verso un’isola segreta.",
@@ -157,7 +157,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "dragon_market",
-        "en": "In a cosy mountain market where gentle dragons warmed cups of cocoa with tiny puffs, {childName} noticed one stall glowing brighter than the rest.",
+        "en": "{childName} spent happy days in a cosy mountain market where gentle dragons warmed cups of cocoa and everyone knew one another by name.",
         "es": "En un mercado acogedor de montaña, donde unos dragones tranquilos calentaban tazas de cacao con pequeños soplidos, {childName} vio un puesto que brillaba más que los demás.",
         "fr": "Dans un marché douillet de montagne où de doux dragons réchauffaient des tasses de chocolat avec de petits souffles, {childName} remarqua une échoppe plus lumineuse que les autres.",
         "it": "In un accogliente mercato di montagna, dove draghi gentili scaldavano tazze di cacao con piccoli sbuffi, {childName} notò una bancarella più luminosa delle altre.",
@@ -165,7 +165,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "crystal_cavern",
-        "en": "Deep inside a quiet crystal cavern, {childName} heard the walls chiming softly as a trail of blue sparks appeared on the floor.",
+        "en": "{childName} lived near a quiet crystal cavern, where the walls chimed softly whenever moonlight touched the stone.",
         "es": "En lo más profundo de una cueva tranquila de cristal, {childName} oyó cómo las paredes tintineaban suavemente mientras un camino de chispas azules aparecía en el suelo.",
         "fr": "Au fond d’une grotte de cristal silencieuse, {childName} entendit les parois tinter doucement tandis qu’un chemin d’étincelles bleues apparaissait au sol.",
         "it": "Nel profondo di una silenziosa caverna di cristallo, {childName} sentì le pareti tintinnare piano mentre una scia di scintille blu appariva sul pavimento.",
@@ -173,7 +173,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "northern_lights_village",
-        "en": "In a tiny village beneath the northern lights, {childName} saw ribbons of colour curl down from the sky and point to a snowy path.",
+        "en": "{childName} lived in a tiny village beneath the northern lights, where ribbons of colour danced gently across the sky.",
         "es": "En una pequeña aldea bajo la aurora boreal, {childName} vio cintas de colores bajar del cielo y señalar un sendero nevado.",
         "fr": "Dans un petit village sous les aurores boréales, {childName} vit des rubans de couleur descendre du ciel et montrer un sentier enneigé.",
         "it": "In un piccolo villaggio sotto l’aurora boreale, {childName} vide nastri di colore scendere dal cielo e indicare un sentiero innevato.",
@@ -181,7 +181,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "sky_train_station",
-        "en": "At a little sky-train station floating between soft clouds, {childName} found a golden ticket with tomorrow's sunrise painted on it.",
+        "en": "{childName} lived near a little sky-train station floating between soft clouds, where gentle bells rang when the stars came out.",
         "es": "En una pequeña estación de trenes del cielo, flotando entre nubes suaves, {childName} encontró un billete dorado con el amanecer de mañana pintado encima.",
         "fr": "Dans une petite gare du ciel flottant entre de doux nuages, {childName} trouva un billet doré où était peint le lever du soleil du lendemain.",
         "it": "In una piccola stazione dei treni del cielo, sospesa tra nuvole morbide, {childName} trovò un biglietto dorato con dipinta l’alba del giorno dopo.",
@@ -189,7 +189,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "jungle_waterfall",
-        "en": "Beside a gentle jungle waterfall sparkling in moonlight, {childName} spotted a round stone door hidden behind silver leaves.",
+        "en": "{childName} lived beside a gentle jungle waterfall where colourful birds greeted each morning and silver leaves danced in the moonlight.",
         "es": "Junto a una cascada tranquila de la selva que brillaba a la luz de la luna, {childName} descubrió una puerta redonda de piedra escondida detrás de hojas plateadas.",
         "fr": "Près d’une douce cascade de jungle qui brillait au clair de lune, {childName} aperçut une porte ronde en pierre cachée derrière des feuilles argentées.",
         "it": "Accanto a una tranquilla cascata nella giungla che brillava alla luce della luna, {childName} vide una porta rotonda di pietra nascosta dietro foglie d’argento.",
@@ -197,7 +197,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "hidden_dinosaur_valley",
-        "en": "In a hidden valley where gentle dinosaurs slept among giant ferns, {childName} saw one enormous footprint filled with glowing rainwater.",
+        "en": "{childName} lived near a hidden valley where gentle dinosaurs slept among giant ferns and warm rain sparkled on broad green leaves.",
         "es": "En un valle escondido, donde dinosaurios tranquilos dormían entre helechos gigantes, {childName} vio una huella enorme llena de agua de lluvia brillante.",
         "fr": "Dans une vallée cachée où de doux dinosaures dormaient parmi des fougères géantes, {childName} vit une immense empreinte remplie d’eau de pluie lumineuse.",
         "it": "In una valle nascosta, dove dinosauri gentili dormivano tra felci giganti, {childName} vide un’enorme impronta piena di acqua piovana luminosa.",
@@ -205,7 +205,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "ancient_observatory",
-        "en": "At the top of an ancient hilltop observatory, {childName} watched a sleepy telescope turn by itself toward one unusually bright star.",
+        "en": "{childName} lived near an ancient hilltop observatory, where a sleepy telescope watched the stars from a round stone tower.",
         "es": "En lo alto de un antiguo observatorio sobre una colina, {childName} vio cómo un telescopio adormecido se giraba solo hacia una estrella especialmente brillante.",
         "fr": "Au sommet d’un ancien observatoire perché sur une colline, {childName} vit un télescope endormi se tourner tout seul vers une étoile très brillante.",
         "it": "In cima a un antico osservatorio su una collina, {childName} vide un telescopio assonnato girarsi da solo verso una stella insolitamente luminosa.",
@@ -213,7 +213,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "whale_island",
-        "en": "On a tiny island shaped like a sleeping whale, {childName} found seashells arranged in an arrow pointing toward the quiet lagoon.",
+        "en": "{childName} lived on a tiny island shaped like a sleeping whale, where seashells lined the paths to a quiet lagoon.",
         "es": "En una pequeña isla con forma de ballena dormida, {childName} encontró conchas colocadas como una flecha que señalaba una laguna tranquila.",
         "fr": "Sur une petite île en forme de baleine endormie, {childName} trouva des coquillages disposés en flèche vers le lagon calme.",
         "it": "Su una piccola isola a forma di balena addormentata, {childName} trovò conchiglie disposte come una freccia verso la laguna tranquilla.",
@@ -221,7 +221,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "floating_cloud_city",
-        "en": "In a quiet city floating above the clouds, {childName} saw tiny windows blinking awake as a soft bell rang across the sky.",
+        "en": "{childName} lived in a quiet city floating above the clouds, where sky-ships drifted gently between shining towers.",
         "es": "En una ciudad tranquila que flotaba sobre las nubes, {childName} vio pequeñas ventanas encenderse como si despertaran mientras una campana suave sonaba por el cielo.",
         "fr": "Dans une ville calme flottant au-dessus des nuages, {childName} vit de petites fenêtres s’allumer comme si elles se réveillaient, tandis qu’une cloche douce sonnait dans le ciel.",
         "it": "In una città tranquilla che galleggiava sopra le nuvole, {childName} vide piccole finestre accendersi come se si svegliassero, mentre una campana dolce suonava nel cielo.",
@@ -229,7 +229,7 @@ OPENING_SEED_FAMILIES = [
     },
     {
         "family": "enchanted_hot_air_balloon",
-        "en": "In a striped hot-air balloon resting in a meadow of sleepy flowers, {childName} found the basket gently tugging toward the moon.",
+        "en": "{childName} loved visiting a striped hot-air balloon that rested in a meadow of sleepy flowers, where the basket swayed gently in the breeze.",
         "es": "En un globo aerostático de rayas, posado en un prado de flores adormecidas, {childName} notó que la cesta tiraba suavemente hacia la luna.",
         "fr": "Dans une montgolfière rayée posée dans une prairie de fleurs endormies, {childName} sentit la nacelle tirer doucement vers la lune.",
         "it": "In una mongolfiera a righe appoggiata in un prato di fiori addormentati, {childName} sentì il cesto tirare piano verso la luna.",
@@ -696,6 +696,7 @@ PAGE 1 STRUCTURE:
 - By the end of page 1, introduce a clear story promise.
 - The child should understand what they are trying to achieve, discover, solve, help, find, or learn during the adventure.
 - Avoid openings that jump straight to a magical object, door, clue, or event before explaining who {request.childName} is and why they are there.
+- Do not add clothing or appearance details unless the parent provided them.
 - Keep the setup magical, warm, bedtime-safe, and easy for a child to follow.
 
 COMPANION:
@@ -765,7 +766,7 @@ Return ONLY valid JSON:
                 "title": f"{child} and the Lost Star",
                 "page": (
                     f"Once upon a time, {child} lived in a tiny snowy village tucked beneath a sky full of stars. "
-                    "Every evening, {child} helped light the warm windows and watched the snow sparkle softly on the rooftops. "
+                    f"Every evening, {child} helped light the warm windows and watched the snow sparkle softly on the rooftops. "
                     f"{child} liked to imagine that every star had a little home somewhere high above the clouds. "
                     "One night, beside the frozen pond, a small trembling star appeared as if it had lost its way. "
                     f"{child} knew they would need to help the star find its way home before morning."
