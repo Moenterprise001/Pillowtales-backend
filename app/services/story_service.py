@@ -722,48 +722,53 @@ Return ONLY valid JSON:
 
         fallback_by_lang = {
             "es": {
-                "title": f"El brillo tranquilo de {child}",
+                "title": f"La estrella perdida de {child}",
                 "page": (
-                    f"Bajo una luna plateada y suave, {child} se acurrucó en la cama cuando un pequeño brillo mágico apareció junto a la ventana. "
-                    "La luz se movía despacio, como si trajera una pizca de magia desde la noche. "
-                    f"{child} levantó la manta con cuidado y sonrió al ver pequeños destellos por la habitación. "
-                    "Todo estaba en calma, y aquel brillo suave invitaba a comenzar un cuento lleno de ternura, valor y buenos sueños."
+                    f"Érase una vez, {child} vivía en una pequeña aldea nevada bajo un cielo lleno de estrellas. "
+                    "Cada tarde, ayudaba a encender las luces cálidas de las ventanas y miraba cómo la nieve brillaba suavemente en los tejados. "
+                    f"A {child} le encantaba imaginar que cada estrella tenía una casa en el cielo. "
+                    "Una noche, junto al estanque helado, apareció una estrella pequeña y temblorosa que parecía haberse perdido. "
+                    f"{child} comprendió que debía ayudarla a encontrar el camino de vuelta antes de que llegara la mañana."
                 ),
             },
             "it": {
-                "title": f"Il dolce luccichio di {child}",
+                "title": f"La stella smarrita di {child}",
                 "page": (
-                    f"Sotto una luna d'argento morbida e silenziosa, {child} si rannicchiò nel letto quando un piccolo bagliore magico brillò vicino alla finestra. "
-                    "La luce si muoveva piano, come se portasse un gentile segreto della notte. "
-                    f"{child} sollevò la coperta con curiosità e vide minuscole stelle danzare nell'aria. "
-                    "Tutto era calmo, caldo e sicuro, e quel luccichio sembrava invitare a un racconto pieno di meraviglia, gentilezza e sogni sereni."
+                    f"C'era una volta {child}, che viveva in un piccolo villaggio innevato sotto un cielo pieno di stelle. "
+                    "Ogni sera aiutava ad accendere le luci calde alle finestre e guardava la neve brillare piano sui tetti. "
+                    f"A {child} piaceva immaginare che ogni stella avesse una casa nel cielo. "
+                    "Una notte, vicino allo stagno ghiacciato, apparve una stellina tremante che sembrava essersi smarrita. "
+                    f"{child} capì che doveva aiutarla a ritrovare la strada prima del mattino."
                 ),
             },
             "fr": {
-                "title": f"La douce lueur de {child}",
+                "title": f"L'étoile perdue de {child}",
                 "page": (
-                    f"Sous une lune argentée et douce, {child} se blottit dans son lit lorsqu'une petite lueur magique scintilla près de la fenêtre. "
-                    "La lumière avançait lentement, comme si elle portait un secret tendre de la nuit. "
-                    f"{child} souleva la couverture avec curiosité et vit de minuscules étoiles flotter dans la chambre. "
-                    "Tout était calme, chaud et rassurant, et cette lueur semblait inviter à une histoire pleine de douceur, de courage et de beaux rêves."
+                    f"Il était une fois {child}, qui vivait dans un petit village enneigé sous un ciel rempli d'étoiles. "
+                    "Chaque soir, l'enfant aidait à allumer les lumières chaudes des fenêtres et regardait la neige briller doucement sur les toits. "
+                    f"{child} aimait imaginer que chaque étoile avait une maison dans le ciel. "
+                    "Une nuit, près de l'étang gelé, une petite étoile tremblante apparut comme si elle s'était perdue. "
+                    f"{child} comprit qu'il fallait l'aider à retrouver son chemin avant le matin."
                 ),
             },
             "de": {
-                "title": f"Das sanfte Leuchten von {child}",
+                "title": f"{child} und der verlorene Stern",
                 "page": (
-                    f"Unter einem weichen silbernen Mond kuschelte sich {child} ins Bett, als ein kleines magisches Licht am Fenster funkelte. "
-                    "Es schwebte ganz langsam durch das Zimmer, als trüge es ein freundliches Geheimnis der Nacht bei sich. "
-                    f"{child} zog die Decke ein wenig höher und lächelte, während winzige Sterne leise in der Luft glitzerten. "
-                    "Alles fühlte sich ruhig, warm und sicher an, und das Licht lud zu einer sanften Geschichte voller Wunder, Mut und schöner Träume ein."
+                    f"Es war einmal {child}, der in einem kleinen verschneiten Dorf unter einem Himmel voller Sterne lebte. "
+                    "Jeden Abend half {child}, die warmen Lichter in den Fenstern anzuzünden, und sah zu, wie der Schnee leise auf den Dächern glitzerte. "
+                    f"{child} stellte sich gern vor, dass jeder Stern ein Zuhause am Himmel hatte. "
+                    "Eines Nachts erschien am gefrorenen Teich ein kleiner zitternder Stern, der sich verirrt zu haben schien. "
+                    f"{child} wusste, dass er dem Stern helfen musste, vor dem Morgen seinen Weg zurückzufinden."
                 ),
             },
             "en": {
-                "title": f"{child}'s Gentle Glow",
+                "title": f"{child} and the Lost Star",
                 "page": (
-                    f"Under a soft silver moon, {child} snuggled into bed when something tiny and magical flickered near the window. "
-                    "The little light drifted slowly through the room, as if it carried a kind secret from the night. "
-                    f"{child} pulled the blanket close and smiled as tiny stars shimmered in the quiet air. "
-                    "Everything felt calm, warm, and safe, and the gentle glow seemed to invite a story filled with wonder, kindness, and peaceful dreams."
+                    f"Once upon a time, {child} lived in a tiny snowy village tucked beneath a sky full of stars. "
+                    "Every evening, {child} helped light the warm windows and watched the snow sparkle softly on the rooftops. "
+                    f"{child} liked to imagine that every star had a little home somewhere high above the clouds. "
+                    "One night, beside the frozen pond, a small trembling star appeared as if it had lost its way. "
+                    f"{child} knew they would need to help the star find its way home before morning."
                 ),
             },
         }
