@@ -668,13 +668,28 @@ PAGE 1 STRUCTURE:
 - {page_length_rule}
 - 1-2 gentle paragraphs
 - {sentence_rule}
-- The first page MUST clearly set the scene:
-  - where {request.childName} is,
-  - what has happened,
-  - what gentle problem, mystery, wish, or task now needs to be fixed,
-  - and why it matters emotionally.
-- By the end of page 1, the child must understand what the story is about and what needs to happen next.
-- Avoid vague atmospheric openings where beautiful things happen but the story problem is still unclear.
+- The first page MUST begin like a classic children's story.
+- First establish:
+  - who {request.childName} is in this story world,
+  - where they live or where they begin the story,
+  - and one or two simple details about their normal world.
+- Only then introduce:
+  - the magical discovery,
+  - mystery,
+  - wish,
+  - challenge,
+  - or gentle adventure.
+- Think:
+  "Once upon a time there lived..."
+  before
+  "And then something happened..."
+- The reader should understand why {request.childName} is in this setting before the adventure begins.
+- By the end of page 1, the child must understand:
+  - who the main character is,
+  - where they are,
+  - what has changed,
+  - and what needs to happen next.
+- Avoid openings that jump straight to a magical object, door, clue, or event before explaining who {request.childName} is and why they are there.
 - Keep the setup magical, warm, bedtime-safe, and easy for a child to follow.
 
 COMPANION:
