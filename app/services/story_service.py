@@ -677,15 +677,15 @@ PAGE 1 STRUCTURE:
   - who {request.childName} is in this story world,
   - where they live or where they begin the story,
   - and one or two simple details about their normal world.
-- When introducing the main character for the first time, use a simple role or identity before their name where it sounds natural.
-  Examples:
-  - a little girl named {request.childName}
-  - a young explorer called {request.childName}
-  - a kind princess named {request.childName}
-  - a brave little sailor called {request.childName}
-  - a curious child named {request.childName}
-- Avoid introducing the character by name alone if a natural role can be established first.
-- Do not force the role to match the parent profile exactly if the story world suggests a better bedtime-safe identity.
+- If the opening sentence has already introduced {request.childName} naturally, do not introduce them again.
+- Do not repeat the child's name as a second introduction immediately after the opening sentence.
+- Expand naturally from the opening sentence by describing:
+  - who the child is in this story world,
+  - what their normal life is like,
+  - and why this setting matters.
+- If a role or identity fits naturally, weave it into the existing setup rather than starting a new introduction.
+  Good example: "{request.childName}, a curious young explorer, loved searching the shore for treasures."
+  Avoid: "{request.childName} lived on the island. A curious young explorer named {request.childName}..."
 - Only then introduce:
   - the magical discovery,
   - mystery,
