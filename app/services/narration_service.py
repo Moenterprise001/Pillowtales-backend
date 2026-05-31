@@ -81,7 +81,7 @@ def add_soft_chunk_leadin(text: str) -> str:
     if cleaned.startswith((".", "…", ",", ";", ":", "?", "!")):
         return cleaned
 
-    return f". {cleaned}"
+    return f", {cleaned}"
 
 
 def _replace_phrases(text: str, replacements: dict[str, str]) -> str:
@@ -619,7 +619,7 @@ class NarrationService:
         	"Pronounce the letters 'z' and soft 'c' (before e or i) with the traditional Castilian Spain pronunciation. "
         	"Use natural Spain-Spanish rhythm, intonation, vocabulary, and bedtime pacing. "
         	"Keep the delivery warm, soft, intimate, sleepy, and emotionally comforting, with gentle natural pauses. "
-        	"Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. "
+        	"Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
         	"Avoid sounding theatrical, commercial, robotic, cartoon-like, overly bright, or exaggerated. "
         	"Speak slowly enough for a young child at bedtime, with tenderness, reassurance, and a peaceful storytelling tone."
             )
@@ -628,7 +628,7 @@ class NarrationService:
             return (
                 "Read as a warm French parent telling a bedtime story to a young child. "
                 "Use soft, natural French intonation with gentle breathing pauses and a calm sleepy rhythm. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
                 "Avoid robotic, formal, academic, theatrical, or announcement-style delivery. "
                 "Keep the voice tender, reassuring, emotionally warm, and suitable for falling asleep."
             )
@@ -637,7 +637,7 @@ class NarrationService:
             return (
                 "Read as a warm German parent telling a bedtime story to a young child. "
                 "Use soft natural German intonation, gentle pauses, and a slow comforting bedtime rhythm. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
                 "Avoid stiff, robotic, formal, theatrical, or audiobook-announcer delivery. "
                 "Keep the voice calm, tender, reassuring, and sleepy."
             )
@@ -646,7 +646,7 @@ class NarrationService:
             return (
                 "Read as a warm Italian parent telling a bedtime story to a young child. "
                 "Use soft natural Italian intonation, gentle musical rhythm, and calm bedtime pacing. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
                 "Avoid robotic, theatrical, overly energetic, or announcement-style delivery. "
                 "Keep the voice tender, reassuring, dreamy, and suitable for sleep."
             )
@@ -654,7 +654,7 @@ class NarrationService:
         return (
             "Read as a calm, warm bedtime storyteller for a young child, with the gentle reassurance of a loving grandparent. "
             "Use soft, sleepy pacing, natural breathing pauses, and tender sentence endings. "
-            "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. "
+            "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
             "Keep the delivery comforting, intimate, unhurried, and emotionally safe, as if helping a child settle peacefully for sleep. "
             "Avoid robotic, theatrical, commercial, audiobook-announcer, cartoon-granny, or overly energetic delivery."
         )
