@@ -677,6 +677,15 @@ PAGE 1 STRUCTURE:
   - who {request.childName} is in this story world,
   - where they live or where they begin the story,
   - and one or two simple details about their normal world.
+- When introducing the main character for the first time, use a simple role or identity before their name where it sounds natural.
+  Examples:
+  - a little girl named {request.childName}
+  - a young explorer called {request.childName}
+  - a kind princess named {request.childName}
+  - a brave little sailor called {request.childName}
+  - a curious child named {request.childName}
+- Avoid introducing the character by name alone if a natural role can be established first.
+- Do not force the role to match the parent profile exactly if the story world suggests a better bedtime-safe identity.
 - Only then introduce:
   - the magical discovery,
   - mystery,
@@ -765,7 +774,7 @@ Return ONLY valid JSON:
             "en": {
                 "title": f"{child} and the Lost Star",
                 "page": (
-                    f"Once upon a time, {child} lived in a tiny snowy village tucked beneath a sky full of stars. "
+                    f"Once upon a time, there lived a curious child named {child} in a tiny snowy village tucked beneath a sky full of stars. "
                     f"Every evening, {child} helped light the warm windows and watched the snow sparkle softly on the rooftops. "
                     f"{child} liked to imagine that every star had a little home somewhere high above the clouds. "
                     "One night, beside the frozen pond, a small trembling star appeared as if it had lost its way. "
