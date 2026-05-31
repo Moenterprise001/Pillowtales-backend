@@ -64,8 +64,8 @@ def add_soft_chunk_leadin(text: str) -> str:
 
     A leading ellipsis softened page starts but could slow first-page TTS.
     No prefix was faster, but allowed occasional hard first-phoneme mouth/gulp
-    artefacts. A single period is a lighter TTS reset: it gives the model a
-    clean start cue without the long emotional pause of an ellipsis.
+    artefacts. A single comma is a light continuation cue: it nudges the TTS model
+    to flow into later pages rather than treating each chunk as a fresh start.
 
     This is TTS-input polish only: it must not affect narration ownership,
     chunking, page-status polling, playback, sync, Parent Voice replay, or
@@ -613,15 +613,16 @@ class NarrationService:
         lang = str(preset.get("language_code") or "en").strip().lower()[:2]
 
         if lang == "es":
-   	   return (
-        	"Read as a calm parent from Madrid, Spain telling a bedtime story in Castilian Spanish. "
-        	"Use a clearly peninsular Spanish accent from Spain, never a Latin American or neutral-dub accent. "
-        	"Pronounce the letters 'z' and soft 'c' (before e or i) with the traditional Castilian Spain pronunciation. "
-        	"Use natural Spain-Spanish rhythm, intonation, vocabulary, and bedtime pacing. "
-        	"Keep the delivery warm, soft, intimate, sleepy, and emotionally comforting, with gentle natural pauses. "
-        	"Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
-        	"Avoid sounding theatrical, commercial, robotic, cartoon-like, overly bright, or exaggerated. "
-        	"Speak slowly enough for a young child at bedtime, with tenderness, reassurance, and a peaceful storytelling tone."
+            return (
+                "Read as a calm parent from Madrid, Spain telling a bedtime story in Castilian Spanish. "
+                "Use a clearly peninsular Spanish accent from Spain, never a Latin American or neutral-dub accent. "
+                "Pronounce the letters 'z' and soft 'c' before e or i with the traditional Castilian Spain pronunciation. "
+                "Use natural Spain-Spanish rhythm, intonation, vocabulary, and bedtime pacing. "
+                "Keep the delivery warm, soft, intimate, sleepy, and emotionally comforting, with gentle natural pauses. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. "
+                "When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
+                "Avoid sounding theatrical, commercial, robotic, cartoon-like, overly bright, or exaggerated. "
+                "Speak slowly enough for a young child at bedtime, with tenderness, reassurance, and a peaceful storytelling tone."
             )
 
         if lang == "fr":
