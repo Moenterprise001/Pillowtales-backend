@@ -360,7 +360,11 @@ class StoryService:
 - Use a wide variety of bedtime-safe locations when appropriate: rainforests, river boats, deserts, castles, islands, mountains, oceans, cloud cities, ancient observatories, magical markets, treehouses, hidden valleys, peaceful pirate harbours, underwater palaces, and faraway lands.
 - Make the setting important to the story, not merely background scenery. The place should shape what the child notices, chooses, and gently solves.
 - The first page should quickly establish a clear world, a gentle objective, and an emotionally meaningful reason for the child to care about what happens next.
+- Do not invent unnecessary physical descriptions of the child such as hair colour, eye colour, skin colour, height, clothing, or appearance unless explicitly provided.
+- Focus on the child's role, personality, choices, actions, and connection to the setting instead.
 - Let the child make choices, notice details, and grow through the story; do not simply describe events happening around them.
+- Avoid repeatedly relying on magical objects as the main story trigger.
+- Sometimes begin with a problem, visitor, animal, mystery, missing item, wish, celebration, question, or natural event instead.
 - Include sensory storybook details: soft light, gentle sounds, cozy textures, moonlight, stars, nature, kindness, friendship, courage, patience, or wonder where appropriate.
 - Every page should have a clear story purpose: discovery, decision, challenge, help, transformation, reflection, or peaceful closure.
 - Avoid flat summaries. Write immersive scenes that feel read-aloud, memorable, and emotionally rewarding.
@@ -689,6 +693,8 @@ PAGE 1 STRUCTURE:
   - where they are,
   - what has changed,
   - and what needs to happen next.
+- By the end of page 1, introduce a clear story promise.
+- The child should understand what they are trying to achieve, discover, solve, help, find, or learn during the adventure.
 - Avoid openings that jump straight to a magical object, door, clue, or event before explaining who {request.childName} is and why they are there.
 - Keep the setup magical, warm, bedtime-safe, and easy for a child to follow.
 
