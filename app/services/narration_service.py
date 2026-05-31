@@ -613,13 +613,15 @@ class NarrationService:
         lang = str(preset.get("language_code") or "en").strip().lower()[:2]
 
         if lang == "es":
-            return (
-                "Read as a calm parent from Spain telling a bedtime story in Castilian Spanish. "
-                "Use a clearly peninsular Spain accent and rhythm, not Latin American or neutral-dub Spanish. "
-                "Keep the delivery warm, soft, intimate, and sleepy, with gentle natural pauses. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. "
-                "Avoid sounding theatrical, commercial, robotic, cartoon-like, or overly bright. "
-                "Speak slowly enough for a young child at bedtime, with tender reassurance and a peaceful tone."
+   	   return (
+        	"Read as a calm parent from Madrid, Spain telling a bedtime story in Castilian Spanish. "
+        	"Use a clearly peninsular Spanish accent from Spain, never a Latin American or neutral-dub accent. "
+        	"Pronounce the letters 'z' and soft 'c' (before e or i) with the traditional Castilian Spain pronunciation. "
+        	"Use natural Spain-Spanish rhythm, intonation, vocabulary, and bedtime pacing. "
+        	"Keep the delivery warm, soft, intimate, sleepy, and emotionally comforting, with gentle natural pauses. "
+        	"Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. "
+        	"Avoid sounding theatrical, commercial, robotic, cartoon-like, overly bright, or exaggerated. "
+        	"Speak slowly enough for a young child at bedtime, with tenderness, reassurance, and a peaceful storytelling tone."
             )
 
         if lang == "fr":
