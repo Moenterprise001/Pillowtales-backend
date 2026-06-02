@@ -624,11 +624,11 @@ OUTPUT QUALITY RULES:
         is_english = language_code == "en"
 
         if is_english:
-            page_length_rule = "110-140 words total, including the opening sentence"
-            sentence_rule = "4-6 calm, read-aloud sentences"
+            page_length_rule = "450-525 characters total, including spaces and the opening sentence. Do not exceed 525 characters. If extra description is needed, move it to page 2."
+            sentence_rule = "3-5 calm, read-aloud sentences"
             instruction_block = f"""- Continue naturally from the opening above
 - Keep the tone warm, magical, calm, and bedtime-safe
-- Use soft sensory details (light, stars, quiet, comfort)
+- Use one or two soft sensory details only; save richer description for page 2
 - Let {request.childName} notice or choose something meaningful
 - Do NOT introduce danger, fear, or fast pacing
 - Do NOT resolve the story yet"""
@@ -637,7 +637,7 @@ OUTPUT QUALITY RULES:
             # language-only output while generating valid JSON. Keep the same
             # bedtime shape, but reduce output length and instruction load so
             # page 1 is ready faster. The full 7-page story remains unchanged.
-            page_length_rule = "85-115 words total, including the opening sentence"
+            page_length_rule = "425-500 characters total, including spaces and the opening sentence. Do not exceed 500 characters. If extra description is needed, move it to page 2."
             sentence_rule = "3-5 calm, read-aloud sentences"
             instruction_block = f"""- Continue naturally from the opening above
 - Keep the tone warm, magical, calm, and bedtime-safe
@@ -670,6 +670,7 @@ INSTRUCTIONS:
 
 PAGE 1 STRUCTURE:
 - {page_length_rule}
+- This length limit is important because page 1 starts narration. Keep page 1 short, clear, and complete; move extra world-building to page 2.
 - 1-2 gentle paragraphs
 - {sentence_rule}
 - The first page MUST begin like a classic children's story.
@@ -897,6 +898,8 @@ OUTPUT QUALITY RULES:
                     "using fast fallback page 1"
                 )
                 fallback = self._build_first_page_fallback(request, companion)
+                fallback_page = (fallback.get('pages') or [''])[0]
+                print(f"[PERF] first_page_size fallback words={len(fallback_page.split())} chars={len(fallback_page)}")
                 print(f"[PERF] generate_story_first_page DONE fallback total={time.time() - start_total:.2f}s")
                 print("[PERF] ========================================")
                 return fallback
@@ -916,6 +919,9 @@ OUTPUT QUALITY RULES:
             if not pages:
                 raise ValueError('First-page story returned no pages')
 
+            page_one_words = len(pages[0].split())
+            page_one_chars = len(pages[0])
+            print(f"[PERF] first_page_size words={page_one_words} chars={page_one_chars}")
             print(f"[PERF] first_page_ready_for_response pages=1 expected_pages={expected_pages}")
             print(f"[PERF] generate_story_first_page DONE total={time.time() - start_total:.2f}s")
             print("[PERF] ========================================")
