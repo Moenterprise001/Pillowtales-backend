@@ -611,14 +611,15 @@ class NarrationService:
 
         if lang == "es":
             return (
-                "Read as a calm parent from Madrid, Spain telling a bedtime story in Castilian Spanish. "
+                "Read as the same calm parent from Madrid, Spain telling one continuous bedtime story in Castilian Spanish. "
                 "Use a clearly peninsular Spanish accent from Spain, never a Latin American or neutral-dub accent. "
                 "Pronounce the letters 'z' and soft 'c' before e or i with the traditional Castilian Spain pronunciation. "
                 "Use natural Spain-Spanish rhythm, intonation, vocabulary, and bedtime pacing. "
-                "Keep the delivery warm, soft, intimate, and sleepy, with gentle natural pauses. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
-                "Avoid sounding theatrical, commercial, robotic, cartoon-like, or overly bright. "
-                "Speak slowly enough for a young child at bedtime, with tender reassurance and a peaceful tone."
+                "Keep the delivery warm, soft, intimate, sleepy, and consistent, with gentle natural pauses. "
+                "Treat every page as a continuation of the exact same recording session. Narrator identity, age, accent, speed, energy level, emotional tone, warmth, and pacing must remain identical across all pages. Consistency is more important than expressive variation. Never reinterpret the narrator between pages, and never make later pages sound slower, older, more serious, more distant, or like a different speaker. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Keep expressive variation subtle and controlled, without changing the narrator identity or slowing the page. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments gentle warmth while keeping quiet moments soft and comforting. Vary sentence endings naturally, but keep the same narrator pace and voice character throughout the whole page. "
+                "Avoid sounding theatrical, commercial, robotic, cartoon-like, overly bright, or newly re-cast between pages. "
+                "Speak slowly enough for a young child at bedtime, with tender reassurance and a peaceful tone, but do not slow down later pages or later paragraphs compared with earlier pages."
             )
 
         if lang == "fr":
