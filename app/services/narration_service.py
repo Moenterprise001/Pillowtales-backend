@@ -60,12 +60,12 @@ def prepare_narration_text(text: str) -> str:
 
 
 def add_soft_chunk_leadin(text: str) -> str:
-    """Add a tiny fast start-buffer for standard OpenAI TTS chunks.
+    """Normalize later page starts without adding spoken punctuation.
 
-    A leading ellipsis softened page starts but could slow first-page TTS.
-    No prefix was faster, but allowed occasional hard first-phoneme mouth/gulp
-    artefacts. A single comma is a light continuation cue: it nudges the TTS model
-    to flow into later pages rather than treating each chunk as a fresh start.
+    Older builds prefixed pages 2+ with punctuation to soften hard starts. That
+    removed some hard attacks but could create an audible gulp/breath in
+    Spanish and French. We now keep the spoken text clean and rely on the TTS
+    performance instructions to maintain seamless page-to-page continuity.
 
     This is TTS-input polish only: it must not affect narration ownership,
     chunking, page-status polling, playback, sync, Parent Voice replay, or
@@ -76,9 +76,6 @@ def add_soft_chunk_leadin(text: str) -> str:
 
     cleaned = text.strip()
     if not cleaned:
-        return cleaned
-
-    if cleaned.startswith((".", "…", ",", ";", ":", "?", "!")):
         return cleaned
 
     return cleaned
@@ -619,7 +616,7 @@ class NarrationService:
                 "Pronounce the letters 'z' and soft 'c' before e or i with the traditional Castilian Spain pronunciation. "
                 "Use natural Spain-Spanish rhythm, intonation, vocabulary, and bedtime pacing. "
                 "Keep the delivery warm, soft, intimate, and sleepy, with gentle natural pauses. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
                 "Avoid sounding theatrical, commercial, robotic, cartoon-like, or overly bright. "
                 "Speak slowly enough for a young child at bedtime, with tender reassurance and a peaceful tone."
             )
@@ -628,7 +625,7 @@ class NarrationService:
             return (
                 "Read as a warm French parent telling a bedtime story to a young child. "
                 "Use soft, natural French intonation with gentle breathing pauses and a calm sleepy rhythm. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
                 "Avoid robotic, formal, academic, theatrical, or announcement-style delivery. "
                 "Keep the voice tender, reassuring, emotionally warm, and suitable for falling asleep."
             )
@@ -637,7 +634,7 @@ class NarrationService:
             return (
                 "Read as a warm German parent telling a bedtime story to a young child. "
                 "Use soft natural German intonation, gentle pauses, and a slow comforting bedtime rhythm. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
                 "Avoid stiff, robotic, formal, theatrical, or audiobook-announcer delivery. "
                 "Keep the voice calm, tender, reassuring, and sleepy."
             )
@@ -646,7 +643,7 @@ class NarrationService:
             return (
                 "Read as a warm Italian parent telling a bedtime story to a young child. "
                 "Use soft natural Italian intonation, gentle musical rhythm, and calm bedtime pacing. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
                 "Avoid robotic, theatrical, overly energetic, or announcement-style delivery. "
                 "Keep the voice tender, reassuring, dreamy, and suitable for sleep."
             )
@@ -654,7 +651,7 @@ class NarrationService:
         return (
             "Read as a calm, warm bedtime storyteller for a young child, with the gentle reassurance of a loving grandparent. "
             "Use soft, sleepy pacing, natural breathing pauses, and tender sentence endings. "
-            "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
+            "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. Maintain gentle expressive variation from beginning to end. Do not allow the warmth, emotional engagement, or storytelling energy to fade as the passage continues. Give important moments slightly more warmth and emphasis while keeping quiet moments soft and comforting. Vary sentence endings naturally so the narration never becomes flat, monotone, or lower-energy near the end of a page. "
             "Keep the delivery comforting, intimate, unhurried, and emotionally safe, as if helping a child settle peacefully for sleep. "
             "Avoid robotic, theatrical, commercial, audiobook-announcer, cartoon-granny, or overly energetic delivery."
         )
