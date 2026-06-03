@@ -28,10 +28,10 @@ WISE_OWL_AUDIO_CACHE_VERSION = "v8"
 # Bump standard non-English narration caches so improved bedtime/accent shaping
 # is generated fresh. Parent Voice cache paths remain untouched.
 STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
-    "es": "v9",
-    "fr": "v9",
-    "de": "v9",
-    "it": "v9",
+    "es": "v10",
+    "fr": "v10",
+    "de": "v10",
+    "it": "v10",
 }
 
 # In-memory abuse/rate limiting state.
@@ -81,7 +81,7 @@ def add_soft_chunk_leadin(text: str) -> str:
     if cleaned.startswith((".", "…", ",", ";", ":", "?", "!")):
         return cleaned
 
-    return f", {cleaned}"
+    return cleaned
 
 
 def _replace_phrases(text: str, replacements: dict[str, str]) -> str:
