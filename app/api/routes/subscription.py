@@ -133,12 +133,16 @@ async def sync_subscription(
     if _is_yearly_sync(request) and not was_premium:
         wallet = user_repo.get_parent_voice_wallet(user_id)
         current_credits = int(wallet.get('credits', 0))
-        intro_used = bool(wallet.get('intro_used', False))
         credits_added = 3
+
+        # Product rule:
+        # The free Parent Voice intro offer is for users who have not upgraded.
+        # A Yearly subscription includes 3 Parent Voice credits, so any unused
+        # intro offer should be retired when those included credits are granted.
         user_repo.save_parent_voice_wallet(
             user_id,
             credits=current_credits + credits_added,
-            intro_used=intro_used,
+            intro_used=True,
         )
 
     return {

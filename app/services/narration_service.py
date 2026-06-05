@@ -848,14 +848,24 @@ class NarrationService:
         print(f"[NARRATION] Narration text preview for {language_code}={translated[:160]!r}")
         tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
-        tts_text = soften_bedtime_narration_text(tts_text, language_code)
-        tts_text = prepare_narration_text(tts_text)
 
-        # Keep page 1 as fast as possible for bedtime startup speed.
-        # Apply the soft anti-gulp lead-in only for later pages where
-        # page-transition mouth artefacts are more noticeable.
-        if voice_mode != "parent" and page > 1:
-            tts_text = add_soft_chunk_leadin(tts_text)
+        if voice_mode == "parent":
+            # Parent Voice uses ElevenLabs and previously had good natural timing.
+            # Do not apply the newer standard-narrator pacing/shaping layer here:
+            # it can cause ElevenLabs to vary speed unpredictably within a page.
+            # Keep Parent Voice conservative: clean story text + pronunciation only.
+            tts_text = tts_text.strip()
+        else:
+            # Standard OpenAI narrators keep the bedtime/accent shaping added for
+            # smoother page transitions and improved non-English delivery.
+            tts_text = soften_bedtime_narration_text(tts_text, language_code)
+            tts_text = prepare_narration_text(tts_text)
+
+            # Keep page 1 as fast as possible for bedtime startup speed.
+            # Apply the soft anti-gulp lead-in only for later pages where
+            # page-transition mouth artefacts are more noticeable.
+            if page > 1:
+                tts_text = add_soft_chunk_leadin(tts_text)
 
         if not tts_text:
             raise RuntimeError("Page has no text")
