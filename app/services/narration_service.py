@@ -855,9 +855,9 @@ class NarrationService:
 
         if voice_mode == "parent":
             # Parent Voice uses ElevenLabs and previously had good natural timing.
-            # Keep it conservative: clean story text + pronunciation only.
-            # Do not apply standard narrator punctuation/accent shaping to Parent Voice.
-            tts_text = tts_text.strip()
+            # Keep it conservative, but preserve natural pauses after full stops.
+            # Do not apply standard narrator accent/bedtime wording shaping here.
+            tts_text = prepare_narration_text(tts_text)
         else:
             # Standard OpenAI narrators keep the bedtime/accent shaping added for
             # smoother page transitions and improved non-English delivery.

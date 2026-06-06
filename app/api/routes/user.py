@@ -80,20 +80,25 @@ async def redeem_parent_voice_credits(payload: ParentVoiceCreditsRedeemRequest, 
     if source == 'parent_voice_intro_offer':
         if intro_used:
             raise HTTPException(status_code=409, detail={'error': 'intro_offer_already_used', 'message': 'The free Parent Voice intro offer has already been used.'})
-        quantity = 1
         intro_used = True
+        credits = max(credits, 0)
+        saved = user_repo.save_parent_voice_wallet(user_id, credits=credits, intro_used=intro_used)
         message = 'Free Parent Voice story unlocked.'
     elif source == 'revenuecat_client':
         if quantity not in {1, 3}:
             raise HTTPException(status_code=400, detail={'error': 'invalid_credit_quantity', 'message': 'Only 1 or 3 story bundles are supported.'})
-        message = f'Added {quantity} Parent Voice credit(s).'
+
+        # RevenueCat webhooks are the source of truth for paid Parent Voice credits.
+        # This endpoint is retained as a client acknowledgement/refresh endpoint only.
+        # Do not add credits here, otherwise purchases can be counted twice:
+        # once by /revenuecat/webhook and once by this client-side redeem call.
+        saved = wallet
+        message = 'Parent Voice credit purchase acknowledged. Balance will refresh from RevenueCat webhook.'
     else:
         raise HTTPException(status_code=400, detail={'error': 'invalid_credit_source', 'message': 'Unsupported credit redemption source.'})
 
-    credits += quantity
-    saved = user_repo.save_parent_voice_wallet(user_id, credits=credits, intro_used=intro_used)
     return ParentVoiceCreditsResponse(
-        credits=int(saved['credits']),
+        credits=int(saved.get('credits', 0)),
         price_eur=float(VOICE_PRESETS['parent_voice'].get('price_eur', 2.0)),
         currency='EUR',
         source=source,
