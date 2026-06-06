@@ -59,6 +59,34 @@ def prepare_narration_text(text: str) -> str:
     return text.strip()
 
 
+
+def prepare_parent_voice_text(text: str, language_code: str) -> str:
+    """Conservative Parent Voice text preparation for ElevenLabs.
+
+    Parent Voice should not receive the standard narrator accent/bedtime wording
+    shaping, because that previously caused speed instability. It still needs
+    clear sentence-boundary spacing, especially for translated non-English text,
+    so ElevenLabs does not run full stops together.
+    """
+    if not text:
+        return text
+
+    lang = (language_code or "en").strip().lower()[:2]
+    text = prepare_narration_text(text)
+
+    if lang in {"es", "fr", "de", "it"}:
+        # Make sentence stops explicit for multilingual ElevenLabs output.
+        # Keep this punctuation-only: no wording/accent changes and no SSML.
+        text = re.sub(r"\s+", " ", text).strip()
+        text = re.sub(r"([.!?…])\s*([¿¡A-ZÁÉÍÓÚÜÑÀÂÇÈÉÊËÎÏÔÙÛÄÖÜ])", r"\1  \2", text)
+        text = re.sub(r"([.!?…])\s*([a-záéíóúüñàâçèéêëîïôùûäö])", r"\1  \2", text)
+        text = re.sub(r"([,;:])\s*", r"\1 ", text)
+        text = re.sub(r"\s+", " ", text)
+        text = re.sub(r"([.!?…]) ", r"\1  ", text)
+
+    return text.strip()
+
+
 def add_soft_chunk_leadin(text: str) -> str:
     """Normalize later page starts without adding spoken punctuation.
 
@@ -431,11 +459,7 @@ class NarrationService:
     def _list_existing_parent_voice_languages(self, user_id: str, story_id: str) -> list[str]:
         languages: set[str] = set()
         for name in self._list_story_chunk_folders(user_id, story_id):
-            # Parent Voice cache folders are versioned, for example:
-            # parent_voice_en_v5, parent_voice_es_v5.
-            # Recognise both old unversioned folders and current versioned folders
-            # so a story cannot be re-generated in a second Parent Voice language.
-            match = re.match(r"parent_voice_([a-z]{2})(?:_v\d+)?$", name.strip())
+            match = re.match(r"parent_voice_([a-z]{2})$", name.strip())
             if match:
                 languages.add(match.group(1))
         return sorted(languages)
@@ -722,7 +746,7 @@ class NarrationService:
                     "voice_settings": {
                         "stability": 0.75,
                         "similarity_boost": 0.5,
-                        "style": 0.0,
+                        "style": 0.15,
                         "use_speaker_boost": True,
                     },
                     "output_format": "mp3_44100_128",
@@ -855,9 +879,10 @@ class NarrationService:
 
         if voice_mode == "parent":
             # Parent Voice uses ElevenLabs and previously had good natural timing.
-            # Keep it conservative, but preserve natural pauses after full stops.
-            # Do not apply standard narrator accent/bedtime wording shaping here.
-            tts_text = prepare_narration_text(tts_text)
+            # Keep it conservative, but preserve natural pauses after full stops
+            # across all supported languages. Do not apply standard narrator
+            # accent/bedtime wording shaping here.
+            tts_text = prepare_parent_voice_text(tts_text, language_code)
         else:
             # Standard OpenAI narrators keep the bedtime/accent shaping added for
             # smoother page transitions and improved non-English delivery.
