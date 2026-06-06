@@ -431,7 +431,11 @@ class NarrationService:
     def _list_existing_parent_voice_languages(self, user_id: str, story_id: str) -> list[str]:
         languages: set[str] = set()
         for name in self._list_story_chunk_folders(user_id, story_id):
-            match = re.match(r"parent_voice_([a-z]{2})$", name.strip())
+            # Parent Voice cache folders are versioned, for example:
+            # parent_voice_en_v5, parent_voice_es_v5.
+            # Recognise both old unversioned folders and current versioned folders
+            # so a story cannot be re-generated in a second Parent Voice language.
+            match = re.match(r"parent_voice_([a-z]{2})(?:_v\d+)?$", name.strip())
             if match:
                 languages.add(match.group(1))
         return sorted(languages)
@@ -718,7 +722,7 @@ class NarrationService:
                     "voice_settings": {
                         "stability": 0.75,
                         "similarity_boost": 0.5,
-                        "style": 0.15,
+                        "style": 0.0,
                         "use_speaker_boost": True,
                     },
                     "output_format": "mp3_44100_128",
@@ -851,9 +855,8 @@ class NarrationService:
 
         if voice_mode == "parent":
             # Parent Voice uses ElevenLabs and previously had good natural timing.
-            # Do not apply the newer standard-narrator pacing/shaping layer here:
-            # it can cause ElevenLabs to vary speed unpredictably within a page.
-            # Keep Parent Voice conservative: clean story text + pronunciation only.
+            # Keep it conservative: clean story text + pronunciation only.
+            # Do not apply standard narrator punctuation/accent shaping to Parent Voice.
             tts_text = tts_text.strip()
         else:
             # Standard OpenAI narrators keep the bedtime/accent shaping added for
