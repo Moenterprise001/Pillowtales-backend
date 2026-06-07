@@ -28,6 +28,7 @@ WISE_OWL_AUDIO_CACHE_VERSION = "v8"
 # Bump standard non-English narration caches so improved bedtime/accent shaping
 # is generated fresh. Parent Voice cache paths remain untouched.
 STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
+    "en-GB": "v1",
     "es": "v10",
     "fr": "v10",
     "de": "v10",
@@ -38,6 +39,20 @@ STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
 # Also single-instance only, but enough for launch while on one Render instance.
 _parent_voice_ip_log: dict[str, list[float]] = {}
 _parent_voice_user_log: dict[str, list[float]] = {}
+
+ENGLISH_US_CODES = {"en", "en-us", "en_us"}
+ENGLISH_UK_CODES = {"en-gb", "en_uk", "en-uk", "en_gb"}
+
+def normalize_language_code(language_code: Optional[str], *, preserve_english_locale: bool = True) -> str:
+    raw = str(language_code or "en-US").strip().lower().replace("_", "-")
+    if raw in ENGLISH_UK_CODES:
+        return "en-GB" if preserve_english_locale else "en"
+    if raw in ENGLISH_US_CODES:
+        return "en-US" if preserve_english_locale else "en"
+    return raw[:2] or "en"
+
+def base_language_code(language_code: Optional[str]) -> str:
+    return normalize_language_code(language_code, preserve_english_locale=False)
 
 def prepare_narration_text(text: str) -> str:
     if not text:
@@ -396,19 +411,21 @@ class NarrationService:
             or story.get("language")
             or "en"
         )
-        language_code = (language_code or "en").strip().lower()[:2]
-        if language_code not in SUPPORTED_LANGUAGES:
+        language_code = normalize_language_code(language_code, preserve_english_locale=True)
+        base_lang = base_language_code(language_code)
+        if base_lang not in SUPPORTED_LANGUAGES:
             raise HTTPException(status_code=400, detail="Unsupported narration language")
         return language_code
 
     def default_voice_for_language(self, language_code: str) -> str:
+        base_lang = base_language_code(language_code)
         return {
             "en": "wise_owl",
             "es": "night_owl_spanish",
             "de": "night_owl_german",
             "fr": "night_owl_french",
             "it": "night_owl_italian",
-        }.get(language_code, "wise_owl")
+        }.get(base_lang, "wise_owl")
 
     def _preset_language_for_voice(self, voice: str) -> str:
         preset = VOICE_PRESETS.get(voice, {}) or {}
@@ -430,14 +447,19 @@ class NarrationService:
         if voice == "parent_voice":
             return language_code
 
+        language_code = normalize_language_code(language_code, preserve_english_locale=True)
+        requested_base_lang = base_language_code(language_code)
         preset_lang = self._preset_language_for_voice(voice)
         if preset_lang != "all" and preset_lang in SUPPORTED_LANGUAGES:
-            if language_code != preset_lang:
+            if requested_base_lang != preset_lang:
                 print(
                     f"[NARRATION] Enforcing narrator language voice={voice} "
                     f"requested_language={language_code} enforced_language={preset_lang}"
                 )
-            return preset_lang
+                return preset_lang
+            # Preserve en-US/en-GB for English so cache paths and TTS instructions
+            # can distinguish American and British narration while using the same narrator preset.
+            return language_code
 
         return language_code
 
@@ -445,11 +467,12 @@ class NarrationService:
         # Keep Parent Voice cache-first and untouched. Parent Voice replay must
         # remain free and stable. Standard narrator cache bumps are only used
         # to avoid replaying older robotic / non-Castilian generated chunks.
+        language_code = normalize_language_code(language_code, preserve_english_locale=True)
         if voice == "parent_voice":
             return DEFAULT_AUDIO_CACHE_VERSION
-        if voice == "wise_owl" and language_code == "en":
+        if voice == "wise_owl" and language_code in {"en-US", "en"}:
             return WISE_OWL_AUDIO_CACHE_VERSION
-        standard_version = STANDARD_LANGUAGE_AUDIO_CACHE_VERSION.get((language_code or "").lower()[:2])
+        standard_version = STANDARD_LANGUAGE_AUDIO_CACHE_VERSION.get(language_code) or STANDARD_LANGUAGE_AUDIO_CACHE_VERSION.get(base_language_code(language_code))
         if standard_version:
             return standard_version
         return DEFAULT_AUDIO_CACHE_VERSION
@@ -469,10 +492,11 @@ class NarrationService:
         if requested_voice == "parent_voice":
             return requested_voice
 
+        language_code = normalize_language_code(language_code, preserve_english_locale=True)
         preset_lang = self._preset_language_for_voice(requested_voice)
 
-        # Only allow exact-language or universal narrators.
-        if preset_lang == "all" or preset_lang == language_code:
+        # Only allow exact-language, same base-language locale, or universal narrators.
+        if preset_lang == "all" or preset_lang == language_code or preset_lang == base_language_code(language_code):
             return requested_voice
 
         # Frontend can momentarily send a stale narrator during language switches.
@@ -520,9 +544,9 @@ class NarrationService:
             # parent_voice_en_v5, parent_voice_es_v5.
             # Recognise both old unversioned folders and current versioned folders
             # so a story cannot be re-generated in a second Parent Voice language.
-            match = re.match(r"parent_voice_([a-z]{2})(?:_v\d+)?$", name.strip())
+            match = re.match(r"parent_voice_([A-Za-z]{2}(?:[-_][A-Za-z]{2})?)(?:_v\d+)?$", name.strip())
             if match:
-                languages.add(match.group(1))
+                languages.add(normalize_language_code(match.group(1), preserve_english_locale=True))
         return sorted(languages)
 
     def _signed_url(self, storage_path: str, expires_in: int = 3600) -> Optional[str]:
@@ -688,7 +712,7 @@ class NarrationService:
                 detail="Too many Parent Voice requests on this account. Please try again later.",
             )
 
-    def _openai_tts_instructions(self, voice: str) -> str:
+    def _openai_tts_instructions(self, voice: str, language_code: Optional[str] = None) -> str:
         """Performance direction for OpenAI standard narrators.
 
         Keep this as a TTS-only quality layer. It must not affect narration
@@ -696,7 +720,27 @@ class NarrationService:
         cache-first replay rules.
         """
         preset = VOICE_PRESETS.get(voice, {}) or {}
-        lang = str(preset.get("language_code") or "en").strip().lower()[:2]
+        requested_lang = normalize_language_code(language_code or preset.get("language_code") or "en-US", preserve_english_locale=True)
+        lang = base_language_code(requested_lang)
+
+        if requested_lang == "en-GB":
+            return (
+                "Read as the same calm British parent telling one continuous bedtime story in natural UK English. "
+                "Use a clearly British accent from England: warm, gentle, reassuring, and bedtime-soft, never American. "
+                "Use natural British pronunciation, rhythm, and sentence melody, with a cosy storybook tone suitable for a young child settling to sleep. "
+                "Treat every page as a continuation of the exact same recording session. Narrator identity, age, accent, speed, energy level, emotional tone, warmth, and pacing must remain identical across all pages. Consistency is more important than expressive variation. Never reinterpret the narrator between pages, and never make later pages sound slower, older, more serious, more distant, or like a different speaker. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same British accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
+                "Keep expressive variation subtle and controlled, while preserving the same British bedtime narrator throughout. Avoid sounding theatrical, commercial, robotic, cartoon-like, overly bright, or like an audiobook announcer. Speak slowly enough for a young child at bedtime, with tender reassurance and a peaceful tone."
+            )
+
+        if requested_lang == "en-US":
+            return (
+                "Read as the same calm American parent telling one continuous bedtime story in natural US English. "
+                "Use a warm, gentle, reassuring American accent and bedtime-soft pacing. "
+                "Treat every page as a continuation of the exact same recording session. Narrator identity, age, accent, speed, energy level, emotional tone, warmth, and pacing must remain identical across all pages. Consistency is more important than expressive variation. Never reinterpret the narrator between pages, and never make later pages sound slower, older, more serious, more distant, or like a different speaker. "
+                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same American accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
+                "Keep the delivery comforting, intimate, unhurried, and emotionally safe, as if helping a child settle peacefully for sleep. Avoid robotic, theatrical, commercial, audiobook-announcer, cartoon-granny, or overly energetic delivery."
+            )
 
         if lang == "es":
             return (
@@ -746,13 +790,13 @@ class NarrationService:
             "Avoid robotic, theatrical, commercial, audiobook-announcer, cartoon-granny, or overly energetic delivery."
         )
 
-    async def _generate_openai_tts(self, text: str, voice: str) -> bytes:
+    async def _generate_openai_tts(self, text: str, voice: str, language_code: Optional[str] = None) -> bytes:
         api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not configured")
 
         provider_voice = VOICE_PRESETS.get(voice, {}).get("voice_id") or "shimmer"
-        instructions = self._openai_tts_instructions(voice)
+        instructions = self._openai_tts_instructions(voice, language_code)
 
         retries = 2
 
@@ -803,7 +847,7 @@ class NarrationService:
                 json={
                     "text": text,
                     "model_id": "eleven_multilingual_v2",
-                    "language_code": language_code,
+                    "language_code": base_language_code(language_code),
                     "voice_settings": {
                         "stability": 0.75,
                         "similarity_boost": 0.5,
@@ -925,8 +969,8 @@ class NarrationService:
         # Same-language narration must stay on the fast path.
         # Do not send page text through the translation model unless the parent
         # explicitly selected a different narration language from the story language.
-        story_lang = (story_language_code or language_code or "en").strip().lower()[:2]
-        narration_lang = (language_code or "en").strip().lower()[:2]
+        story_lang = base_language_code(story_language_code or language_code or "en")
+        narration_lang = base_language_code(language_code or "en")
 
         if story_lang == narration_lang:
             translated = page_text
@@ -972,9 +1016,9 @@ class NarrationService:
                 # Bulletproof fallback: keep the whole job alive with standard narration.
                 used_mode = "fallback_tts"
                 fallback_voice = self.default_voice_for_language(language_code)
-                audio = await self._generate_openai_tts(tts_text, fallback_voice)
+                audio = await self._generate_openai_tts(tts_text, fallback_voice, language_code)
         else:
-            audio = await self._generate_openai_tts(tts_text, voice)
+            audio = await self._generate_openai_tts(tts_text, voice, language_code)
 
         storage_path = self._storage_path(user_id, story_id, voice, language_code, page)
         await self._upload_audio(storage_path, audio)
