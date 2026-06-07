@@ -62,63 +62,86 @@ def prepare_narration_text(text: str) -> str:
 
 
 def prepare_parent_voice_text(text: str, language_code: str) -> str:
-    """Conservative Parent Voice text preparation for ElevenLabs.
+    """Parent Voice text preparation for ElevenLabs.
 
-    Parent Voice should not receive the standard narrator accent/bedtime wording
-    shaping, because that previously caused speed instability. It still needs
-    clear sentence-boundary pacing so ElevenLabs does not run full stops together.
+    Keep this isolated to Parent Voice only. It must not affect frontend
+    playback, narration ownership, chunking, cache paths, credit charging,
+    Parent Voice replay, page-status polling, or stored story text.
 
-    For multilingual Parent Voice, spaces alone are not strong enough. Use
-    explicit line breaks after sentence stops and lighter line breaks after
-    commas. This keeps the story words unchanged, avoids SSML, and gives
-    ElevenLabs clearer breath points without touching frontend playback,
-    chunking, cache, or credits.
+    The previous newline-based pause shaping was too weak for multilingual
+    ElevenLabs Parent Voice. Use explicit ElevenLabs break tags at punctuation
+    boundaries so sentence endings create real bedtime pauses.
+
+    Pause profile:
+    - English gets clearer full-stop pauses than before.
+    - Spanish/French/German/Italian get slightly stronger pauses because they
+      were running together most noticeably.
+    - Commas stay short so the narration does not become robotic.
     """
     if not text:
         return text
 
     lang = (language_code or "en").strip().lower()[:2]
+
+    # Start from the same conservative normalisation used elsewhere, but do not
+    # apply standard narrator accent/bedtime wording shaping to Parent Voice.
     text = prepare_narration_text(text)
     text = re.sub(r"\s+", " ", text).strip()
+    text = text.replace("...", "…")
+    text = re.sub(r"\s+([,.!?;:…])", r"\1", text)
+
+    if not text:
+        return text
 
     if lang in {"es", "fr", "de", "it"}:
-        # ElevenLabs does not guarantee exact pause durations from plain text.
-        # In practice, stronger visual breaks give better pauses than spaces:
-        # - sentence stops / paragraph breaks: strongest break
-        # - commas: lighter break
-        text = re.sub(r"\s+([,.!?;:…])", r"\1", text)
-        text = text.replace("...", "…")
+        sentence_pause = "1.70s"
+        medium_pause = "0.95s"
+        comma_pause = "0.35s"
+    else:
+        # English was better than the other languages, but still needed a more
+        # obvious bedtime full-stop pause.
+        sentence_pause = "1.35s"
+        medium_pause = "0.75s"
+        comma_pause = "0.25s"
 
-        # Treat semicolons/colons as stronger bedtime breath points.
-        text = re.sub(r"\s*([;:])\s*", r"\1\n\n", text)
+    # Remove accidental duplicate spacing around existing break tags if this
+    # function ever receives already-prepared text.
+    text = re.sub(r"\s*<break\s+time=\"[0-9.]+s\"\s*/>\s*", " ", text).strip()
 
-        # Commas get a lighter but visible breath point.
-        # This targets the "too continuous" Spanish Parent Voice issue without
-        # changing story wording or touching playback timing.
-        text = re.sub(r",\s*", ",\n", text)
+    # Medium pauses for semicolons and colons.
+    text = re.sub(
+        r"([;:])\s+",
+        rf"\1 <break time=\"{medium_pause}\" /> ",
+        text,
+    )
 
-        # Sentence-ending punctuation gets the strongest pause.
-        text = re.sub(
-            r"([.!?…])\s*([¿¡A-ZÁÉÍÓÚÜÑÀÂÇÈÉÊËÎÏÔÙÛÄÖÜ])",
-            r"\1\n\n\n\2",
-            text,
-        )
-        text = re.sub(
-            r"([.!?…])\s*([a-záéíóúüñàâçèéêëîïôùûäö])",
-            r"\1\n\n\n\2",
-            text,
-        )
+    # Light breath for commas. This is explicit because newlines were not
+    # producing enough audible separation in Parent Voice.
+    text = re.sub(
+        r",\s+",
+        rf", <break time=\"{comma_pause}\" /> ",
+        text,
+    )
 
-        # Preserve stronger sentence breaks and lighter comma breaks.
-        text = re.sub(r"[ \t]+", " ", text)
-        text = re.sub(r"\n{4,}", "\n\n\n", text)
-        text = re.sub(r" *\n *", "\n", text)
-        return text.strip()
+    # Strong bedtime pause after sentence-ending punctuation when more words
+    # follow. This is the main fix for full stops running together.
+    text = re.sub(
+        r"([.!?…])\s+",
+        rf"\1 <break time=\"{sentence_pause}\" /> ",
+        text,
+    )
 
-    # English Parent Voice was already stable; keep it conservative.
-    text = re.sub(r"([.!?…])\s+", r"\1  ", text)
-    text = re.sub(r"([,;:])\s+", r"\1 ", text)
-    return text.strip()
+    # Also allow a final sentence-ending pause. It can help ElevenLabs finish
+    # the page gently rather than clipping the cadence at the page boundary.
+    text = re.sub(
+        r"([.!?…])\s*$",
+        rf"\1 <break time=\"{sentence_pause}\" />",
+        text,
+    )
+
+    text = re.sub(r"\s+", " ", text).strip()
+    return text
+
 
 def add_soft_chunk_leadin(text: str) -> str:
     """Normalize later page starts without adding spoken punctuation.
