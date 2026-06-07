@@ -66,25 +66,56 @@ def prepare_parent_voice_text(text: str, language_code: str) -> str:
 
     Parent Voice should not receive the standard narrator accent/bedtime wording
     shaping, because that previously caused speed instability. It still needs
-    clear sentence-boundary spacing, especially for translated non-English text,
-    so ElevenLabs does not run full stops together.
+    clear sentence-boundary pacing so ElevenLabs does not run full stops together.
+
+    For multilingual Parent Voice, double spaces were not strong enough. Use
+    paragraph-style line breaks after sentence stops instead. This keeps the
+    story words unchanged, avoids SSML, and gives ElevenLabs clearer breath
+    points without touching frontend playback, chunking, cache, or credits.
     """
     if not text:
         return text
 
     lang = (language_code or "en").strip().lower()[:2]
     text = prepare_narration_text(text)
+    text = re.sub(r"\s+", " ", text).strip()
 
     if lang in {"es", "fr", "de", "it"}:
-        # Make sentence stops explicit for multilingual ElevenLabs output.
-        # Keep this punctuation-only: no wording/accent changes and no SSML.
-        text = re.sub(r"\s+", " ", text).strip()
-        text = re.sub(r"([.!?…])\s*([¿¡A-ZÁÉÍÓÚÜÑÀÂÇÈÉÊËÎÏÔÙÛÄÖÜ])", r"\1  \2", text)
-        text = re.sub(r"([.!?…])\s*([a-záéíóúüñàâçèéêëîïôùûäö])", r"\1  \2", text)
-        text = re.sub(r"([,;:])\s*", r"\1 ", text)
-        text = re.sub(r"\s+", " ", text)
-        text = re.sub(r"([.!?…]) ", r"\1  ", text)
+        # Stronger multilingual pacing for Parent Voice:
+        # - preserve story words exactly
+        # - avoid SSML/provider-specific tags
+        # - give ElevenLabs clearer sentence boundaries with blank lines
+        # - keep commas light so delivery stays natural rather than robotic
+        text = re.sub(r"\s+([,.!?;:…])", r"\1", text)
+        text = text.replace("...", "…")
 
+        # Treat semicolons/colons as stronger bedtime breath points.
+        text = re.sub(r"\s*([;:])\s*", r"\1\n", text)
+
+        # Sentence-ending punctuation gets a stronger pause.
+        text = re.sub(
+            r"([.!?…])\s*([¿¡A-ZÁÉÍÓÚÜÑÀÂÇÈÉÊËÎÏÔÙÛÄÖÜ])",
+            r"\1\n\n\2",
+            text,
+        )
+        text = re.sub(
+            r"([.!?…])\s*([a-záéíóúüñàâçèéêëîïôùûäö])",
+            r"\1\n\n\2",
+            text,
+        )
+
+        # Commas remain commas, but ensure there is at least a clean space.
+        text = re.sub(r",\s*", ", ", text)
+
+        # Preserve blank-line sentence breaks while cleaning accidental spacing.
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\n{3,}", "\n\n", text)
+        text = re.sub(r" *\n *", "\n", text)
+        return text.strip()
+
+    # English Parent Voice was already stable; keep it conservative.
+    text = re.sub(r"([.!?…])\s+", r"\1  ", text)
+    text = re.sub(r"([,;:])\s+", r"\1 ", text)
     return text.strip()
 
 def add_soft_chunk_leadin(text: str) -> str:
