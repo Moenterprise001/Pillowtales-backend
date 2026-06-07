@@ -60,6 +60,7 @@ def prepare_narration_text(text: str) -> str:
 
 
 
+
 def prepare_parent_voice_text(text: str, language_code: str) -> str:
     """Conservative Parent Voice text preparation for ElevenLabs.
 
@@ -85,7 +86,6 @@ def prepare_parent_voice_text(text: str, language_code: str) -> str:
         text = re.sub(r"([.!?…]) ", r"\1  ", text)
 
     return text.strip()
-
 
 def add_soft_chunk_leadin(text: str) -> str:
     """Normalize later page starts without adding spoken punctuation.
@@ -459,7 +459,11 @@ class NarrationService:
     def _list_existing_parent_voice_languages(self, user_id: str, story_id: str) -> list[str]:
         languages: set[str] = set()
         for name in self._list_story_chunk_folders(user_id, story_id):
-            match = re.match(r"parent_voice_([a-z]{2})$", name.strip())
+            # Parent Voice cache folders are versioned, for example:
+            # parent_voice_en_v5, parent_voice_es_v5.
+            # Recognise both old unversioned folders and current versioned folders
+            # so a story cannot be re-generated in a second Parent Voice language.
+            match = re.match(r"parent_voice_([a-z]{2})(?:_v\d+)?$", name.strip())
             if match:
                 languages.add(match.group(1))
         return sorted(languages)
@@ -746,7 +750,7 @@ class NarrationService:
                     "voice_settings": {
                         "stability": 0.75,
                         "similarity_boost": 0.5,
-                        "style": 0.15,
+                        "style": 0.0,
                         "use_speaker_boost": True,
                     },
                     "output_format": "mp3_44100_128",
