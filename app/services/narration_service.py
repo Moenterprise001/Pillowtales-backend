@@ -82,9 +82,13 @@ def prepare_parent_voice_text(text: str, language_code: str) -> str:
     # These timings are intentionally universal now. The issue has been heard
     # across multiple Parent Voice languages, so do not special-case only Spanish
     # or other non-English languages.
-    sentence_pause = "1.75s"
-    paragraph_pause = "2.35s"
-    medium_pause = "1.05s"
+    # Revised after device testing:
+    # - Previous paragraph pause was too long.
+    # - Parent Voice itself was still speaking too quickly.
+    # Keep punctuation pauses moderate and control pace with ElevenLabs speed.
+    sentence_pause = "0.85s"
+    paragraph_pause = "1.15s"
+    medium_pause = "0.55s"
 
     cleaned = str(text).strip()
     if not cleaned:
@@ -804,6 +808,11 @@ class NarrationService:
                         "stability": 0.75,
                         "similarity_boost": 0.5,
                         "style": 0.0,
+                        # Parent Voice bedtime narration was testing too fast across
+                        # languages. ElevenLabs supports speed values below 1.0 to
+                        # slow delivery without touching playback or audio duration
+                        # logic in the reader.
+                        "speed": 0.82,
                         "use_speaker_boost": True,
                     },
                     "output_format": "mp3_44100_128",
