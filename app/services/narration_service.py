@@ -25,10 +25,12 @@ _chunked_jobs: dict[str, dict] = {}
 # but isolate Wise Owl English audio so old mixed chunks cannot be reused.
 DEFAULT_AUDIO_CACHE_VERSION = "v5"
 WISE_OWL_AUDIO_CACHE_VERSION = "v8"
+NIGHT_OWL_ENGLISH_AUDIO_CACHE_VERSION = "v1"
 # Bump standard non-English narration caches so improved bedtime/accent shaping
 # is generated fresh. Parent Voice cache paths remain untouched.
 STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
-    "en-GB": "v1",
+    "en-GB": "v2",
+    "en-US": "v1",
     "es": "v10",
     "fr": "v10",
     "de": "v10",
@@ -418,14 +420,19 @@ class NarrationService:
         return language_code
 
     def default_voice_for_language(self, language_code: str) -> str:
-        base_lang = base_language_code(language_code)
+        normalized_lang = normalize_language_code(language_code, preserve_english_locale=True)
+        if normalized_lang == "en-GB":
+            return "wise_owl"
+        if normalized_lang == "en-US":
+            return "night_owl_english"
+
+        base_lang = base_language_code(normalized_lang)
         return {
-            "en": "wise_owl",
             "es": "night_owl_spanish",
             "de": "night_owl_german",
             "fr": "night_owl_french",
             "it": "night_owl_italian",
-        }.get(base_lang, "wise_owl")
+        }.get(base_lang, "night_owl_english")
 
     def _preset_language_for_voice(self, voice: str) -> str:
         preset = VOICE_PRESETS.get(voice, {}) or {}
@@ -470,8 +477,10 @@ class NarrationService:
         language_code = normalize_language_code(language_code, preserve_english_locale=True)
         if voice == "parent_voice":
             return DEFAULT_AUDIO_CACHE_VERSION
-        if voice == "wise_owl" and language_code in {"en-US", "en"}:
+        if voice == "wise_owl" and language_code == "en-GB":
             return WISE_OWL_AUDIO_CACHE_VERSION
+        if voice == "night_owl_english" and language_code in {"en-US", "en"}:
+            return NIGHT_OWL_ENGLISH_AUDIO_CACHE_VERSION
         standard_version = STANDARD_LANGUAGE_AUDIO_CACHE_VERSION.get(language_code) or STANDARD_LANGUAGE_AUDIO_CACHE_VERSION.get(base_language_code(language_code))
         if standard_version:
             return standard_version
