@@ -11,8 +11,8 @@ SUPPORTED_LANGUAGES: Dict[str, str] = {
 }
 
 VOICE_PRESETS: Dict[str, Dict[str, Any]] = {
-    'wise_owl': {'provider': 'openai', 'voice_id': 'Alloy', 'name': 'Wise Owl', 'description': 'Calm British bedtime narration, gentle and reassuring', 'icon': '🦉', 'language_code': 'en', 'tier': 'free'},
-    'night_owl_english': {'provider': 'openai', 'voice_id': 'sage', 'name': 'Night Owl', 'description': 'Warm American bedtime narration, calm and reassuring', 'icon': '🦉', 'language_code': 'en', 'tier': 'free'},
+    'wise_owl': {'provider': 'openai', 'voice_id': 'alloy', 'name': 'Wise Owl', 'description': 'Calm British bedtime narration, gentle and reassuring', 'icon': '🦉', 'language_code': 'en', 'tier': 'free'},
+    'night_owl_english': {'provider': 'openai', 'voice_id': 'sage', 'name': 'Night Owl', 'description': 'Warm American bedtime narration, calm and reassuring', 'icon': '🌙', 'language_code': 'en', 'tier': 'free'},
     'parent_voice': {'provider': 'elevenlabs', 'voice_id': None, 'name': 'Parent Voice', 'description': 'Your own voice reads stories', 'icon': '❤️', 'language_code': 'all', 'tier': 'add_on', 'requires_setup': True, 'purchase_required_each_story': True, 'price_eur': 2.0, 'bundle3_price_eur': 4.99},
     'night_owl_spanish': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'Búho Sabio', 'description': 'Suave voz española para dormir', 'icon': '🦉', 'language_code': 'es', 'tier': 'free'},
     'night_owl_german': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'Weise Eule', 'description': 'Sanfte deutsche Stimme zum Einschlafen', 'icon': '🦉', 'language_code': 'de', 'tier': 'free'},
