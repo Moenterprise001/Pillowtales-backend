@@ -25,12 +25,13 @@ _chunked_jobs: dict[str, dict] = {}
 # but isolate Wise Owl English audio so old mixed chunks cannot be reused.
 DEFAULT_AUDIO_CACHE_VERSION = "v5"
 WISE_OWL_AUDIO_CACHE_VERSION = "v8"
-NIGHT_OWL_ENGLISH_AUDIO_CACHE_VERSION = "v1"
 # Bump standard non-English narration caches so improved bedtime/accent shaping
 # is generated fresh. Parent Voice cache paths remain untouched.
 STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
+    # Separate English locale caches so US Night Owl and UK Wise Owl never
+    # replay audio generated through the previous single-English narrator path.
+    "en-US": "v2",
     "en-GB": "v2",
-    "en-US": "v1",
     "es": "v10",
     "fr": "v10",
     "de": "v10",
@@ -420,14 +421,21 @@ class NarrationService:
         return language_code
 
     def default_voice_for_language(self, language_code: str) -> str:
-        normalized_lang = normalize_language_code(language_code, preserve_english_locale=True)
-        if normalized_lang == "en-GB":
+        language_code = normalize_language_code(language_code, preserve_english_locale=True)
+
+        # Product rule for English locales:
+        # - UK English keeps the original Wise Owl brand and uses the UK/British voice path.
+        # - US English uses Night Owl English and the American voice path.
+        # This must happen before collapsing to the base language, otherwise en-US
+        # and en-GB both become "en" and the app can route both to the same narrator.
+        if language_code == "en-GB":
             return "wise_owl"
-        if normalized_lang == "en-US":
+        if language_code == "en-US":
             return "night_owl_english"
 
-        base_lang = base_language_code(normalized_lang)
+        base_lang = base_language_code(language_code)
         return {
+            "en": "night_owl_english",
             "es": "night_owl_spanish",
             "de": "night_owl_german",
             "fr": "night_owl_french",
@@ -473,22 +481,25 @@ class NarrationService:
     def _audio_cache_version(self, voice: str, language_code: str) -> str:
         # Keep Parent Voice cache-first and untouched. Parent Voice replay must
         # remain free and stable. Standard narrator cache bumps are only used
-        # to avoid replaying older robotic / non-Castilian generated chunks.
+        # to avoid replaying older generated chunks.
         language_code = normalize_language_code(language_code, preserve_english_locale=True)
         if voice == "parent_voice":
             return DEFAULT_AUDIO_CACHE_VERSION
-        if voice == "wise_owl" and language_code == "en-GB":
-            return WISE_OWL_AUDIO_CACHE_VERSION
-        if voice == "night_owl_english" and language_code in {"en-US", "en"}:
-            return NIGHT_OWL_ENGLISH_AUDIO_CACHE_VERSION
+
+        # Locale-specific English caches are required because en-US and en-GB can
+        # now use different narrator presets and OpenAI voices.
         standard_version = STANDARD_LANGUAGE_AUDIO_CACHE_VERSION.get(language_code) or STANDARD_LANGUAGE_AUDIO_CACHE_VERSION.get(base_language_code(language_code))
         if standard_version:
             return standard_version
+
+        if voice == "wise_owl" and language_code in {"en-US", "en"}:
+            return WISE_OWL_AUDIO_CACHE_VERSION
         return DEFAULT_AUDIO_CACHE_VERSION
 
     def resolve_voice(self, requested_voice: Optional[str], language_code: str) -> str:
         # Product rule: default narrator must remain Wise Owl / standard narrator family,
         # never Parent Voice unless explicitly selected.
+        language_code = normalize_language_code(language_code, preserve_english_locale=True)
         default_voice = self.default_voice_for_language(language_code)
 
         if not requested_voice:
@@ -501,7 +512,17 @@ class NarrationService:
         if requested_voice == "parent_voice":
             return requested_voice
 
-        language_code = normalize_language_code(language_code, preserve_english_locale=True)
+        # Frontend can still send the previously selected English narrator while
+        # the language changes. Correct English locale mismatches here so backend
+        # storage, page-status, and generated audio use the intended narrator even
+        # before the frontend selector state catches up.
+        if language_code == "en-US" and requested_voice == "wise_owl":
+            print("[NARRATION] Remapping en-US Wise Owl request to Night Owl English")
+            return "night_owl_english"
+        if language_code == "en-GB" and requested_voice == "night_owl_english":
+            print("[NARRATION] Remapping en-GB Night Owl English request to Wise Owl")
+            return "wise_owl"
+
         preset_lang = self._preset_language_for_voice(requested_voice)
 
         # Only allow exact-language, same base-language locale, or universal narrators.
