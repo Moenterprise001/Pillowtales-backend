@@ -755,15 +755,15 @@ class NarrationService:
 
         if requested_lang == "en-GB":
             return (
-                "Read in natural UK English as a quiet British parent sitting beside one child at bedtime. "
-                "Use a clearly British accent from England, never American, but keep the delivery very soft, plain, slow, and reassuring. "
-                "This is not an audiobook performance and not a character performance. Do not act, dramatise, project, announce, or add theatrical energy. "
-                "Sound close, calm, gentle, sleepy, and intimate, as if reading in a dim bedroom after lights-out. "
-                "Keep emotion warm but very understated. Let the story feel safe and cosy rather than exciting. "
-                "Use low energy, relaxed pacing, and soft sentence endings. Allow natural quiet pauses after sentences, but do not overperform important moments. "
-                "Treat every page as a continuation of the exact same recording session. Narrator identity, age, accent, speed, energy level, emotional tone, warmth, and pacing must remain identical across all pages. Consistency is more important than expressive variation. Never reinterpret the narrator between pages, and never make later pages sound slower, older, more serious, more distant, brighter, more dramatic, or like a different speaker. "
-                "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same British accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
-                "Keep the whole narration soft enough for sleep: calm, tender, unhurried, and never bright, bouncy, grand, commercial, cartoon-like, presenter-like, or theatrical."
+                "Read in natural British English. "
+                "You are a calm parent reading quietly beside a child's bed at the end of the day. "
+                "Speak softly, gently, slowly, and naturally. "
+                "The child is already sleepy. "
+                "Keep your voice warm, reassuring, relaxed, and low-energy. "
+                "Do not perform, act, dramatise, project, announce, or narrate like an audiobook. "
+                "Do not sound theatrical, energetic, presenter-like, stage-like, commercial, or overly expressive. "
+                "Read as though you are helping one child drift peacefully to sleep. "
+                "Keep the same calm voice, British accent, gentle warmth, and bedtime pacing throughout every page."
             )
 
         if requested_lang == "en-US":
