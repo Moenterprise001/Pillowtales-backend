@@ -755,12 +755,14 @@ class NarrationService:
 
         if requested_lang == "en-GB":
             return (
-                "Read as the same calm British parent telling one continuous bedtime story in natural UK English. "
-                "Use a clearly British accent from England: warm, gentle, reassuring, and bedtime-soft, never American. "
-                "Use natural British pronunciation, rhythm, and sentence melody, with a cosy storybook tone suitable for a young child settling to sleep. "
+                "Read as a loving British parent sitting beside a child's bed at the end of the day, quietly reading one continuous bedtime story in natural UK English. "
+                "Use a soft, comforting, reassuring bedtime voice: cosy, intimate, gentle, and safe, as though helping one child drift peacefully to sleep. "
+                "Keep the delivery calm and unhurried, with warm tender sentence endings, soft natural pauses, and a low peaceful energy. "
+                "Use a clearly British accent from England, never American, with natural British pronunciation, rhythm, and sentence melody. "
+                "Do not perform the story. Never sound theatrical, dramatic, presenter-like, commercial, overly bright, cartoon-like, or like an audiobook actor. The voice should feel like a parent reading softly in a calm bedroom, not a stage performance. "
                 "Treat every page as a continuation of the exact same recording session. Narrator identity, age, accent, speed, energy level, emotional tone, warmth, and pacing must remain identical across all pages. Consistency is more important than expressive variation. Never reinterpret the narrator between pages, and never make later pages sound slower, older, more serious, more distant, or like a different speaker. "
                 "Start cleanly and gently on the first word, without an audible breath, gulp, mouth sound, or hard consonant attack. For every page after page one, begin immediately in the same British accent, voice character, rhythm, warmth, and pacing as the rest of the passage, as though continuing one uninterrupted bedtime reading. Do not make the first sentence or first paragraph sound like a new recording, warm-up, reset, different accent, slower introduction, or separate narration take. When continuing later story sections, flow naturally from the previous page and do not add an audible inhale, gulp, mouth sound, or restart effect between pages. "
-                "Keep expressive variation subtle and controlled, while preserving the same British bedtime narrator throughout. Avoid sounding theatrical, commercial, robotic, cartoon-like, overly bright, or like an audiobook announcer. Speak slowly enough for a young child at bedtime, with tender reassurance and a peaceful tone."
+                "Keep expressive variation subtle and controlled, while preserving the same British bedtime parent throughout. Speak slowly enough for a young child at bedtime, with tender reassurance and a peaceful sleepy tone."
             )
 
         if requested_lang == "en-US":
