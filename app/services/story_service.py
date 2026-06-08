@@ -721,73 +721,137 @@ Return ONLY valid JSON:
 """
 
     def _build_first_page_fallback(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, Any]:
-        """Fast deterministic page-1 fallback used only when Gemini is too slow.
+        """Fast varied page-1 fallback used only when Gemini is too slow.
 
-        This protects the launch UX from occasional LLM latency spikes. The
-        remaining pages still complete through Gemini in the normal background
-        flow, so full story quality is preserved after the reader opens.
+        This protects the launch UX from occasional LLM latency spikes without
+        repeatedly returning the same story. The remaining pages still complete
+        through Gemini in the normal background flow, so full story quality is
+        preserved after the reader opens.
         """
         child = request.childName or "the child"
-        language_code = (request.storyLanguageCode or "en").lower()
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
         expected_pages = self._intended_page_count(request)
+        theme = self._localized_theme_label(request.theme, language_code) or "magic"
+        moral = str(request.moral or "kindness").strip().lower()
 
-        fallback_by_lang = {
-            "es": {
-                "title": f"La estrella perdida de {child}",
-                "page": (
-                    f"Érase una vez, {child} vivía en una pequeña aldea nevada bajo un cielo lleno de estrellas. "
-                    "Cada tarde, ayudaba a encender las luces cálidas de las ventanas y miraba cómo la nieve brillaba suavemente en los tejados. "
-                    f"A {child} le encantaba imaginar que cada estrella tenía una casa en el cielo. "
-                    "Una noche, junto al estanque helado, apareció una estrella pequeña y temblorosa que parecía haberse perdido. "
-                    f"{child} comprendió que debía ayudarla a encontrar el camino de vuelta antes de que llegara la mañana."
-                ),
-            },
-            "it": {
-                "title": f"La stella smarrita di {child}",
-                "page": (
-                    f"C'era una volta {child}, che viveva in un piccolo villaggio innevato sotto un cielo pieno di stelle. "
-                    "Ogni sera aiutava ad accendere le luci calde alle finestre e guardava la neve brillare piano sui tetti. "
-                    f"A {child} piaceva immaginare che ogni stella avesse una casa nel cielo. "
-                    "Una notte, vicino allo stagno ghiacciato, apparve una stellina tremante che sembrava essersi smarrita. "
-                    f"{child} capì che doveva aiutarla a ritrovare la strada prima del mattino."
-                ),
-            },
-            "fr": {
-                "title": f"L'étoile perdue de {child}",
-                "page": (
-                    f"Il était une fois {child}, qui vivait dans un petit village enneigé sous un ciel rempli d'étoiles. "
-                    "Chaque soir, l'enfant aidait à allumer les lumières chaudes des fenêtres et regardait la neige briller doucement sur les toits. "
-                    f"{child} aimait imaginer que chaque étoile avait une maison dans le ciel. "
-                    "Une nuit, près de l'étang gelé, une petite étoile tremblante apparut comme si elle s'était perdue. "
-                    f"{child} comprit qu'il fallait l'aider à retrouver son chemin avant le matin."
-                ),
-            },
-            "de": {
-                "title": f"{child} und der verlorene Stern",
-                "page": (
-                    f"Es war einmal {child}, der in einem kleinen verschneiten Dorf unter einem Himmel voller Sterne lebte. "
-                    "Jeden Abend half {child}, die warmen Lichter in den Fenstern anzuzünden, und sah zu, wie der Schnee leise auf den Dächern glitzerte. "
-                    f"{child} stellte sich gern vor, dass jeder Stern ein Zuhause am Himmel hatte. "
-                    "Eines Nachts erschien am gefrorenen Teich ein kleiner zitternder Stern, der sich verirrt zu haben schien. "
-                    f"{child} wusste, dass er dem Stern helfen musste, vor dem Morgen seinen Weg zurückzufinden."
-                ),
-            },
-            "en": {
-                "title": f"{child} and the Lost Star",
-                "page": (
-                    f"Once upon a time, there lived a curious child named {child} in a tiny snowy village tucked beneath a sky full of stars. "
-                    f"Every evening, {child} helped light the warm windows and watched the snow sparkle softly on the rooftops. "
-                    f"{child} liked to imagine that every star had a little home somewhere high above the clouds. "
-                    "One night, beside the frozen pond, a small trembling star appeared as if it had lost its way. "
-                    f"{child} knew they would need to help the star find its way home before morning."
-                ),
-            },
+        opening_seed = self._select_opening_seed(request)
+        opening = opening_seed.get("sentence") or f"Once upon a time, {child} discovered a quiet little path full of wonder."
+
+        fallback_variants = {
+            "en": [
+                {
+                    "title": f"{child} and the Moonlit Map",
+                    "middle": (
+                        f"That evening, {child} noticed a small silver map folded beside a sleepy lantern. "
+                        f"The map did not rush or sparkle loudly; it simply waited, as if teaching {child} that {moral} sometimes begins with one quiet choice. "
+                        f"With a calm breath, {child} followed the first gentle clue and wondered what soft magic the night might share."
+                    ),
+                },
+                {
+                    "title": f"{child} and the Whispering Lantern",
+                    "middle": (
+                        f"As the evening grew still, a little lantern began to glow with a warm honey light. "
+                        f"It seemed to whisper that a small bedtime journey about {theme} was waiting nearby. "
+                        f"{child} listened carefully, remembering that {moral} could help even the smallest light shine brighter."
+                    ),
+                },
+                {
+                    "title": f"{child} and the Sleepy Moon Garden",
+                    "middle": (
+                        f"Near the quietest corner, {child} found a path sprinkled with pale moon-dust and tiny sleeping flowers. "
+                        f"Nothing hurried there; every leaf seemed to breathe slowly in the night air. "
+                        f"{child} stepped forward gently, ready to learn how {moral} could help the garden wake just enough to share its secret."
+                    ),
+                },
+                {
+                    "title": f"{child} and the Little Cloud Boat",
+                    "middle": (
+                        f"A tiny cloud boat drifted close, rocking softly as if it had been waiting for a careful passenger. "
+                        f"Inside was a folded note asking for help with a gentle {theme} journey before the stars settled down. "
+                        f"{child} climbed in quietly, knowing that {moral} would matter more than rushing ahead."
+                    ),
+                },
+            ],
+            "es": [
+                {
+                    "title": f"{child} y el mapa de luna",
+                    "middle": (
+                        f"Aquella tarde, {child} encontró un pequeño mapa plateado junto a una linterna tranquila. "
+                        f"El mapa no tenía prisa; parecía recordar que {moral} podía empezar con una decisión pequeña y amable. "
+                        f"Con un suspiro sereno, {child} siguió la primera pista y se preguntó qué magia suave guardaba la noche."
+                    ),
+                },
+                {
+                    "title": f"{child} y la linterna susurrante",
+                    "middle": (
+                        f"Cuando todo quedó en calma, una linterna empezó a brillar con una luz cálida. "
+                        f"Parecía anunciar un pequeño cuento de {theme}, tranquilo y seguro. "
+                        f"{child} escuchó con atención, recordando que {moral} podía ayudar incluso a la luz más pequeña."
+                    ),
+                },
+            ],
+            "fr": [
+                {
+                    "title": f"{child} et la carte de lune",
+                    "middle": (
+                        f"Ce soir-là, {child} aperçut une petite carte argentée près d’une lanterne calme. "
+                        f"La carte ne pressait personne; elle semblait rappeler que {moral} commence parfois par un tout petit choix doux. "
+                        f"Avec une respiration tranquille, {child} suivit le premier indice et se demanda quelle magie tendre attendait dans la nuit."
+                    ),
+                },
+                {
+                    "title": f"{child} et la lanterne qui murmurait",
+                    "middle": (
+                        f"Quand le soir devint silencieux, une petite lanterne se mit à briller d’une lumière chaude. "
+                        f"Elle semblait annoncer une douce aventure de {theme}, calme et rassurante. "
+                        f"{child} écouta avec attention, en se souvenant que {moral} pouvait aider même la plus petite lumière."
+                    ),
+                },
+            ],
+            "de": [
+                {
+                    "title": f"{child} und die Mondkarte",
+                    "middle": (
+                        f"An diesem Abend entdeckte {child} neben einer stillen Laterne eine kleine silberne Karte. "
+                        f"Die Karte hatte keine Eile; sie erinnerte leise daran, dass {moral} manchmal mit einer kleinen freundlichen Entscheidung beginnt. "
+                        f"Mit einem ruhigen Atemzug folgte {child} dem ersten Hinweis und fragte sich, welche sanfte Magie die Nacht bereithielt."
+                    ),
+                },
+                {
+                    "title": f"{child} und die flüsternde Laterne",
+                    "middle": (
+                        f"Als der Abend ganz still wurde, begann eine kleine Laterne warm zu leuchten. "
+                        f"Sie schien von einem ruhigen Abenteuer über {theme} zu erzählen. "
+                        f"{child} hörte aufmerksam zu und dachte daran, dass {moral} selbst dem kleinsten Licht helfen konnte."
+                    ),
+                },
+            ],
+            "it": [
+                {
+                    "title": f"{child} e la mappa di luna",
+                    "middle": (
+                        f"Quella sera, {child} trovò una piccola mappa d’argento accanto a una lanterna tranquilla. "
+                        f"La mappa non aveva fretta; sembrava ricordare che {moral} a volte comincia con una piccola scelta gentile. "
+                        f"Con un respiro calmo, {child} seguì il primo indizio e si chiese quale magia dolce aspettasse nella notte."
+                    ),
+                },
+                {
+                    "title": f"{child} e la lanterna che sussurrava",
+                    "middle": (
+                        f"Quando la sera diventò silenziosa, una piccola lanterna iniziò a brillare di luce calda. "
+                        f"Sembrava annunciare una tenera avventura di {theme}, calma e sicura. "
+                        f"{child} ascoltò con attenzione, ricordando che {moral} poteva aiutare anche la luce più piccola."
+                    ),
+                },
+            ],
         }
 
-        fallback = fallback_by_lang.get(language_code, fallback_by_lang["en"])
-        pages = postprocess_story_pages([fallback["page"]])[:1]
+        variants = fallback_variants.get(language_code, fallback_variants["en"])
+        selected = random.choice(variants)
+        page = f"{opening} {selected['middle']}"
+        pages = postprocess_story_pages([page])[:1]
         return {
-            'title': fallback['title'],
+            'title': selected['title'],
             'pages': pages,
             'companion': companion,
             'expected_pages': expected_pages,
