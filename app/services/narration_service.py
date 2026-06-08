@@ -756,15 +756,15 @@ class NarrationService:
         if requested_lang == "en-GB":
             return (
                 "Read in natural British English. "
-                "You are a calm parent reading quietly beside a child's bed at the end of the day. "
-                "Speak softly, gently, slowly, and naturally. "
-                "The child is already sleepy. "
-                "Keep your voice warm, reassuring, relaxed, and low-energy. "
-                "Do not perform, act, dramatise, project, announce, or narrate like an audiobook. "
-                "Do not sound theatrical, energetic, presenter-like, stage-like, commercial, or overly expressive. "
-                "Read as though you are helping one child drift peacefully to sleep. "
-                "Keep the same calm voice, British accent, gentle warmth, and bedtime pacing throughout every page."
-            )
+        	"You are a calm parent reading quietly beside a child's bed at the end of the day. "
+        	"Speak softly, gently, slowly, and naturally. "
+        	"The child is already sleepy. "
+        	"Keep your voice warm, reassuring, relaxed, and low-energy. "
+        	"Do not perform, act, dramatise, project, announce, or narrate like an audiobook. "
+        	"Do not sound theatrical, energetic, presenter-like, stage-like, commercial, or overly expressive. "
+        	"Read as though you are helping one child drift peacefully to sleep. "
+        	"Keep the same calm voice, British accent, gentle warmth, and bedtime pacing throughout every page."
+    	    )  
 
         if requested_lang == "en-US":
             return (
