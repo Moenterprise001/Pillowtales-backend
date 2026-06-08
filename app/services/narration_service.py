@@ -755,15 +755,17 @@ class NarrationService:
 
         if requested_lang == "en-GB":
             return (
-                "Read in natural British English. "
-        	"You are a calm parent reading quietly beside a child's bed at the end of the day. "
-        	"Speak softly, gently, slowly, and naturally. "
-        	"The child is already sleepy. "
-        	"Keep your voice warm, reassuring, relaxed, and low-energy. "
-        	"Do not perform, act, dramatise, project, announce, or narrate like an audiobook. "
-        	"Do not sound theatrical, energetic, presenter-like, stage-like, commercial, or overly expressive. "
-        	"Read as though you are helping one child drift peacefully to sleep. "
-        	"Keep the same calm voice, British accent, gentle warmth, and bedtime pacing throughout every page."
+                "Read as a gentle British mother reading a continuous bedtime story."
+		"Use a soft, warm British accent."
+		"Treat every page as part of the exact same bedtime reading session."
+		"Narrator identity, accent, pacing, energy level, warmth and emotional tone must remain identical throughout the story."
+		"Never reinterpret the narrator."
+		"Never change voice character."
+		"Never change energy level."
+		"Never sound like a different speaker."
+		"Never switch between storyteller styles."
+		"Speak softly and naturally as though reading to one sleepy child."
+		"Avoid theatrical, audiobook, presenter, commercial, stage-performance or dramatic delivery."
     	    )  
 
         if requested_lang == "en-US":
