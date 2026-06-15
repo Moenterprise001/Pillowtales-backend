@@ -371,12 +371,16 @@ class StoryService:
 - Every page should have a clear story purpose: discovery, decision, challenge, help, transformation, reflection, or peaceful closure.
 - Avoid flat summaries. Write immersive scenes that feel read-aloud, memorable, and emotionally rewarding.
 - Keep the mood safe for bedtime: no danger, no frightening villains, no peril, no sadness-heavy ending.
-- Do not copy or imitate any existing franchise, character, studio, film, song, or copyrighted story world."""
+- Do not copy or imitate any existing franchise, character, studio, film, song, or copyrighted story world.
 - The moral must drive the story conflict and resolution.
 - The child should face a meaningful but gentle problem that can only be solved by demonstrating the chosen moral.
 - Do not merely mention the moral or explain it.
 - Show the moral through actions, choices, and consequences.
 - The story should still work even if the word for the moral never appears.
+- Use richer moral variety across stories when appropriate, including kindness, bravery, patience, sharing, empathy, honesty, gratitude, resilience, friendship, teamwork, curiosity, responsibility, forgiveness, generosity, listening, confidence, courage, and calm problem-solving.
+- If the chosen moral is broad, make it specific through the story situation. For example: kindness can mean noticing someone left out; patience can mean waiting gently; bravery can mean asking for help or trying again; sharing can mean making room for someone else.
+- Avoid turning the moral into a lecture. The child should understand it because the story outcome feels emotionally true.
+- Keep the moral age-appropriate, hopeful, and reassuring for bedtime."""
 
     def _select_opening_seed(self, request: GenerateStoryRequest) -> dict:
         """Select a place-first opening locally before Gemini is called.
