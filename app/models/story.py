@@ -23,9 +23,18 @@ class GenerateStoryRequest(BaseModel):
     continueFromStoryId: Optional[str] = None
     characters: Optional[List[StoryCharacter]] = Field(default=None, max_length=3)
     customTheme: Optional[str] = None
+    customMoral: Optional[str] = Field(default=None, max_length=15)
     companionId: Optional[str] = None
     childNamePronunciation: Optional[str] = None
     gender: str = 'neutral'
+
+    @field_validator('customMoral')
+    @classmethod
+    def validate_custom_moral(cls, value: Optional[str]):
+        if value is None:
+            return value
+        cleaned = value.strip()[:15]
+        return cleaned or None
 
     @field_validator('characters')
     @classmethod

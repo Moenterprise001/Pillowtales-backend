@@ -360,6 +360,8 @@ class StoryService:
 - Use a wide variety of bedtime-safe locations when appropriate: rainforests, river boats, deserts, castles, islands, mountains, oceans, cloud cities, ancient observatories, magical markets, treehouses, hidden valleys, peaceful pirate harbours, underwater palaces, and faraway lands.
 - Make the setting important to the story, not merely background scenery. The place should shape what the child notices, chooses, and gently solves.
 - The first page should quickly establish a clear world, a gentle objective, and an emotionally meaningful reason for the child to care about what happens next.
+- By the end of page 1, the child should have a clear goal, mystery, challenge, promise, or problem that will drive the rest of the story.
+- Avoid stories where the child simply wanders through magical locations without a purpose.
 - Do not invent unnecessary physical descriptions of the child such as hair colour, eye colour, skin colour, height, clothing, or appearance unless explicitly provided.
 - Focus on the child's role, personality, choices, actions, and connection to the setting instead.
 - Let the child make choices, notice details, and grow through the story; do not simply describe events happening around them.
@@ -370,6 +372,11 @@ class StoryService:
 - Avoid flat summaries. Write immersive scenes that feel read-aloud, memorable, and emotionally rewarding.
 - Keep the mood safe for bedtime: no danger, no frightening villains, no peril, no sadness-heavy ending.
 - Do not copy or imitate any existing franchise, character, studio, film, song, or copyrighted story world."""
+- The moral must drive the story conflict and resolution.
+- The child should face a meaningful but gentle problem that can only be solved by demonstrating the chosen moral.
+- Do not merely mention the moral or explain it.
+- Show the moral through actions, choices, and consequences.
+- The story should still work even if the word for the moral never appears.
 
     def _select_opening_seed(self, request: GenerateStoryRequest) -> dict:
         """Select a place-first opening locally before Gemini is called.

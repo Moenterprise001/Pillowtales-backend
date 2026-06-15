@@ -34,6 +34,8 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
     full_text = '\n\n'.join(pages)
     expected_pages = story_data.get('expected_pages') or 7
     generation_status = story_data.get('generation_status') or ('complete' if len(pages) >= expected_pages else 'partial')
+    custom_moral = (request.customMoral or '').strip()[:15] if getattr(request, 'customMoral', None) else ''
+    effective_moral = (custom_moral if request.moral == 'other' and custom_moral else request.moral)
 
     record = {
         'user_id': user_id,
@@ -41,7 +43,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         'child_name': request.childName,
         'age': request.age,
         'theme': request.customTheme or request.theme,
-        'moral': request.moral,
+        'moral': effective_moral,
         'calm_level': request.calmLevel,
         'duration_min': request.durationMin,
         'language': request.storyLanguageCode,
