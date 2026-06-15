@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+import logging
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
 from typing import Any, Dict, Optional
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -13,6 +16,74 @@ from app.repositories.story_repository import StoryRepository
 from app.repositories.user_repository import UserRepository
 
 router = APIRouter(prefix='/user', tags=['user'])
+logger = logging.getLogger(__name__)
+
+_PARENT_VOICE_WALLET_PATH = Path('/tmp/pillowtales_parent_voice_wallets.json')
+_PARENT_VOICE_PROFILE_META_PATH = Path('/tmp/pillowtales_parent_voice_profiles.json')
+
+
+def _remove_json_key(path: Path, key: str) -> None:
+    """Best-effort cleanup for temporary local stores used by launch-era services."""
+    try:
+        if not path.exists():
+            return
+        data = json.loads(path.read_text() or '{}')
+        if key in data:
+            del data[key]
+            path.write_text(json.dumps(data))
+    except Exception as exc:
+        logger.warning('[ACCOUNT_DELETE] Could not clean local metadata file %s: %s', path, exc)
+
+
+def _collect_storage_paths(storage_bucket, prefix: str) -> list[str]:
+    """Recursively collect storage object paths under a prefix.
+
+    Supabase storage list() returns folder-like entries for nested paths and file
+    entries for actual objects. This helper is intentionally best-effort so account
+    deletion still succeeds even if storage cleanup encounters a transient issue.
+    """
+    collected: list[str] = []
+
+    try:
+        entries = storage_bucket.list(prefix) or []
+    except Exception as exc:
+        logger.warning('[ACCOUNT_DELETE] Could not list storage prefix %s: %s', prefix, exc)
+        return collected
+
+    for entry in entries:
+        name = entry.get('name') if isinstance(entry, dict) else None
+        if not name:
+            continue
+
+        child_path = f'{prefix.rstrip("/")}/{name}' if prefix else name
+
+        # Supabase folder entries usually have no id/metadata fields. Try listing
+        # children first; if it has children, treat it as a folder.
+        child_entries = []
+        try:
+            child_entries = storage_bucket.list(child_path) or []
+        except Exception:
+            child_entries = []
+
+        if child_entries:
+            collected.extend(_collect_storage_paths(storage_bucket, child_path))
+        else:
+            collected.append(child_path)
+
+    return collected
+
+
+def _delete_storage_prefix(user_repo: UserRepository, prefix: str) -> int:
+    """Best-effort delete of storage objects under a prefix in story-audio."""
+    try:
+        bucket = user_repo.client.storage.from_('story-audio')
+        paths = _collect_storage_paths(bucket, prefix)
+        if paths:
+            bucket.remove(paths)
+        return len(paths)
+    except Exception as exc:
+        logger.warning('[ACCOUNT_DELETE] Could not delete storage prefix %s: %s', prefix, exc)
+        return 0
 
 
 @router.get('/profile', response_model=UserProfileResponse)
@@ -51,6 +122,53 @@ async def update_user_settings(preferred_language: Optional[str] = None, bedtime
         raise HTTPException(status_code=400, detail='No update data provided')
     settings_row = user_repo.update_profile(user_id, updates)
     return {'message': 'Settings updated successfully', 'settings': settings_row}
+
+
+@router.delete('/account')
+async def delete_user_account(user_id: str = Depends(get_current_user), user_repo: UserRepository = Depends(get_user_repo)) -> dict:
+    """Delete the authenticated user's PillowTales account and related data.
+
+    Frontend Settings calls DELETE /api/user/account. This route must exist for
+    App Store account-deletion compliance and for live Android users.
+    """
+    deleted_storage_objects = 0
+
+    # Best-effort storage cleanup. Story audio is stored under:
+    # story-audio/{user_id}/{story_id}/...
+    # Parent Voice launch samples were stored under:
+    # story-audio/parent-voice-samples/{user_id}/...
+    deleted_storage_objects += _delete_storage_prefix(user_repo, user_id)
+    deleted_storage_objects += _delete_storage_prefix(user_repo, f'parent-voice-samples/{user_id}')
+
+    # Best-effort database cleanup before deleting the auth user.
+    try:
+        user_repo.client.table('stories').delete().eq('user_id', user_id).execute()
+    except Exception as exc:
+        logger.warning('[ACCOUNT_DELETE] Could not delete stories for user %s: %s', user_id, exc)
+
+    try:
+        user_repo.client.table('users_profile').delete().eq('id', user_id).execute()
+    except Exception as exc:
+        logger.warning('[ACCOUNT_DELETE] Could not delete profile for user %s: %s', user_id, exc)
+
+    # Best-effort cleanup of temporary launch-era wallet/profile metadata.
+    _remove_json_key(_PARENT_VOICE_WALLET_PATH, user_id)
+    _remove_json_key(_PARENT_VOICE_PROFILE_META_PATH, user_id)
+
+    # Delete the Supabase Auth user last. The service-role Supabase client is used
+    # by the backend, so this does not rely on the user's token remaining valid
+    # after profile/story cleanup.
+    try:
+        user_repo.client.auth.admin.delete_user(user_id)
+    except Exception as exc:
+        logger.warning('[ACCOUNT_DELETE] Could not delete auth user %s: %s', user_id, exc)
+        raise HTTPException(status_code=500, detail='Account data was removed, but authentication account deletion failed. Please contact support.') from exc
+
+    return {
+        'status': 'deleted',
+        'message': 'Account deleted successfully.',
+        'deleted_storage_objects': deleted_storage_objects,
+    }
 
 
 @router.get('/parent-voice-credits', response_model=ParentVoiceCreditsResponse)
