@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import logging
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -14,14 +15,28 @@ from app.services.subscription_service import SubscriptionService
 from app.utils.story_text import preview_from_pages
 
 router = APIRouter(tags=['stories'])
+logger = logging.getLogger(__name__)
 
 
 @router.post('/generateStory', response_model=StoryResponse)
 async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(get_current_user), user_repo: UserRepository = Depends(get_user_repo), story_repo: StoryRepository = Depends(get_story_repo), story_service: StoryService = Depends(get_story_service), subscription_service: SubscriptionService = Depends(get_subscription_service)) -> StoryResponse:
     if request.userId != user_id:
+        logger.warning('[STORY_REQUEST_REJECTED] user_id=%s request_user_id=%s reason=user_id_mismatch', user_id, request.userId)
         raise HTTPException(status_code=403, detail='Unauthorized: user_id mismatch')
+    logger.info(
+        '[STORY_REQUEST] user_id=%s child_age=%s story_lang=%s narration_lang=%s theme=%s moral=%s custom_moral=%s companion=%s',
+        user_id,
+        request.age,
+        request.storyLanguageCode,
+        request.narrationLanguageCode,
+        request.customTheme or request.theme,
+        request.moral,
+        bool(getattr(request, 'customMoral', None)),
+        getattr(request, 'companionId', None),
+    )
     profile = user_repo.get_profile(user_id)
     if not profile:
+        logger.warning('[PROFILE_MISSING] user_id=%s endpoint=/api/generateStory', user_id)
         raise HTTPException(status_code=404, detail='User profile not found')
     subscription = subscription_service.get_subscription(user_id, profile.get('email'))
     story_service.validate_story_limits(user_id, subscription)
@@ -63,6 +78,15 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         'created_at': datetime.now(timezone.utc).isoformat(),
     }
     saved_story = story_repo.insert(record)
+    logger.info(
+        '[STORY_PAGE1_READY] user_id=%s story_id=%s title=%s pages_ready=%s expected_pages=%s generation_status=%s',
+        user_id,
+        saved_story['id'],
+        story_data.get('title'),
+        len(pages),
+        expected_pages,
+        generation_status,
+    )
 
     if generation_status == 'complete' or len(pages) >= expected_pages:
         metadata = await story_service.extract_metadata(story_data['title'], full_text)
@@ -80,6 +104,13 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
     else:
         # Background completion owns pages 2+. This keeps generation fast while
         # allowing the frontend to poll /stories/{id} until expected_pages arrive.
+        logger.info(
+            '[STORY_BACKGROUND_STARTED] user_id=%s story_id=%s expected_pages=%s current_pages=%s',
+            user_id,
+            saved_story['id'],
+            expected_pages,
+            len(pages),
+        )
         asyncio.create_task(story_service.complete_story_background(
             request=request,
             user_id=user_id,
@@ -101,7 +132,9 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
 
 @router.get('/stories')
 async def list_stories(user_id: str = Depends(get_current_user), story_repo: StoryRepository = Depends(get_story_repo)) -> dict:
-    return {'stories': story_repo.list_for_user(user_id)}
+    stories = story_repo.list_for_user(user_id)
+    logger.info('[STORY_LIBRARY_LOAD] user_id=%s count=%s', user_id, len(stories or []))
+    return {'stories': stories}
 
 
 @router.get('/stories/{story_id}')

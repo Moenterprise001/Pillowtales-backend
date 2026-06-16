@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from pathlib import Path
 
@@ -11,6 +12,7 @@ from app.api.deps import get_user_repo
 from app.repositories.user_repository import UserRepository
 
 router = APIRouter(prefix="/revenuecat", tags=["revenuecat"])
+logger = logging.getLogger(__name__)
 
 _PROCESSED_EVENTS_PATH = Path("/tmp/pillowtales_revenuecat_processed_events.json")
 
@@ -171,11 +173,20 @@ async def revenuecat_webhook(
     user_id = _get_user_id(event)
     event_type = _get_event_type(event)
 
+    logger.info(
+        '[REVENUECAT_WEBHOOK_RECEIVED] event_id=%s event_type=%s user_id=%s product_id=%s',
+        event_id,
+        event_type,
+        user_id,
+        product_id,
+    )
+
     if not event_id:
         raise HTTPException(status_code=400, detail="Missing RevenueCat event id")
 
     processed = _read_processed_events()
     if event_id in processed:
+        logger.info('[REVENUECAT_WEBHOOK_IGNORED] event_id=%s reason=already_processed', event_id)
         return {"status": "ignored", "reason": "already_processed"}
 
     if not user_id:
@@ -244,12 +255,31 @@ async def revenuecat_webhook(
     _write_processed_events(processed)
 
     if not is_subscription_purchase and credits_to_add <= 0:
+        logger.info(
+            '[REVENUECAT_WEBHOOK_IGNORED] event_id=%s user_id=%s product_id=%s event_type=%s reason=no_credit_or_plan_change_required',
+            event_id,
+            user_id,
+            product_id,
+            event_type,
+        )
         return {
             "status": "ignored",
             "reason": "no_credit_or_plan_change_required",
             "event_type": event_type,
             "product_id": product_id,
         }
+
+    logger.info(
+        '[PURCHASE] user_id=%s product_id=%s event_type=%s subscription=%s yearly=%s credits_added=%s new_credit_balance=%s premium_plan_synced=%s',
+        user_id,
+        product_id,
+        event_type,
+        is_subscription_purchase,
+        is_yearly_purchase,
+        credits_to_add,
+        new_credits,
+        plan_synced,
+    )
 
     return {
         "status": "ok",

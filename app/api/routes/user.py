@@ -88,8 +88,10 @@ def _delete_storage_prefix(user_repo: UserRepository, prefix: str) -> int:
 
 @router.get('/profile', response_model=UserProfileResponse)
 async def get_user_profile(user_id: str = Depends(get_current_user), user_repo: UserRepository = Depends(get_user_repo), story_repo: StoryRepository = Depends(get_story_repo)) -> UserProfileResponse:
+    logger.info('[PROFILE_LOAD] user_id=%s', user_id)
     profile = user_repo.get_profile(user_id)
     if not profile:
+        logger.warning('[PROFILE_MISSING] user_id=%s endpoint=/api/user/profile', user_id)
         raise HTTPException(status_code=404, detail='User profile not found')
     week_ago = (datetime.now(timezone.utc) - timedelta(days=7)).isoformat()
     stories_this_week = story_repo.count_since(user_id, week_ago)
@@ -103,9 +105,17 @@ async def get_user_profile(user_id: str = Depends(get_current_user), user_repo: 
 
 @router.get('/settings')
 async def get_user_settings(user_id: str = Depends(get_current_user), user_repo: UserRepository = Depends(get_user_repo)) -> dict:
+    logger.info('[SETTINGS_LOAD] user_id=%s', user_id)
     profile = user_repo.get_profile(user_id)
     if not profile:
+        logger.warning('[PROFILE_MISSING] user_id=%s endpoint=/api/user/settings', user_id)
         raise HTTPException(status_code=404, detail='User not found')
+    logger.info(
+        '[SETTINGS_LOAD_SUCCESS] user_id=%s preferred_language=%s plan=%s',
+        user_id,
+        profile.get('preferred_language', 'en'),
+        profile.get('subscription_status') or profile.get('plan') or 'free',
+    )
     return {'preferred_language': profile.get('preferred_language', 'en'), 'bedtime_mode': profile.get('bedtime_mode', False), 'plan': profile.get('subscription_status') or profile.get('plan') or 'free'}
 
 
@@ -120,6 +130,7 @@ async def update_user_settings(preferred_language: Optional[str] = None, bedtime
         updates['bedtime_mode'] = bedtime_mode
     if not updates:
         raise HTTPException(status_code=400, detail='No update data provided')
+    logger.info('[SETTINGS_UPDATE] user_id=%s updates=%s', user_id, sorted(updates.keys()))
     settings_row = user_repo.update_profile(user_id, updates)
     return {'message': 'Settings updated successfully', 'settings': settings_row}
 
@@ -131,6 +142,7 @@ async def delete_user_account(user_id: str = Depends(get_current_user), user_rep
     Frontend Settings calls DELETE /api/user/account. This route must exist for
     App Store account-deletion compliance and for live Android users.
     """
+    logger.warning('[ACCOUNT_DELETE_REQUEST] user_id=%s', user_id)
     deleted_storage_objects = 0
 
     # Best-effort storage cleanup. Story audio is stored under:
@@ -164,6 +176,11 @@ async def delete_user_account(user_id: str = Depends(get_current_user), user_rep
         logger.warning('[ACCOUNT_DELETE] Could not delete auth user %s: %s', user_id, exc)
         raise HTTPException(status_code=500, detail='Account data was removed, but authentication account deletion failed. Please contact support.') from exc
 
+    logger.warning(
+        '[ACCOUNT_DELETE_SUCCESS] user_id=%s deleted_storage_objects=%s',
+        user_id,
+        deleted_storage_objects,
+    )
     return {
         'status': 'deleted',
         'message': 'Account deleted successfully.',

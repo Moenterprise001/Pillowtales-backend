@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 from datetime import datetime, timezone
 from pathlib import Path
@@ -12,6 +13,7 @@ from app.api.deps import get_current_user, get_user_repo
 from app.repositories.user_repository import UserRepository
 
 router = APIRouter(prefix='/parent-voice', tags=['parent-voice'])
+logger = logging.getLogger(__name__)
 
 _META_PATH = Path('/tmp/pillowtales_parent_voice_profiles.json')
 
@@ -72,7 +74,9 @@ async def upload_parent_voice(
     audio_6: UploadFile | None = File(None),
 ) -> dict:
     files = [f for f in [audio_1, audio_2, audio_3, audio_4, audio_5, audio_6] if f is not None]
+    logger.info('[PARENT_VOICE_UPLOAD_STARTED] user_id=%s files=%s', user_id, len(files))
     if len(files) < 6:
+        logger.warning('[PARENT_VOICE_UPLOAD_REJECTED] user_id=%s reason=missing_samples files=%s', user_id, len(files))
         raise HTTPException(status_code=400, detail='Please upload all 6 voice samples.')
 
     api_key = os.getenv('ELEVENLABS_API_KEY', '').strip()
@@ -130,6 +134,7 @@ async def upload_parent_voice(
     created_at = datetime.now(timezone.utc).isoformat()
     user_repo.update_profile(user_id, {'parent_voice_id': voice_id, 'parent_voice_status': 'ready'})
     _set_user_meta(user_id, {'status': 'ready', 'voice_id': voice_id, 'created_at': created_at, 'sample_path': first_sample_path})
+    logger.info('[PARENT_VOICE_READY] user_id=%s voice_id=%s', user_id, voice_id)
 
     return {'status': 'ready', 'message': 'Parent Voice profile created successfully.'}
 
@@ -179,4 +184,5 @@ async def delete_parent_voice_profile(user_id: str = Depends(get_current_user), 
 
     user_repo.update_profile(user_id, {'parent_voice_id': None, 'parent_voice_status': 'none'})
     _clear_user_meta(user_id)
+    logger.info('[PARENT_VOICE_DELETED] user_id=%s had_voice=%s', user_id, bool(voice_id))
     return {'status': 'deleted'}

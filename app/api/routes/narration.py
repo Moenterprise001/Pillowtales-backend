@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from fastapi import APIRouter, BackgroundTasks, Depends, Request
 
 from app.api.deps import get_current_user, get_narration_service
@@ -7,6 +8,7 @@ from app.models.narration import NarrationRequest, NarrationResponse, PageStatus
 from app.services.narration_service import NarrationService
 
 router = APIRouter(prefix='/narration', tags=['narration'])
+logger = logging.getLogger(__name__)
 
 
 def _get_client_ip(request: Request) -> str:
@@ -28,6 +30,17 @@ async def request_narration(
     narration_service: NarrationService = Depends(get_narration_service),
 ) -> NarrationResponse:
     client_ip = _get_client_ip(request)
+    logger.info(
+        '[NARRATION_REQUEST] user_id=%s story_id=%s narrator=%s lang=%s ip=%s possible_apple=%s',
+        user_id,
+        getattr(narration_request, 'story_id', None),
+        getattr(narration_request, 'voicePreference', None),
+        getattr(narration_request, 'narrationLanguageCode', None),
+        client_ip,
+        client_ip.startswith('17.'),
+    )
+    if client_ip.startswith('17.'):
+        logger.info('[POSSIBLE_APPLE_REVIEWER] user_id=%s ip=%s endpoint=/api/narration/request', user_id, client_ip)
     return narration_service.request_narration(
         user_id,
         narration_request,
