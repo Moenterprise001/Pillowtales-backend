@@ -157,6 +157,63 @@ def _count_by(rows: list[dict], key: str, *, fallback: str = 'unknown') -> dict[
     return dict(counter.most_common())
 
 
+
+def _normalise_age(value: Any) -> int | None:
+    try:
+        age = int(value)
+    except Exception:
+        return None
+    if age <= 0:
+        return None
+    return age
+
+
+def _age_group_for(value: Any) -> str:
+    age = _normalise_age(value)
+    if age is None:
+        return 'unknown'
+    if age <= 2:
+        return '0-2'
+    if age <= 5:
+        return '3-5'
+    if age <= 8:
+        return '6-8'
+    if age <= 12:
+        return '9-12'
+    return '13+'
+
+
+def _count_by_age(rows: list[dict]) -> dict[str, int]:
+    counter: Counter[int | str] = Counter()
+    unknown = 0
+    for row in rows:
+        age = _normalise_age(row.get('age'))
+        if age is None:
+            unknown += 1
+        else:
+            counter[age] += 1
+
+    ordered: dict[str, int] = {f'Age {age}': count for age, count in sorted(counter.items()) if isinstance(age, int)}
+    if unknown:
+        ordered['unknown'] = unknown
+    return ordered
+
+
+def _top_values_by_age_group(rows: list[dict], field: str, *, limit_per_group: int = 5) -> dict[str, dict[str, int]]:
+    grouped: dict[str, Counter[str]] = defaultdict(Counter)
+    for row in rows:
+        age_group = _age_group_for(row.get('age'))
+        value = str(row.get(field) or 'unknown')
+        grouped[age_group][value] += 1
+
+    age_order = ['0-2', '3-5', '6-8', '9-12', '13+', 'unknown']
+    return {
+        group: dict(grouped[group].most_common(limit_per_group))
+        for group in age_order
+        if grouped.get(group)
+    }
+
+
 def _count_stories_in_window(stories: list[dict], since: datetime, now: datetime) -> int:
     return sum(
         1 for story in stories
@@ -222,7 +279,7 @@ async def get_admin_dashboard(
         'parent_voice_story_credits,parent_voice_intro_used'
     )
     stories_columns = (
-        'id,user_id,title,theme,moral,language,story_language_code,narration_language_code,'
+        'id,user_id,title,theme,moral,age,language,story_language_code,narration_language_code,'
         'audio_created_at,audio_status,created_at,generation_status,expected_pages,generation_error'
     )
 
@@ -307,6 +364,7 @@ async def get_admin_dashboard(
             'narration_language': story.get('narration_language_code') or 'unknown',
             'theme': story.get('theme'),
             'moral': story.get('moral'),
+            'age': story.get('age'),
             'has_narration': bool(story.get('audio_created_at')),
             'generation_status': story.get('generation_status'),
             'generation_error': bool(story.get('generation_error')),
@@ -371,6 +429,9 @@ async def get_admin_dashboard(
             'by_narration_language': dict(narration_language_counter.most_common()),
             'by_theme': _count_by(active_stories, 'theme'),
             'by_moral': _count_by(active_stories, 'moral'),
+            'by_age': _count_by_age(active_stories),
+            'top_themes_by_age_group': _top_values_by_age_group(active_stories, 'theme'),
+            'top_morals_by_age_group': _top_values_by_age_group(active_stories, 'moral'),
             'by_generation_status': _count_by(active_stories, 'generation_status'),
             'recent_stories': recent_stories,
         },
@@ -453,6 +514,35 @@ def _render_kv(title: str, data: dict[str, Any], *, limit: int = 10) -> str:
     )
 
 
+
+def _render_age_group_breakdown(title: str, data: dict[str, dict[str, Any]], *, limit: int = 5) -> str:
+    rows = []
+    age_order = ['0-2', '3-5', '6-8', '9-12', '13+', 'unknown']
+    for age_group in age_order:
+        values = data.get(age_group) or {}
+        if not values:
+            continue
+        summary = ', '.join(
+            f'{escape(str(key))} ({_safe_int(value)})'
+            for key, value in list(values.items())[:limit]
+        )
+        rows.append(
+            '<tr>'
+            f'<td>{escape(age_group)}</td>'
+            f'<td>{summary}</td>'
+            '</tr>'
+        )
+    if not rows:
+        rows.append('<tr><td colspan="2" class="muted">No data yet</td></tr>')
+    return (
+        '<section class="panel">'
+        f'<h2>{escape(title)}</h2>'
+        '<table><thead><tr><th>Age group</th><th>Top values</th></tr></thead><tbody>'
+        + ''.join(rows) +
+        '</tbody></table>'
+        '</section>'
+    )
+
 def _render_period_table(periods: dict[str, dict[str, Any]]) -> str:
     labels = {
         'today_utc': 'Today UTC',
@@ -489,17 +579,18 @@ def _render_recent_stories(stories: list[dict[str, Any]], *, limit: int = 12) ->
             f'<td>{escape(str(story.get("created_at") or ""))}</td>'
             f'<td>{escape(str(story.get("title") or "Untitled"))}</td>'
             f'<td>{escape(str(story.get("user_email") or ""))}</td>'
+            f'<td>{escape(str(story.get("age") or ""))}</td>'
             f'<td>{escape(str(story.get("story_language") or ""))}</td>'
             f'<td>{escape(str(story.get("narration_language") or ""))}</td>'
             f'<td>{"Yes" if story.get("has_narration") else "No"}</td>'
             '</tr>'
         )
     if not rows:
-        rows.append('<tr><td colspan="6" class="muted">No recent stories yet</td></tr>')
+        rows.append('<tr><td colspan="7" class="muted">No recent stories yet</td></tr>')
     return (
         '<section class="panel wide">'
         '<h2>Recent stories</h2>'
-        '<table><thead><tr><th>Created</th><th>Title</th><th>User</th><th>Story lang</th><th>Narration lang</th><th>Narrated</th></tr></thead><tbody>'
+        '<table><thead><tr><th>Created</th><th>Title</th><th>User</th><th>Age</th><th>Story lang</th><th>Narration lang</th><th>Narrated</th></tr></thead><tbody>'
         + ''.join(rows) +
         '</tbody></table></section>'
     )
@@ -614,6 +705,9 @@ code {{ background:rgba(255,255,255,.08); padding:2px 5px; border-radius:6px; }}
 {_render_kv('Narration languages', stories.get('by_narration_language', {}))}
 {_render_kv('Themes', stories.get('by_theme', {}))}
 {_render_kv('Morals', stories.get('by_moral', {}))}
+{_render_kv('Stories by age', stories.get('by_age', {}), limit=20)}
+{_render_age_group_breakdown('Top themes by age group', stories.get('top_themes_by_age_group', {}))}
+{_render_age_group_breakdown('Top morals by age group', stories.get('top_morals_by_age_group', {}))}
 {_render_kv('User preferred languages', users.get('by_preferred_language', {}))}
 {_render_kv('Parent Voice status', parent_voice.get('by_status', {}))}
 {_render_recent_stories(stories.get('recent_stories', []))}
