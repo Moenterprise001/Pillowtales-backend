@@ -235,6 +235,127 @@ OPENING_SEED_FAMILIES = [
         "it": "In una mongolfiera a righe appoggiata in un prato di fiori addormentati, {childName} sentì il cesto tirare piano verso la luna.",
         "de": "In einem gestreiften Heißluftballon, der auf einer Wiese schläfriger Blumen ruhte, spürte {childName}, wie der Korb sanft zum Mond zog.",
     },
+    {
+        "family": "glass_slipper_cafe",
+        "en": "{childName} loved visiting the Glass Slipper Café, where warm cinnamon cakes cooled beside sparkling cups and the chairs politely tucked themselves in.",
+        "es": "A {childName} le encantaba visitar el Café del Zapato de Cristal, donde los pasteles de canela se enfriaban junto a tazas brillantes y las sillas se colocaban solas con cuidado.",
+        "fr": "{childName} adorait aller au Café du Soulier de Verre, où des gâteaux à la cannelle tiédaient près de tasses scintillantes et où les chaises se rangeaient toutes seules.",
+        "it": "A {childName} piaceva visitare il Caffè della Scarpetta di Cristallo, dove dolci alla cannella si raffreddavano accanto a tazze scintillanti e le sedie si sistemavano da sole.",
+        "de": "{childName} besuchte gern das Glasschuh-Café, wo warme Zimtküchlein neben funkelnden Tassen abkühlten und die Stühle sich höflich selbst zurechtrückten.",
+    },
+    {
+        "family": "dragon_post_office",
+        "en": "{childName} lived beside a tiny mountain post office where gentle dragons delivered moonlit letters tied with golden ribbon.",
+        "es": "{childName} vivía junto a una pequeña oficina de correos en la montaña, donde unos dragones tranquilos repartían cartas iluminadas por la luna y atadas con cintas doradas.",
+        "fr": "{childName} vivait près d’un minuscule bureau de poste de montagne, où de doux dragons livraient des lettres de lune nouées de rubans dorés.",
+        "it": "{childName} viveva accanto a un piccolo ufficio postale di montagna, dove draghi gentili consegnavano lettere illuminate dalla luna e legate con nastri dorati.",
+        "de": "{childName} wohnte neben einem winzigen Bergpostamt, wo sanfte Drachen mondhelle Briefe mit goldenen Bändern austrugen.",
+    },
+    {
+        "family": "moon_bakery",
+        "en": "{childName} visited a little moon bakery where crescent biscuits rested on silver trays and the ovens glowed like sleepy stars.",
+        "es": "{childName} visitó una pequeña panadería de la luna, donde galletas con forma de media luna descansaban en bandejas plateadas y los hornos brillaban como estrellas adormecidas.",
+        "fr": "{childName} entra dans une petite boulangerie de lune, où des biscuits en croissant reposaient sur des plateaux d’argent et où les fours luisaient comme des étoiles endormies.",
+        "it": "{childName} visitò una piccola panetteria della luna, dove biscotti a mezzaluna riposavano su vassoi d’argento e i forni brillavano come stelle assonnate.",
+        "de": "{childName} besuchte eine kleine Mondbäckerei, in der Mondsichelkekse auf silbernen Blechen lagen und die Öfen wie schläfrige Sterne leuchteten.",
+    },
+    {
+        "family": "forest_school",
+        "en": "{childName} went to a tiny woodland school where squirrels rang the bell with acorns and owls taught lessons beneath the quiet trees.",
+        "es": "{childName} fue a una pequeña escuela del bosque, donde las ardillas tocaban la campana con bellotas y los búhos daban clase bajo los árboles tranquilos.",
+        "fr": "{childName} allait dans une petite école de la forêt, où les écureuils sonnaient la cloche avec des glands et où les hiboux faisaient classe sous les arbres calmes.",
+        "it": "{childName} andava in una piccola scuola del bosco, dove gli scoiattoli suonavano la campanella con le ghiande e i gufi facevano lezione sotto gli alberi tranquilli.",
+        "de": "{childName} ging in eine kleine Waldschule, wo Eichhörnchen mit Eicheln die Glocke läuteten und Eulen unter stillen Bäumen unterrichteten.",
+    },
+    {
+        "family": "toymaker_workshop",
+        "en": "{childName} lived above a little toymaker’s workshop where wooden animals smiled whenever the lanterns were lit.",
+        "es": "{childName} vivía sobre un pequeño taller de juguetes, donde los animales de madera sonreían cada vez que se encendían los farolillos.",
+        "fr": "{childName} habitait au-dessus d’un petit atelier de jouets, où les animaux de bois souriaient dès que les lanternes s’allumaient.",
+        "it": "{childName} viveva sopra una piccola bottega di giocattoli, dove gli animali di legno sorridevano ogni volta che si accendevano le lanterne.",
+        "de": "{childName} wohnte über einer kleinen Spielzeugmacherwerkstatt, in der Holztiere lächelten, sobald die Laternen angezündet wurden.",
+    },
+    {
+        "family": "star_painter_cottage",
+        "en": "{childName} lived beside a small cottage where a gentle star painter coloured the evening sky with a silver brush.",
+        "es": "{childName} vivía junto a una pequeña casita donde una pintora de estrellas coloreaba el cielo de la tarde con un pincel plateado.",
+        "fr": "{childName} vivait près d’une petite maison où une douce peintre d’étoiles colorait le ciel du soir avec un pinceau d’argent.",
+        "it": "{childName} viveva accanto a una casetta dove una gentile pittrice di stelle colorava il cielo della sera con un pennello d’argento.",
+        "de": "{childName} wohnte neben einem kleinen Häuschen, in dem eine freundliche Sternenmalerin den Abendhimmel mit einem silbernen Pinsel färbte.",
+    },
+    {
+        "family": "cloud_circus",
+        "en": "{childName} saw a quiet cloud circus drifting above the rooftops, where soft drums whispered and acrobats balanced on moonbeams.",
+        "es": "{childName} vio un circo tranquilo de nubes flotando sobre los tejados, donde unos tambores suaves susurraban y los acróbatas se equilibraban sobre rayos de luna.",
+        "fr": "{childName} aperçut un cirque de nuages tout calme au-dessus des toits, où de doux tambours murmuraient et où les acrobates tenaient en équilibre sur des rayons de lune.",
+        "it": "{childName} vide un tranquillo circo di nuvole sopra i tetti, dove tamburi leggeri sussurravano e gli acrobati camminavano sui raggi di luna.",
+        "de": "{childName} sah einen stillen Wolkenzirkus über den Dächern treiben, wo leise Trommeln flüsterten und Akrobaten auf Mondstrahlen balancierten.",
+    },
+    {
+        "family": "mermaid_library",
+        "en": "{childName} discovered a hidden mermaid library beneath the calm waves, where shell books opened with a soft pearly glow.",
+        "es": "{childName} descubrió una biblioteca de sirenas escondida bajo las olas tranquilas, donde los libros de concha se abrían con un brillo nacarado.",
+        "fr": "{childName} découvrit une bibliothèque de sirènes cachée sous les vagues calmes, où les livres de coquillage s’ouvraient dans une douce lueur nacrée.",
+        "it": "{childName} scoprì una biblioteca di sirene nascosta sotto le onde calme, dove libri di conchiglia si aprivano con un dolce bagliore di perla.",
+        "de": "{childName} entdeckte unter den ruhigen Wellen eine versteckte Meerjungfrauen-Bibliothek, in der Muschelbücher in sanftem Perlglanz aufgingen.",
+    },
+    {
+        "family": "rainbow_garden",
+        "en": "{childName} found a rainbow garden behind a little gate, where every colour had its own gentle scent and the flowers hummed softly.",
+        "es": "{childName} encontró un jardín arcoíris detrás de una pequeña verja, donde cada color tenía su propio aroma suave y las flores tarareaban despacio.",
+        "fr": "{childName} trouva un jardin arc-en-ciel derrière un petit portail, où chaque couleur avait son doux parfum et où les fleurs fredonnaient tout bas.",
+        "it": "{childName} trovò un giardino arcobaleno dietro un piccolo cancello, dove ogni colore aveva il suo profumo delicato e i fiori canticchiavano piano.",
+        "de": "{childName} fand hinter einem kleinen Tor einen Regenbogengarten, in dem jede Farbe ihren eigenen sanften Duft hatte und die Blumen leise summten.",
+    },
+    {
+        "family": "clockwork_greenhouse",
+        "en": "{childName} visited a clockwork greenhouse where tiny brass watering cans marched carefully between sleepy moonflowers.",
+        "es": "{childName} visitó un invernadero de relojería, donde pequeñas regaderas de latón caminaban con cuidado entre flores de luna adormecidas.",
+        "fr": "{childName} visita une serre mécanique, où de petits arrosoirs de cuivre marchaient prudemment entre des fleurs de lune endormies.",
+        "it": "{childName} visitò una serra a ingranaggi, dove piccoli annaffiatoi d’ottone camminavano con attenzione tra fiori di luna addormentati.",
+        "de": "{childName} besuchte ein Uhrwerk-Gewächshaus, in dem winzige Messinggießkannen vorsichtig zwischen schläfrigen Mondblumen marschierten.",
+    },
+    {
+        "family": "sleepy_puppet_theatre",
+        "en": "{childName} helped at a tiny puppet theatre where velvet curtains opened only when the stars were ready to listen.",
+        "es": "{childName} ayudaba en un pequeño teatro de marionetas, donde las cortinas de terciopelo solo se abrían cuando las estrellas estaban listas para escuchar.",
+        "fr": "{childName} aidait dans un petit théâtre de marionnettes, où les rideaux de velours ne s’ouvraient que lorsque les étoiles étaient prêtes à écouter.",
+        "it": "{childName} aiutava in un piccolo teatro di burattini, dove le tende di velluto si aprivano solo quando le stelle erano pronte ad ascoltare.",
+        "de": "{childName} half in einem kleinen Puppentheater, in dem sich die Samtvorhänge erst öffneten, wenn die Sterne zum Zuhören bereit waren.",
+    },
+    {
+        "family": "honeybee_palace",
+        "en": "{childName} lived near a golden honeybee palace where tiny guards polished petals and every hallway smelled of warm honey.",
+        "es": "{childName} vivía cerca de un palacio dorado de abejas, donde pequeños guardianes limpiaban pétalos y todos los pasillos olían a miel caliente.",
+        "fr": "{childName} vivait près d’un palais doré d’abeilles, où de petits gardes polissaient les pétales et où chaque couloir sentait le miel tiède.",
+        "it": "{childName} viveva vicino a un palazzo dorato delle api, dove piccole guardie lucidavano petali e ogni corridoio profumava di miele caldo.",
+        "de": "{childName} wohnte nahe einem goldenen Honigbienenpalast, wo winzige Wachen Blütenblätter polierten und jeder Flur nach warmem Honig duftete.",
+    },
+    {
+        "family": "dream_train_carriage",
+        "en": "{childName} stepped into a quiet dream-train carriage where blue cushions lined the seats and the windows showed tomorrow’s sunrise.",
+        "es": "{childName} entró en un tranquilo vagón del tren de los sueños, con cojines azules en los asientos y ventanas que mostraban el amanecer de mañana.",
+        "fr": "{childName} monta dans un wagon calme du train des rêves, avec des coussins bleus sur les sièges et des fenêtres montrant le lever du soleil du lendemain.",
+        "it": "{childName} salì su una tranquilla carrozza del treno dei sogni, con cuscini blu sui sedili e finestre che mostravano l’alba del giorno dopo.",
+        "de": "{childName} stieg in einen stillen Traumzugwagen, in dem blaue Kissen auf den Sitzen lagen und die Fenster den Sonnenaufgang von morgen zeigten.",
+    },
+    {
+        "family": "little_lighthouse_cafe",
+        "en": "{childName} lived near a tiny lighthouse café where sailors drank cocoa and the lamp blinked kindly across the quiet sea.",
+        "es": "{childName} vivía cerca de un pequeño café faro, donde los marineros tomaban cacao y la luz parpadeaba con cariño sobre el mar tranquilo.",
+        "fr": "{childName} vivait près d’un minuscule café-phare, où les marins buvaient du chocolat chaud et où la lampe clignait doucement vers la mer calme.",
+        "it": "{childName} viveva vicino a un piccolo caffè-faro, dove i marinai bevevano cacao e la lampada lampeggiava gentile sul mare tranquillo.",
+        "de": "{childName} wohnte nahe einem winzigen Leuchtturm-Café, wo Seeleute Kakao tranken und die Lampe freundlich über das stille Meer blinkte.",
+    },
+    {
+        "family": "dinosaur_kindergarten",
+        "en": "{childName} visited a dinosaur kindergarten where baby dinosaurs practised tiny roars into soft moss pillows.",
+        "es": "{childName} visitó una guardería de dinosaurios, donde los pequeños dinosaurios practicaban rugidos diminutos sobre cojines de musgo suave.",
+        "fr": "{childName} visita une maternelle de dinosaures, où les bébés dinosaures s’exerçaient à pousser de tout petits rugissements dans des coussins de mousse.",
+        "it": "{childName} visitò un asilo dei dinosauri, dove piccoli dinosauri provavano minuscoli ruggiti dentro cuscini di muschio morbido.",
+        "de": "{childName} besuchte einen Dinosaurier-Kindergarten, in dem Babydinosaurier winzige Brüller in weiche Mooskissen übten.",
+    },
+
 ]
 
 # Backward-compatible English seed list kept for any older imports/tests.
@@ -353,34 +474,58 @@ class StoryService:
 
     def _storycraft_rules(self) -> str:
         return """STORYCRAFT QUALITY RULES:
+- Write like a skilled children's author rather than a poet. Use clear, warm sentences and avoid over-describing ordinary things.
+- Write in simple, natural language that is easy to read aloud to young children. Most sentences should be direct and uncomplicated, saving richer descriptions for occasional special moments.
 - Make the story feel like a premium illustrated children's fantasy tale: imaginative, emotionally warm, cinematic, and magical, while remaining original and bedtime-safe.
 - Use a classic storybook arc: wonder-filled opening, gentle discovery, small emotional challenge, magical or meaningful helper moment, moral learned through action, and a satisfying peaceful resolution.
 - The story setting should feel vivid, memorable, and specific, like a real storybook world the child can picture immediately.
 - The adventure may begin anywhere that suits the theme, not only near a home, bedroom, window, blanket, or bedtime object.
 - Use a wide variety of bedtime-safe locations when appropriate: rainforests, river boats, deserts, castles, islands, mountains, oceans, cloud cities, ancient observatories, magical markets, treehouses, hidden valleys, peaceful pirate harbours, underwater palaces, and faraway lands.
-- Make the setting important to the story, not merely background scenery. The place should shape what the child notices, chooses, and gently solves.
-- The first page should quickly establish a clear world, a gentle objective, and an emotionally meaningful reason for the child to care about what happens next.
-- By the end of page 1, the child should have a clear goal, mystery, challenge, promise, or problem that will drive the rest of the story.
-- Avoid stories where the child simply wanders through magical locations without a purpose.
+- Establish the setting naturally and give the child a simple, believable reason for being there. Avoid stories where the child simply appears in a magical place without context or purpose.
+- Make the setting important to the story rather than background scenery. Distinctive places such as cafés, bakeries, schools, workshops, theatres, trains, and gardens should influence the problem and its solution.
+- If the child has a role or identity (princess, pirate, explorer, baker, inventor, astronaut), that role should meaningfully influence the story's events.
 - Do not invent unnecessary physical descriptions of the child such as hair colour, eye colour, skin colour, height, clothing, or appearance unless explicitly provided.
 - Focus on the child's role, personality, choices, actions, and connection to the setting instead.
-- Let the child make choices, notice details, and grow through the story; do not simply describe events happening around them.
-- Avoid repeatedly relying on magical objects as the main story trigger.
-- Sometimes begin with a problem, visitor, animal, mystery, missing item, wish, celebration, question, or natural event instead.
-- Include sensory storybook details: soft light, gentle sounds, cozy textures, moonlight, stars, nature, kindness, friendship, courage, patience, or wonder where appropriate.
-- Every page should have a clear story purpose: discovery, decision, challenge, help, transformation, reflection, or peaceful closure.
+- Let the child make choices, notice details, and grow through meaningful scenes. Every page should move the story forward through discovery, decision, challenge, helper, transformation, reflection, or peaceful closure.
+- Avoid opening stories with: "Once upon a time...", "One evening...", "One night...", or "There lived...". Instead, begin with an interesting place, visitor, question, celebration, mystery, or problem.
+- Avoid poetic or overly lyrical descriptions and avoid writing every sentence to sound magical. Simple, concrete descriptions are often more memorable than decorative language.
+- Avoid repeatedly relying on magical objects as the main story trigger. Sometimes begin with a problem, visitor, animal, mystery, missing item, wish, celebration, question, or natural event instead.
+- Strongly avoid the words: "gentle", "tiny", "little", "golden", "shimmering", "glowing", "sparkling", "moonlit", "softly", "slowly", and "sleepy". Use them only when absolutely essential to the plot. Never use more than one of these words on a single page.
+- Avoid titles containing the words: sleepy, moonlit, little, tiny, golden, sparkling, glowing, or gentle unless they are essential to the story's central idea.
+- Avoid giving ordinary objects or scenery human emotions unless it creates a genuinely memorable magical detail. Do not routinely write that flowers wait, trees hope, stars watch, or gardens breathe.
+- Do not describe every magical object as shimmering, glowing, sparkling, or golden. Find fresh, specific ways to describe magic and wonder.
+- Prefer specific, memorable descriptions over generic magical adjectives. Instead of "glowing pearl", "golden light", or "sparkling fountain", describe what makes the object unusual or memorable.
+- Limit repeated use of moon imagery. Avoid filling stories with moonlight, moonbeams, moon-dust, silver leaves, or sleepy night scenes unless the moon is genuinely important to the plot.
+- Prefer memorable nouns, actions, and sensory details over decorative adjectives and adverbs. Show magic through what characters see, hear, touch, smell, and do.
+- Prefer one memorable detail over many adjectives. A beetle carrying a dew drop is more memorable than a tiny, gentle, shimmering beetle.
+- Prefer strong nouns and actions over extra adjectives. If a sentence remains clear and magical after removing an adjective or adverb, remove it.
+- Avoid descriptive formulas such as "little + gentle + soft + shimmering + quiet". Vary imagery and vocabulary from story to story.
+- At least half of the magical details in a story should come from ordinary things behaving in unexpected ways, such as a teacup collecting raindrops, a staircase made of books, a snail carrying a lantern, a tree that grows bells, or a puddle that remembers songs.
+- Include at least one concrete, memorable object or image on each page that a child could easily draw or talk about the next day.
+- Never directly state a character's thoughts, wishes, intentions, realizations, or feelings. Do not write: "she wanted...", "he hoped...", "she realised...", "he knew...", "she felt...", "he understood...", or "she decided...". Instead, show these through:
+  - actions
+  - dialogue
+  - expressions
+  - choices
+  - consequences
+- Trust the reader to infer emotions and lessons. Do not explain what the child should feel.
+- Never explain the story's moral before the child discovers it through events. Avoid phrases such as "learned that", "needed to teach", "realized that", "the magic of sharing", or similar explanations of the lesson.
+- Avoid repeatedly relying on titled magical helpers such as keepers, guardians, tenders, weavers, or shepherds. Use them only when they feel genuinely original and important to the story.
+- Important characters should feel specific and memorable, with their own personalities, relationships, or jobs, rather than generic fantasy roles.
+- Let readers discover the moral through actions and consequences rather than narration.
+- Write each story as though it were written by a different storyteller. Vary settings, magical details, sentence rhythms, imagery, helpers, and vocabulary so that stories do not feel generated from the same formula.
+- Make magical worlds internally consistent. If a character has a title or role, give it simple context and give important characters clear relationships or purposes rather than labels alone.
 - Avoid flat summaries. Write immersive scenes that feel read-aloud, memorable, and emotionally rewarding.
-- Keep the mood safe for bedtime: no danger, no frightening villains, no peril, no sadness-heavy ending.
+- Keep the mood safe for bedtime: no danger, no frightening villains, no peril, and no sadness-heavy ending.
 - Do not copy or imitate any existing franchise, character, studio, film, song, or copyrighted story world.
-- The moral must drive the story conflict and resolution.
-- The child should face a meaningful but gentle problem that can only be solved by demonstrating the chosen moral.
-- Do not merely mention the moral or explain it.
-- Show the moral through actions, choices, and consequences.
+- The child should face a meaningful but gentle problem that is resolved through the chosen moral, shown through actions and consequences rather than explanation.
 - The story should still work even if the word for the moral never appears.
-- Use richer moral variety across stories when appropriate, including kindness, bravery, patience, sharing, empathy, honesty, gratitude, resilience, friendship, teamwork, curiosity, responsibility, forgiveness, generosity, listening, confidence, courage, and calm problem-solving.
-- If the chosen moral is broad, make it specific through the story situation. For example: kindness can mean noticing someone left out; patience can mean waiting gently; bravery can mean asking for help or trying again; sharing can mean making room for someone else.
+- Vary the moral lessons across stories. Avoid repeating sharing, kindness, helping, or teamwork as the default moral.
+- If the chosen moral is broad, make it specific through the story situation.
 - Avoid turning the moral into a lecture. The child should understand it because the story outcome feels emotionally true.
-- Keep the moral age-appropriate, hopeful, and reassuring for bedtime."""
+- Keep the moral age-appropriate, hopeful, and reassuring for bedtime.
+- Give each story one memorable image, object, sound, or moment that a child might mention again tomorrow.
+- Let the ending gently return the child toward safety, comfort, and sleep."""
 
     def _select_opening_seed(self, request: GenerateStoryRequest) -> dict:
         """Select a place-first opening locally before Gemini is called.
@@ -905,6 +1050,13 @@ ORIGINAL STORY REQUIREMENTS:
 EXISTING STORY START:
 Title: {title}
 Page 1: {page_one}
+
+CONTINUATION QUALITY BOOST:
+- Continue the specific world from page 1 and make it feel handcrafted, not generic.
+- Add one gentle emotional thread: someone needs kindness, courage, patience, friendship, sharing, or reassurance.
+- Include one tiny, sweet, memorable moment that fits the world naturally.
+- Use short natural dialogue only where it reveals feelings.
+- Make the final page slow down clearly and feel safe, cosy, and complete.
 
 CONTINUATION REQUIREMENTS:
 - Write exactly {remaining_page_count} remaining pages.
