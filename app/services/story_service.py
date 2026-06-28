@@ -487,7 +487,10 @@ class StoryService:
 - Do not invent unnecessary physical descriptions of the child such as hair colour, eye colour, skin colour, height, clothing, or appearance unless explicitly provided.
 - Focus on the child's role, personality, choices, actions, and connection to the setting instead.
 - Let the child make choices, notice details, and grow through meaningful scenes. Every page should move the story forward through discovery, decision, challenge, helper, transformation, reflection, or peaceful closure.
-- Avoid opening stories with: "Once upon a time...", "One evening...", "One night...", or "There lived...". Instead, begin with an interesting place, visitor, question, celebration, mystery, or problem.
+- Classic openings such as "Once upon a time..." are allowed when they suit the theme, especially fairytale, princess, castle, dragon, unicorn, or kingdom stories.
+- Do not overuse the same opening across stories. Vary openings naturally between classic storybook openings, place-based openings, child-in-role openings, small mysteries, visitors, questions, celebrations, unusual events, and gentle problems.
+- Avoid repetitive openings such as "One evening...", "One night...", or "There lived..." when they appear too frequently.
+- By the end of page 1, the reader should understand why the child matters in this story, either because they already have a role in the world or because the event, question, discovery, or responsibility now belongs to them.
 - Avoid poetic or overly lyrical descriptions and avoid writing every sentence to sound magical. Simple, concrete descriptions are often more memorable than decorative language.
 - Avoid repeatedly relying on magical objects as the main story trigger. Sometimes begin with a problem, visitor, animal, mystery, missing item, wish, celebration, question, or natural event instead.
 - Strongly avoid the words: "gentle", "tiny", "little", "golden", "shimmering", "glowing", "sparkling", "moonlit", "softly", "slowly", and "sleepy". Use them only when absolutely essential to the plot. Never use more than one of these words on a single page.
