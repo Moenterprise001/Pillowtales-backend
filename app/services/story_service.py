@@ -361,6 +361,152 @@ OPENING_SEED_FAMILIES = [
 # Backward-compatible English seed list kept for any older imports/tests.
 OPENING_SEEDS = [seed["en"] for seed in OPENING_SEED_FAMILIES]
 
+STORY_ARCHETYPE_WEIGHTS = [
+    ("mystery_to_solve", 14),
+    ("rescue_mission", 12),
+    ("lost_object", 10),
+    ("secret_hidden_place", 10),
+    ("broken_spell_or_magic", 10),
+    ("delivery_mission", 9),
+    ("treasure_hunt", 9),
+    ("two_paths_choice", 8),
+    ("repair_something_magical", 8),
+    ("helping_rivals_become_friends", 6),
+    ("race_against_time", 5),
+    ("magical_competition", 4),
+    ("mistaken_identity", 3),
+    ("preparing_for_celebration", 3),
+]
+
+STORY_ARCHETYPE_INSTRUCTIONS = {
+    "mystery_to_solve": {
+        "label": "Mystery to Solve",
+        "rules": [
+            "Begin with a question, clue, strange change, missing sign, unusual sound, or confusing event.",
+            "Include 2-3 gentle clues before the answer becomes clear.",
+            "The child should notice details and connect clues rather than simply being told the answer.",
+            "The resolution should reveal why the mystery happened and include a warm, reassuring outcome.",
+        ],
+    },
+    "rescue_mission": {
+        "label": "Rescue Mission",
+        "rules": [
+            "Someone or something needs safe, gentle help, but there must be no frightening danger.",
+            "The first rescue idea should not fully work or should reveal a second step.",
+            "The child should use kindness, patience, creativity, or teamwork to solve the problem.",
+            "End with relief, gratitude shown through action, and a concrete callback image.",
+        ],
+    },
+    "lost_object": {
+        "label": "Lost Object",
+        "rules": [
+            "An important object is missing and the world cannot work properly without it.",
+            "Follow clues, wrong turns, or mistaken assumptions before finding the truth.",
+            "The object should matter emotionally or practically, not just be treasure.",
+            "The object should return in the final image or ending callback.",
+        ],
+    },
+    "secret_hidden_place": {
+        "label": "Secret Hidden Place",
+        "rules": [
+            "The story leads to a place that is hidden, forgotten, or only opens in a special way.",
+            "The hidden place must have its own simple rule, tradition, or problem.",
+            "The child should earn entry through a choice, kindness, observation, or courage.",
+            "The ending should suggest the place still exists after bedtime.",
+        ],
+    },
+    "broken_spell_or_magic": {
+        "label": "Broken Spell or Broken Magic",
+        "rules": [
+            "Something magical is not working correctly: a spell, bridge, map, fountain, lantern, song, or sky-sign.",
+            "The first fix should not fully work and should reveal what is really wrong.",
+            "The solution should require the moral in action rather than a magic word alone.",
+            "Show the magic working again through a specific visual change.",
+        ],
+    },
+    "delivery_mission": {
+        "label": "Delivery Mission",
+        "rules": [
+            "The child must deliver something meaningful before it is needed.",
+            "The journey should include one obstacle, delay, or choice about helping someone else on the way.",
+            "The delivered item should solve a concrete bedtime-safe problem.",
+            "End with the delivered item creating a final comforting image.",
+        ],
+    },
+    "treasure_hunt": {
+        "label": "Treasure Hunt",
+        "rules": [
+            "The treasure should be surprising, meaningful, or useful, not just gold or jewels.",
+            "Use clues, maps, riddles, marks, or signs that the child can follow.",
+            "Include one misleading clue or obstacle before the real treasure is found.",
+            "The treasure should connect to the moral and final callback.",
+        ],
+    },
+    "two_paths_choice": {
+        "label": "Two Paths / Difficult Choice",
+        "rules": [
+            "At some point the child must choose between two reasonable options.",
+            "Neither choice should be obviously perfect; each should have a small cost or consequence.",
+            "The story should show why the chosen path matters through events, not explanation.",
+            "The ending should gently honour the choice the child made.",
+        ],
+    },
+    "repair_something_magical": {
+        "label": "Repair Something Magical",
+        "rules": [
+            "A magical object, place, machine, instrument, garden, bridge, or vehicle needs repairing.",
+            "The child should gather or discover the missing piece through action.",
+            "A first repair attempt should partly work, then reveal what still needs attention.",
+            "The completed repair should create a memorable final image.",
+        ],
+    },
+    "helping_rivals_become_friends": {
+        "label": "Helping Rivals Become Friends",
+        "rules": [
+            "Two characters want different things or misunderstand one another.",
+            "The child should listen, notice what each side needs, and help them cooperate.",
+            "Avoid lectures; show the friendship through shared action.",
+            "End with the two characters doing something together that they could not do alone.",
+        ],
+    },
+    "race_against_time": {
+        "label": "Race Against Time",
+        "rules": [
+            "There is a soft bedtime-safe countdown: before moonrise, before the last lantern dims, before the tide turns, or before the celebration begins.",
+            "Keep urgency gentle, not frightening.",
+            "Include one delay that forces the child to choose what matters most.",
+            "The resolution should arrive just in time and then slow into a calm ending.",
+        ],
+    },
+    "magical_competition": {
+        "label": "Magical Competition",
+        "rules": [
+            "The story includes a friendly contest, performance, game, or challenge with clear rounds or tasks.",
+            "Winning should not be the main lesson; kindness, creativity, honesty, or teamwork should matter more.",
+            "Include one setback during the competition.",
+            "End with a shared celebration or unexpected prize connected to the adventure.",
+        ],
+    },
+    "mistaken_identity": {
+        "label": "Mistaken Identity",
+        "rules": [
+            "Someone or something is mistaken for the wrong person, creature, object, or sign.",
+            "The confusion should create funny or curious complications, not fear.",
+            "The child should uncover the truth by paying attention and asking kindly.",
+            "The reveal should help characters understand each other better.",
+        ],
+    },
+    "preparing_for_celebration": {
+        "label": "Preparing for a Celebration",
+        "rules": [
+            "A magical celebration, show, feast, parade, or ceremony needs help getting ready.",
+            "Something important should go wrong before the celebration can begin.",
+            "The child should solve the problem through the chosen moral in action.",
+            "End with one vivid celebration image that feels cosy and earned.",
+        ],
+    },
+}
+
 FIRST_PAGE_TIMEOUT_SECONDS = 30
 # User-facing consistency target: if Gemini has not produced page 1
 # quickly enough, return a deterministic page-1 fallback so Reader can open.
@@ -472,6 +618,31 @@ class StoryService:
             "it": "Non è necessario includere altri familiari, amici o animali.",
         }.get((language_code or "en").lower()[:2], "No extra family members or friends are required.")
 
+    def _select_story_archetype(self) -> dict:
+        """Choose a hidden weighted story archetype for plot variety.
+
+        This is local, instant, and does not touch narration, chunking, or
+        reader flow. The archetype is prompt guidance only.
+        """
+        keys = [item[0] for item in STORY_ARCHETYPE_WEIGHTS]
+        weights = [item[1] for item in STORY_ARCHETYPE_WEIGHTS]
+        selected_key = random.choices(keys, weights=weights, k=1)[0]
+        return STORY_ARCHETYPE_INSTRUCTIONS[selected_key]
+
+    def _story_archetype_block(self, archetype: Optional[dict]) -> str:
+        if not archetype:
+            return ""
+
+        rules = archetype.get("rules") or []
+        rule_lines = "\n".join(f"- {rule}" for rule in rules)
+        label = archetype.get("label", "Story Archetype")
+        return f"""SELECTED STORY ARCHETYPE:
+- This story MUST primarily follow the "{label}" archetype.
+- Use this archetype to shape the opening promise, middle obstacle, resolution, and final callback.
+- Do not drift into the default pattern of finding a creature, helping it once, receiving a gift, and going home unless that is genuinely required by this archetype.
+{rule_lines}
+"""
+
     def _storycraft_rules(self) -> str:
         return """STORYCRAFT QUALITY RULES:
 - Write like a skilled children's author rather than a poet. Use clear, warm sentences and avoid over-describing ordinary things.
@@ -506,6 +677,173 @@ class StoryService:
 - Avoid descriptive formulas such as "little + gentle + soft + shimmering + quiet". Vary imagery and vocabulary from story to story.
 - At least half of the magical details in a story should come from ordinary things behaving in unexpected ways, such as a teacup collecting raindrops, a staircase made of books, a snail carrying a lantern, a tree that grows bells, or a puddle that remembers songs.
 - Include at least one concrete, memorable object or image on each page that a child could easily draw or talk about the next day.
+
+
+
+WONDER & ENDINGS ENGINE RULES:
+- Endings should avoid relying too often on simple physical rewards such as a marble, crystal, seed, coin, or ordinary keepsake.
+- The final reward should preferably be one of:
+  • a new friendship,
+  • an invitation to return,
+  • a promise kept,
+  • a small mystery that remains,
+  • a magical object with a specific purpose,
+  • a helper continuing their work somewhere far away,
+  • a relationship repaired,
+  • or a quiet sign that another adventure may come.
+
+- If the story gives the child a magical object, make it distinctive and story-specific, not generic.
+  Good examples:
+  • a compass that points toward kindness,
+  • a feather that remembers songs,
+  • a bottle containing a tiny sunrise,
+  • a key made of moonlight,
+  • a bell that rings only when someone needs help,
+  • a lantern that stores happy memories,
+  • a paper star that follows the child home,
+  • a map that redraws itself at bedtime.
+
+- The final paragraph should include one last image of wonder:
+  • a light blinking once,
+  • a faraway helper still awake,
+  • a map changing slightly,
+  • a feather moving by itself,
+  • a tiny door appearing,
+  • a second letter arriving,
+  • a star following the child home,
+  • or a magical place still quietly existing after the child returns.
+
+- Some stories may end with a small unanswered wonder, as long as the main emotional arc is complete and the child feels safe.
+- Avoid overusing endings where someone simply gives the child a marble, crystal, seed, or glowing stone.
+- Do not wrap every story up too neatly. A tiny remaining mystery can make the story more memorable while still feeling calm and complete.
+- Strengthen magical locations so they feel genuinely fantastical rather than ordinary places with magical adjectives.
+  Possible location textures include:
+  • floating libraries,
+  • upside-down islands,
+  • forests of lantern trees,
+  • rivers of moonlight,
+  • valleys where clouds sleep,
+  • bridges woven from stars,
+  • gardens inside comets,
+  • islands carried by giant turtles,
+  • markets that open only when the moon is full,
+  • observatories carved into sleeping mountains.
+
+THEME-DRIVEN ADVENTURE RULES:
+
+
+
+
+EMOTIONAL STORY ENGINE RULES:
+- In addition to the primary adventure archetype, silently choose ONE emotional theme that drives the heart of the story.
+
+Possible emotional themes include:
+- Keeping a Promise
+- Learning to Trust
+- Overcoming Fear
+- Sharing Something Precious
+- Helping a Friend Forgive
+- Finding Courage
+- Working Together
+- Letting Someone Go
+- Making a Difficult Choice
+- Being Patient
+- Welcoming Someone New
+- Helping Someone Feel Included
+- Discovering Confidence
+- Showing Kindness Without Expecting a Reward
+
+- The emotional theme should influence:
+  • the hero's decisions,
+  • the middle obstacles,
+  • the interactions with supporting characters,
+  • and the final lesson or callback.
+
+- Not every problem should be solved by finding an object.
+- Some stories should be solved through cooperation, understanding, bravery, trust, sharing, or kindness.
+
+- The ending should leave the child with a warm emotional takeaway rather than only a physical reward.
+
+STORY ARCHETYPE RULES:
+- Before writing the story, silently choose ONE primary story archetype and build the plot around it.
+- Vary the archetype from story to story to avoid repetitive structures.
+
+Possible archetypes include:
+- Rescue Mission
+- Mystery to Solve
+- Lost Object
+- Race Against Time
+- Treasure Hunt
+- Secret Hidden Place
+- Broken Spell
+- Delivery Mission
+- Helping Rivals Become Friends
+- Magical Competition
+- Mistaken Identity
+- Two Paths / Difficult Choice
+- Preparing for a Celebration
+- Repairing Something Magical
+
+- The chosen archetype should influence:
+  • how the story begins,
+  • the middle obstacle,
+  • the resolution,
+  • and the ending callback.
+
+- Avoid repeatedly using:
+  find creature → help creature → receive gift → go home.
+
+- Different stories should begin in different ways:
+  • a strange sound,
+  • an unusual visitor,
+  • a mysterious object,
+  • an invitation,
+  • a problem already in progress,
+  • a celebration,
+  • a map or clue,
+  • a magical accident.
+
+- Every story must contain a small problem, mystery, challenge, or goal that cannot be solved immediately. The middle of the story should involve at least one meaningful obstacle, choice, or discovery before the resolution.
+- The chosen theme must actively drive the plot, not merely decorate the setting. If the theme is dragons, the dragons should shape the adventure through flying, nests, treasure, fire puffs, dragon games, dragon customs, secret caves, sky races, smoke signals, scales, wings, eggs, hoards, or other dragon-specific behaviour.
+- For every theme, include at least two theme-specific actions, places, objects, or customs. A pirate story should involve maps, ships, islands, codes, tides, treasure, or crews. A space story should involve planets, telescopes, comets, rockets, constellations, moon stations, or star maps. A princess/kingdom story should involve courts, gardens, castles, royal duties, festivals, crowns, bridges, or quests.
+- Avoid slice-of-life stories where characters simply walk, eat, tidy, water plants, and talk unless those actions directly solve the story's central problem.
+- Food, chores, gardens, cafés, bakeries, and cosy routines may appear, but they must support the adventure rather than replace it.
+- Children should actively solve, discover, repair, rescue, deliver, protect, choose, test, translate, guide, or uncover something during the adventure.
+- The story should contain one clear turning point around the middle pages where the child’s action changes the outcome.
+- Keep the stakes bedtime-safe but meaningful: a lost friend needs help, a special place needs fixing, a promise must be kept, a celebration might be missed, a shy creature needs courage, a map is incomplete, or a small magical task must be finished before nightfall.
+- Around the middle of the story, include one genuine obstacle, complication, or unexpected problem that briefly makes success uncertain. The obstacle should require the child to make a choice, solve something, or help someone in a new way.
+- Around the middle of the story, include an obstacle that cannot be solved immediately. The child's first idea may fail, reveal new information, or create a new challenge. Success should briefly feel uncertain before the child discovers another way forward.
+
+- At least one obstacle should involve a meaningful choice, such as choosing between two paths, deciding who to help first, giving something up, solving a puzzle, trusting someone unexpected, or trying a second idea after the first one does not work.
+- Whenever possible, let the child's first solution fail or only partly succeed, revealing new information and requiring a different approach before the resolution.
+- Whenever possible, include a moment where the child must make a choice, such as choosing between two paths, deciding who to help first, giving up an important object, solving a riddle, trusting an unfamiliar creature, or using creativity instead of strength.
+- Avoid using the same story structure repeatedly. Not every story should involve finding a creature, receiving a gift, or returning home immediately after the adventure.
+- Different stories may involve solving a mystery, completing a delivery, following clues, discovering a hidden place, preparing for a celebration, helping two characters reconcile, searching for a missing object, repairing something magical, escaping a changing environment, or uncovering a secret.
+- Vary how stories begin. Some stories may start with a strange sound, an unusual visitor, a mysterious object, an invitation, an unexpected event, a problem already in progress, or a surprising discovery.
+- Strongly avoid repetitive AI phrases and wording such as: "rhythmic humming", "steady humming", "safe, happy, and warm", "closed its eyes", "floated peacefully", "softly humming", "shivering alone", "calm heart", "long breath", "everything was quiet and safe", and "ready for sleep". Also avoid repeatedly ending with generic marbles, crystals, glowing stones, seeds, or coins. Use fresh language and concrete actions instead.
+
+STORY MEMORY RULES:
+- Every story must include one memorable side character with a specific trait, habit, job, or small comic detail. Avoid generic helpers who only exist to explain the plot.
+- Every story must include one memorable object that a child could draw, describe, or ask about tomorrow. The object should matter to the story, not just appear as decoration.
+- Every story must include one memorable place that feels different from an ordinary setting and shapes what happens there.
+- Every story must include one moment of kindness, humour, surprise, courage, patience, or reassurance that changes what happens next.
+- At least one scene should feel like a picture-book illustration: clear, concrete, simple, and memorable.
+- Give important side characters small personalities or jobs, such as a dragon who collects teacups, a fox who paints stars, a snail who delivers letters, a rabbit who draws maps, a bear who bakes midnight pies, or a pirate who sorts buttons.
+- Do not rely on generic labels such as guardian, keeper, magical creature, mysterious animal, wise helper, or friendly guide unless the character also has a specific personality, relationship, or job.
+- Strengthen the story promise beyond simply finding a clue. Examples of stronger bedtime-safe promises: deliver the last moon biscuit, repair the rainbow bridge, find the missing laugh, return a borrowed song, wake tomorrow's sunrise, rescue a lost recipe, or help a shy dragon practise a tiny roar.
+- Make at least one story detail something a child might say again the next day, such as “the teacup dragon”, “the bell tree”, “the map rabbit”, “the biscuit moon”, or “the boat made from folded maps”.
+- The final page should include an emotional callback to something that appeared earlier in the story:
+  - a side character
+  - a magical object
+  - a memorable place
+  - a promise made during the adventure
+  - a funny or comforting moment.
+- The final paragraph should remind the reader of something they encountered earlier rather than introducing entirely new ideas.
+- The final sentence should leave one final magical image in the child's imagination.
+- Good endings often place an important object beside the bed, show a helper continuing their work somewhere far away, suggest a magical place still exists tonight, or hint that the adventure quietly continues after sleep.
+- Whenever possible, include one final magical beat or image in the last paragraph: a distant roar, a glowing map mark, a bell ringing once, a feather moving, a tiny light appearing, or another callback that leaves a sense of wonder.
+- Avoid generic endings such as "ready for sleep", "drifted into dreams", "slept peacefully", or "everything was quiet" unless they are combined with a specific callback from the story.
+- The ending should feel emotionally earned and memorable, as if a child might ask for this particular story again tomorrow.
 - Never directly state a character's thoughts, wishes, intentions, realizations, or feelings. Do not write: "she wanted...", "he hoped...", "she realised...", "he knew...", "she felt...", "he understood...", or "she decided...". Instead, show these through:
   - actions
   - dialogue
@@ -518,6 +856,8 @@ class StoryService:
 - Important characters should feel specific and memorable, with their own personalities, relationships, or jobs, rather than generic fantasy roles.
 - Let readers discover the moral through actions and consequences rather than narration.
 - Write each story as though it were written by a different storyteller. Vary settings, magical details, sentence rhythms, imagery, helpers, and vocabulary so that stories do not feel generated from the same formula.
+- Avoid repeatedly using "steady", "calm heart", "long breath", "waited", "inch by inch", "slowly", "quiet and safe", or "rhythm of breathing". Choose fresh expressions and actions instead.
+- Most of the story should focus on wonder, discovery, character action, and gentle adventure. Let the final third gradually become calmer and more reflective instead of making every page feel sleepy.
 - Make magical worlds internally consistent. If a character has a title or role, give it simple context and give important characters clear relationships or purposes rather than labels alone.
 - Avoid flat summaries. Write immersive scenes that feel read-aloud, memorable, and emotionally rewarding.
 - Keep the mood safe for bedtime: no danger, no frightening villains, no peril, and no sadness-heavy ending.
@@ -618,6 +958,8 @@ ENGLISH STORY STYLE:
             else self._localized_theme_label(request.theme, language_code)
         )
         localized_companion = self._localized_companion(companion, language_code)
+        archetype = self._select_story_archetype()
+        archetype_block = self._story_archetype_block(archetype)
 
         companion_line = self._no_companion_required_text(language_code)
         if localized_companion:
@@ -688,6 +1030,7 @@ STORY REQUIREMENTS:
 
 {self._storycraft_rules()}
 
+{archetype_block}
 LENGTH AND STRUCTURE REQUIREMENTS (STRICT PERFORMANCE RULES):
 - EXACTLY {target_pages} pages. Do not return more or fewer pages.
 - EACH page should contain {paragraphs_per_page} gentle paragraphs.
@@ -698,7 +1041,7 @@ LENGTH AND STRUCTURE REQUIREMENTS (STRICT PERFORMANCE RULES):
 - Do not make pages too short. Avoid summarising scenes in only one or two sentences.
 - Every page must move the story forward gently and include one memorable story beat.
 - The moral should be discovered through the child's actions, not explained like a lesson.
-- The final page must end peacefully and softly.
+- The final page must end peacefully and softly, with a clear callback to an object, place, helper, or promise from earlier in the story.
 - {pacing_note}
 
 COMPANION:
@@ -776,6 +1119,8 @@ OUTPUT QUALITY RULES:
 
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         blocks = self._language_and_character_blocks(request, companion)
+        archetype = self._select_story_archetype()
+        archetype_block = self._story_archetype_block(archetype)
 
         opening_seed = self._select_opening_seed(request)
         opening = opening_seed["sentence"]
@@ -817,6 +1162,7 @@ STORY CONTEXT:
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
 
+{archetype_block}
 START THE STORY WITH THIS EXACT SENTENCE:
 "{opening}"
 
@@ -864,6 +1210,7 @@ PAGE 1 STRUCTURE:
   - what has changed,
   - and what needs to happen next.
 - By the end of page 1, introduce a clear story promise.
+- The story promise should be specific to the chosen theme, not a generic clue or glowing object. For example, a dragon story might promise a lost nest, a secret flight path, a smoke-signal problem, a hidden cave, a shy hatchling, or a dragon custom that needs help.
 - The child should understand what they are trying to achieve, discover, solve, help, find, or learn during the adventure.
 - Avoid openings that jump straight to a magical object, door, clue, or event before explaining who {request.childName} is and why they are there.
 - Do not add clothing or appearance details unless the parent provided them.
@@ -1055,12 +1402,22 @@ EXISTING STORY START:
 Title: {title}
 Page 1: {page_one}
 
+CONTINUATION ARCHETYPE RULE:
+- Continue the story archetype already established by page 1.
+- Do not switch into a different structure.
+- If page 1 began as a mystery, continue with clues and a reveal.
+- If page 1 began as a rescue, continue with a meaningful rescue complication.
+- If page 1 began with a delivery, repair, race, competition, or difficult choice, continue that same shape through the ending.
+- Avoid collapsing the continuation into a simple retrieve-object-and-go-home quest unless the established page 1 specifically requires it.
+
 CONTINUATION QUALITY BOOST:
 - Continue the specific world from page 1 and make it feel handcrafted, not generic.
+- Make the chosen theme actively drive what happens next. Do not let the story become mostly walking, eating, tidying, watering, or chatting unless those actions directly solve the central problem.
 - Add one gentle emotional thread: someone needs kindness, courage, patience, friendship, sharing, or reassurance.
+- Include one clear middle turning point where {request.childName}'s action changes the outcome.
 - Include one tiny, sweet, memorable moment that fits the world naturally.
 - Use short natural dialogue only where it reveals feelings.
-- Make the final page slow down clearly and feel safe, cosy, and complete.
+- Make the final page slow down clearly and end with a specific callback image from the adventure, not a generic sleep sentence.
 
 CONTINUATION REQUIREMENTS:
 - Write exactly {remaining_page_count} remaining pages.
@@ -1073,7 +1430,7 @@ CONTINUATION REQUIREMENTS:
 - Do not make pages too short; each page should feel like a complete story moment, not a summary.
 - Every page must move the story forward gently and include one memorable story beat.
 - The moral should be discovered through the child's actions, not explained like a lesson.
-- The final page must end peacefully and softly.
+- The final page must end peacefully and softly, with a clear callback to an object, place, helper, or promise from earlier in the story.
 
 COMPANION:
 - {blocks['companion_line']}
