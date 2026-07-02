@@ -361,21 +361,70 @@ OPENING_SEED_FAMILIES = [
 # Backward-compatible English seed list kept for any older imports/tests.
 OPENING_SEEDS = [seed["en"] for seed in OPENING_SEED_FAMILIES]
 
+# Phase 7: weighted away from object-retrieval as the default.
+# Object stories still exist, but emotional / relationship / mystery shapes should win more often.
 STORY_ARCHETYPE_WEIGHTS = [
-    ("mystery_to_solve", 14),
-    ("rescue_mission", 12),
-    ("lost_object", 10),
-    ("secret_hidden_place", 10),
-    ("broken_spell_or_magic", 10),
-    ("delivery_mission", 9),
-    ("treasure_hunt", 9),
-    ("two_paths_choice", 8),
-    ("repair_something_magical", 8),
-    ("helping_rivals_become_friends", 6),
-    ("race_against_time", 5),
-    ("magical_competition", 4),
-    ("mistaken_identity", 3),
-    ("preparing_for_celebration", 3),
+    ("mystery_to_solve", 15),
+    ("rescue_mission", 13),
+    ("secret_hidden_place", 11),
+    ("helping_rivals_become_friends", 11),
+    ("preparing_for_celebration", 10),
+    ("mistaken_identity", 9),
+    ("two_paths_choice", 9),
+    ("delivery_mission", 8),
+    ("race_against_time", 7),
+    ("magical_competition", 6),
+    ("lost_object", 4),
+    ("broken_spell_or_magic", 4),
+    ("treasure_hunt", 3),
+    ("repair_something_magical", 3),
+]
+
+EMOTIONAL_STORY_TYPES = [
+    "friendship",
+    "courage",
+    "kindness",
+    "celebration",
+    "mystery",
+    "helping someone",
+    "family adventure",
+    "making a mistake and putting it right",
+    "learning patience",
+    "discovering a hidden talent",
+    "funny misunderstanding",
+    "teamwork",
+    "welcoming someone new",
+    "sharing something precious",
+    "keeping a promise",
+    "asking for help",
+]
+
+CHARACTER_TRAITS = [
+    "shy",
+    "brave",
+    "clumsy",
+    "curious",
+    "impatient",
+    "funny",
+    "forgetful",
+    "gentle",
+    "bossy",
+    "creative",
+    "cheerful",
+    "nervous",
+    "determined",
+    "dreamy",
+]
+
+FUNNY_QUIRKS = [
+    "loves sandwiches",
+    "collects shiny buttons",
+    "always wears boots",
+    "sings while working",
+    "is scared of butterflies",
+    "carries too many snacks",
+    "forgets names",
+    "speaks in rhymes",
 ]
 
 STORY_ARCHETYPE_INSTRUCTIONS = {
@@ -643,12 +692,60 @@ class StoryService:
 {rule_lines}
 """
 
+    def _select_emotional_story_type(self) -> str:
+        """Choose a hidden emotional driver for story diversity.
+
+        Local only: no network call and no narration/chunking impact.
+        """
+        return random.choice(EMOTIONAL_STORY_TYPES)
+
+    def _emotional_story_block(self, emotional_theme: Optional[str]) -> str:
+        if not emotional_theme:
+            return ""
+        return f"""SELECTED EMOTIONAL ENGINE:
+- The central emotional theme of this story should be: {emotional_theme}.
+- The emotional journey should be more important than any magical object.
+- If a magical item exists, it should support the relationship, choice, courage, kindness, or problem-solving arc rather than become the whole goal.
+- The ending should primarily resolve an emotional need, promise, worry, friendship, misunderstanding, or act of courage rather than simply returning or fixing an object.
+"""
+
+    def _select_character_trait(self) -> str:
+        """Choose a hidden character trait for story personality variety."""
+        return random.choice(CHARACTER_TRAITS)
+
+    def _select_funny_quirk(self) -> str:
+        """Choose a hidden comic quirk for gentle bedtime humour variety."""
+        return random.choice(FUNNY_QUIRKS)
+
+    def _personality_humour_block(self, character_trait: Optional[str], funny_quirk: Optional[str]) -> str:
+        if not character_trait and not funny_quirk:
+            return ""
+
+        return f"""SELECTED CHARACTER PERSONALITY AND HUMOUR ENGINE:
+- Give the child or one important side character a clear, story-relevant personality trait: {character_trait}.
+- Show this trait through small choices, dialogue, mistakes, reactions, or problem-solving rather than explaining it directly.
+- Include one gentle comic quirk for a side character or helper: {funny_quirk}.
+- Use the quirk lightly as warm picture-book humour, ideally 1-3 times across the story.
+- Keep humour bedtime-safe, sweet, and character-based. Avoid loud slapstick, sarcasm, teasing, toilet humour, meanness, or jokes that break the calm tone.
+- The humour should support the emotional arc and story problem; it must not take over the plot.
+"""
+
     def _storycraft_rules(self) -> str:
         return """STORYCRAFT QUALITY RULES:
 - Write like a skilled children's author rather than a poet. Use clear, warm sentences and avoid over-describing ordinary things.
 - Write in simple, natural language that is easy to read aloud to young children. Most sentences should be direct and uncomplicated, saving richer descriptions for occasional special moments.
 - Make the story feel like a premium illustrated children's fantasy tale: imaginative, emotionally warm, cinematic, and magical, while remaining original and bedtime-safe.
 - Use a classic storybook arc: wonder-filled opening, gentle discovery, small emotional challenge, magical or meaningful helper moment, moral learned through action, and a satisfying peaceful resolution.
+- Stories should use a wide variety of story problems.
+- Do NOT make most stories about finding, recovering, unlocking, repairing, or returning a magical object.
+- The central problem should usually involve people, emotions, relationships, choices, or helping someone rather than recovering or transporting an object.
+- At least half of all stories should contain no magical object quest at all.
+- The emotional journey should be more important than any magical object.
+- If a magical item exists, it should support the story rather than be the main goal.
+- No more than 30% of stories should involve magical objects, maps, stones, keys, crystals, or enchanted items.
+- Avoid repeatedly using these words unless explicitly requested: silver, moon, moonlit, star, lantern, crystal, glowing, magical key, ancient map.
+- The ending should primarily resolve an emotional need rather than simply returning an object.
+- Good story themes include friendship, courage, kindness, celebration, misunderstandings, teamwork, learning patience, helping family, discovering talents, and making new friends.
 - The story setting should feel vivid, memorable, and specific, like a real storybook world the child can picture immediately.
 - The adventure may begin anywhere that suits the theme, not only near a home, bedroom, window, blanket, or bedtime object.
 - Use a wide variety of bedtime-safe locations when appropriate: rainforests, river boats, deserts, castles, islands, mountains, oceans, cloud cities, ancient observatories, magical markets, treehouses, hidden valleys, peaceful pirate harbours, underwater palaces, and faraway lands.
@@ -664,6 +761,10 @@ class StoryService:
 - By the end of page 1, the reader should understand why the child matters in this story, either because they already have a role in the world or because the event, question, discovery, or responsibility now belongs to them.
 - Avoid poetic or overly lyrical descriptions and avoid writing every sentence to sound magical. Simple, concrete descriptions are often more memorable than decorative language.
 - Avoid repeatedly relying on magical objects as the main story trigger. Sometimes begin with a problem, visitor, animal, mystery, missing item, wish, celebration, question, or natural event instead.
+- Stories should use a wide variety of story problems. Do NOT make most stories about finding, recovering, unlocking, repairing, or returning a magical object.
+- At least half of stories should contain no magical-object quest at all. Many stories should instead focus on helping someone, solving a misunderstanding, making a friend, overcoming a worry, planning a celebration, learning something new, working together, showing kindness, making a difficult choice, or discovering a hidden talent.
+- Avoid repeatedly using silver maps, moonlit paths, star-stones, lanterns, crystals, glowing keys, sparkling stones, magical compasses, and similar object-led triggers. Create fresh settings, relationships, activities, and problems instead.
+- The emotional journey should carry the plot. If an object appears, make it a tool, clue, or callback, not the whole story.
 - Avoid sentences where the child already understands the story's lesson before the adventure begins.
 - Strongly avoid the words: "gentle", "tiny", "little", "golden", "shimmering", "glowing", "sparkling", "moonlit", "softly", "slowly", and "sleepy". Use them only when absolutely essential to the plot. Never use more than one of these words on a single page.
 - Avoid titles containing the words: sleepy, moonlit, little, tiny, golden, sparkling, glowing, or gentle unless they are essential to the story's central idea.
@@ -764,6 +865,14 @@ Possible emotional themes include:
 
 - The ending should leave the child with a warm emotional takeaway rather than only a physical reward.
 
+GOOD NON-OBJECT STORY TYPES:
+- A fox is nervous about singing in front of friends.
+- A squirrel accidentally upsets a friend and tries to make things right.
+- A bear prepares a surprise celebration.
+- A rabbit learns patience while waiting for seeds to grow.
+- A young owl discovers that asking for help is brave.
+- A child helps an old turtle remember a forgotten song.
+
 STORY ARCHETYPE RULES:
 - Before writing the story, silently choose ONE primary story archetype and build the plot around it.
 - Vary the archetype from story to story to avoid repetitive structures.
@@ -829,6 +938,12 @@ STORY MEMORY RULES:
 - Every story must include one moment of kindness, humour, surprise, courage, patience, or reassurance that changes what happens next.
 - At least one scene should feel like a picture-book illustration: clear, concrete, simple, and memorable.
 - Give important side characters small personalities or jobs, such as a dragon who collects teacups, a fox who paints stars, a snail who delivers letters, a rabbit who draws maps, a bear who bakes midnight pies, or a pirate who sorts buttons.
+- After introducing an important character, avoid repeating their name in every paragraph.
+- Vary references naturally using descriptions, species, titles, occupations, or relationships.
+  Examples: Barnaby -> the badger, the Burrow Warden, her new friend; Princess Elara -> the young princess, the gardener's daughter; Captain Moss -> the old sailor, the map keeper.
+- Do not begin consecutive paragraphs with the same character's name. Vary sentence openings naturally.
+- Generate a wide variety of character names. Avoid repeatedly using common storybook names such as Barnaby, Hazel, Pip, Fern, Willow, Bramble, Luna, Oliver, Poppy, Archie, Daisy, or Jasper unless the name is genuinely fresh in context.
+- Prefer fresh, memorable, and varied names that fit the setting.
 - Do not rely on generic labels such as guardian, keeper, magical creature, mysterious animal, wise helper, or friendly guide unless the character also has a specific personality, relationship, or job.
 - Strengthen the story promise beyond simply finding a clue. Examples of stronger bedtime-safe promises: deliver the last moon biscuit, repair the rainbow bridge, find the missing laugh, return a borrowed song, wake tomorrow's sunrise, rescue a lost recipe, or help a shy dragon practise a tiny roar.
 - Make at least one story detail something a child might say again the next day, such as “the teacup dragon”, “the bell tree”, “the map rabbit”, “the biscuit moon”, or “the boat made from folded maps”.
@@ -960,6 +1075,11 @@ ENGLISH STORY STYLE:
         localized_companion = self._localized_companion(companion, language_code)
         archetype = self._select_story_archetype()
         archetype_block = self._story_archetype_block(archetype)
+        emotional_theme = self._select_emotional_story_type()
+        emotional_block = self._emotional_story_block(emotional_theme)
+        character_trait = self._select_character_trait()
+        funny_quirk = self._select_funny_quirk()
+        personality_humour_block = self._personality_humour_block(character_trait, funny_quirk)
 
         companion_line = self._no_companion_required_text(language_code)
         if localized_companion:
@@ -1031,6 +1151,8 @@ STORY REQUIREMENTS:
 {self._storycraft_rules()}
 
 {archetype_block}
+{emotional_block}
+{personality_humour_block}
 LENGTH AND STRUCTURE REQUIREMENTS (STRICT PERFORMANCE RULES):
 - EXACTLY {target_pages} pages. Do not return more or fewer pages.
 - EACH page should contain {paragraphs_per_page} gentle paragraphs.
@@ -1121,6 +1243,11 @@ OUTPUT QUALITY RULES:
         blocks = self._language_and_character_blocks(request, companion)
         archetype = self._select_story_archetype()
         archetype_block = self._story_archetype_block(archetype)
+        emotional_theme = self._select_emotional_story_type()
+        emotional_block = self._emotional_story_block(emotional_theme)
+        character_trait = self._select_character_trait()
+        funny_quirk = self._select_funny_quirk()
+        personality_humour_block = self._personality_humour_block(character_trait, funny_quirk)
 
         opening_seed = self._select_opening_seed(request)
         opening = opening_seed["sentence"]
@@ -1163,6 +1290,8 @@ STORY CONTEXT:
 - Calm level: {request.calmLevel}
 
 {archetype_block}
+{emotional_block}
+{personality_humour_block}
 START THE STORY WITH THIS EXACT SENTENCE:
 "{opening}"
 
@@ -1247,19 +1376,19 @@ Return ONLY valid JSON:
         fallback_variants = {
             "en": [
                 {
-                    "title": f"{child} and the Moonlit Map",
+                    "title": f"{child} and the Teacup Dragon",
                     "middle": (
-                        f"That evening, {child} noticed a small silver map folded beside a sleepy lantern. "
-                        f"The map did not rush or sparkle loudly; it simply waited, as if teaching {child} that {moral} sometimes begins with one quiet choice. "
-                        f"With a calm breath, {child} followed the first gentle clue and wondered what soft magic the night might share."
+                        f"That evening, a teacup-sized dragon knocked over a stack of story cards and hid behind the cushions. "
+                        f"The dragon's wings rattled like paper whenever anyone looked at him. "
+                        f"{child} sat nearby and began a quiet {theme} adventure where {moral} mattered more than being quick or clever."
                     ),
                 },
                 {
-                    "title": f"{child} and the Whispering Lantern",
+                    "title": f"{child} and the Biscuit Moon Parade",
                     "middle": (
-                        f"As the evening grew still, a little lantern began to glow with a warm honey light. "
-                        f"It seemed to whisper that a small bedtime journey about {theme} was waiting nearby. "
-                        f"{child} listened carefully, remembering that {moral} could help even the smallest light shine brighter."
+                        f"As the evening grew still, the village bakers discovered their parade drum had rolled into a cupboard full of flour. "
+                        f"Everyone had an idea, but nobody could agree which one to try first. "
+                        f"{child} stepped into a small {theme} adventure where {moral} could help the whole room breathe again."
                     ),
                 },
                 {
@@ -1413,7 +1542,12 @@ CONTINUATION ARCHETYPE RULE:
 CONTINUATION QUALITY BOOST:
 - Continue the specific world from page 1 and make it feel handcrafted, not generic.
 - Make the chosen theme actively drive what happens next. Do not let the story become mostly walking, eating, tidying, watering, or chatting unless those actions directly solve the central problem.
+- If a quirky object, colour, or phrase appears, use it with purpose but do not let it dominate multiple pages unless it is central to the plot.
 - Add one gentle emotional thread: someone needs kindness, courage, patience, friendship, sharing, or reassurance.
+- Preserve any personality trait or funny quirk established in page 1, and let it help create one small warm humour beat or useful choice in the continuation.
+- Keep humour subtle, sweet, bedtime-safe, and character-based; do not add noisy slapstick or let jokes take over the plot.
+- Keep the emotional thread more important than any magical object. Do not turn the continuation into a retrieve/fix/return-object plot unless page 1 clearly requires it.
+- Resolve the final page through a relationship, promise, brave choice, repaired misunderstanding, or confidence gained; any object callback should support that emotional resolution.
 - Include one clear middle turning point where {request.childName}'s action changes the outcome.
 - Include one tiny, sweet, memorable moment that fits the world naturally.
 - Use short natural dialogue only where it reveals feelings.
