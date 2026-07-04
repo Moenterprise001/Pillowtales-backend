@@ -408,7 +408,7 @@ CHARACTER_TRAITS = [
     "funny",
     "forgetful",
     "gentle",
-    "bossy",
+    "confident",
     "creative",
     "cheerful",
     "nervous",
@@ -425,6 +425,38 @@ FUNNY_QUIRKS = [
     "carries too many snacks",
     "forgets names",
     "speaks in rhymes",
+]
+
+COMFORT_HABITS = [
+    "twists a sleeve when thinking",
+    "keeps a lucky pebble in a pocket",
+    "counts steps when nervous",
+    "hums softly while solving problems",
+    "taps fingers together when excited",
+    "smooths the corner of a blanket",
+    "keeps tiny treasures in a pouch",
+    "whispers ideas to the stars",
+]
+
+SIGNATURE_BEHAVIOURS = [
+    "always checks their hat before speaking",
+    "collects unusual buttons",
+    "writes everything in a notebook",
+    "carries far too many snacks",
+    "cannot resist solving riddles",
+    "polishes spectacles that are never dirty",
+    "talks to flowers as if they can answer",
+    "keeps pockets full of interesting things",
+]
+
+FAVOURITE_PHRASES = [
+    "Stars and teacups!",
+    "Well butter my biscuits!",
+    "Good feathers!",
+    "Oh my moonbeams!",
+    "What a curious thing!",
+    "By the sleepy sea!",
+    "Biscuit crumbs and dragon tails!",
 ]
 
 STORY_ARCHETYPE_INSTRUCTIONS = {
@@ -560,7 +592,7 @@ FIRST_PAGE_TIMEOUT_SECONDS = 30
 # User-facing consistency target: if Gemini has not produced page 1
 # quickly enough, return a deterministic page-1 fallback so Reader can open.
 # The full story still completes in the normal background Gemini path.
-FIRST_PAGE_SOFT_LIMIT_SECONDS = 22
+FIRST_PAGE_SOFT_LIMIT_SECONDS = 12
 
 
 class StoryService:
@@ -716,18 +748,45 @@ class StoryService:
     def _select_funny_quirk(self) -> str:
         """Choose a hidden comic quirk for gentle bedtime humour variety."""
         return random.choice(FUNNY_QUIRKS)
+    def _select_comfort_habit(self) -> str:
+        return random.choice(COMFORT_HABITS)
 
-    def _personality_humour_block(self, character_trait: Optional[str], funny_quirk: Optional[str]) -> str:
-        if not character_trait and not funny_quirk:
-            return ""
+    def _select_signature_behaviour(self) -> str:
+        return random.choice(SIGNATURE_BEHAVIOURS)
 
-        return f"""SELECTED CHARACTER PERSONALITY AND HUMOUR ENGINE:
-- Give the child or one important side character a clear, story-relevant personality trait: {character_trait}.
-- Show this trait through small choices, dialogue, mistakes, reactions, or problem-solving rather than explaining it directly.
-- Include one gentle comic quirk for a side character or helper: {funny_quirk}.
-- Use the quirk lightly as warm picture-book humour, ideally 1-3 times across the story.
-- Keep humour bedtime-safe, sweet, and character-based. Avoid loud slapstick, sarcasm, teasing, toilet humour, meanness, or jokes that break the calm tone.
-- The humour should support the emotional arc and story problem; it must not take over the plot.
+    def _select_favourite_phrase(self) -> str:
+        return random.choice(FAVOURITE_PHRASES)
+
+    def _personality_humour_block(
+    	self,
+    	character_trait: Optional[str],
+    	funny_quirk: Optional[str],
+    ) -> str:
+
+    	comfort_habit = self._select_comfort_habit()
+    	signature = self._select_signature_behaviour()
+    	phrase = self._select_favourite_phrase()
+
+    	return f"""
+SELECTED CHARACTER PERSONALITY ENGINE:
+- Give the child or one important side character a clear personality trait: {character_trait}.
+- Give the child a memorable quirk: {funny_quirk}.
+- Give the child a comfort habit: {comfort_habit}.
+- At least one of these should influence the story solution.
+
+SIDE CHARACTER RULES:
+- One important side character should have this distinctive behaviour:
+  {signature}
+
+- That character may occasionally say:
+  "{phrase}"
+
+SHOW DON'T TELL RULES:
+- Never describe a character only as kind, brave, curious, or gentle.
+- Show personality through actions, choices, dialogue, mistakes, and habits.
+- Let quirks create gentle humour naturally.
+- The ending should feel earned because of the hero's personality.
+- Avoid slapstick, sarcasm, teasing, or loud comedy.
 """
 
     def _storycraft_rules(self) -> str:
@@ -761,10 +820,6 @@ class StoryService:
 - By the end of page 1, the reader should understand why the child matters in this story, either because they already have a role in the world or because the event, question, discovery, or responsibility now belongs to them.
 - Avoid poetic or overly lyrical descriptions and avoid writing every sentence to sound magical. Simple, concrete descriptions are often more memorable than decorative language.
 - Avoid repeatedly relying on magical objects as the main story trigger. Sometimes begin with a problem, visitor, animal, mystery, missing item, wish, celebration, question, or natural event instead.
-- Stories should use a wide variety of story problems. Do NOT make most stories about finding, recovering, unlocking, repairing, or returning a magical object.
-- At least half of stories should contain no magical-object quest at all. Many stories should instead focus on helping someone, solving a misunderstanding, making a friend, overcoming a worry, planning a celebration, learning something new, working together, showing kindness, making a difficult choice, or discovering a hidden talent.
-- Avoid repeatedly using silver maps, moonlit paths, star-stones, lanterns, crystals, glowing keys, sparkling stones, magical compasses, and similar object-led triggers. Create fresh settings, relationships, activities, and problems instead.
-- The emotional journey should carry the plot. If an object appears, make it a tool, clue, or callback, not the whole story.
 - Avoid sentences where the child already understands the story's lesson before the adventure begins.
 - Strongly avoid the words: "gentle", "tiny", "little", "golden", "shimmering", "glowing", "sparkling", "moonlit", "softly", "slowly", and "sleepy". Use them only when absolutely essential to the plot. Never use more than one of these words on a single page.
 - Avoid titles containing the words: sleepy, moonlit, little, tiny, golden, sparkling, glowing, or gentle unless they are essential to the story's central idea.
@@ -773,6 +828,7 @@ class StoryService:
 - Prefer specific, memorable descriptions over generic magical adjectives. Instead of "glowing pearl", "golden light", or "sparkling fountain", describe what makes the object unusual or memorable.
 - Limit repeated use of moon imagery. Avoid filling stories with moonlight, moonbeams, moon-dust, silver leaves, or sleepy night scenes unless the moon is genuinely important to the plot.
 - Prefer memorable nouns, actions, and sensory details over decorative adjectives and adverbs. Show magic through what characters see, hear, touch, smell, and do.
+- Avoid repeatedly using adverbs ending in "-ly", especially: bossily, excitedly, happily, carefully, suddenly, quickly, and softly. Show emotions and personality through actions and dialogue instead.
 - Prefer one memorable detail over many adjectives. A beetle carrying a dew drop is more memorable than a tiny, gentle, shimmering beetle.
 - Prefer strong nouns and actions over extra adjectives. If a sentence remains clear and magical after removing an adjective or adverb, remove it.
 - Avoid descriptive formulas such as "little + gentle + soft + shimmering + quiet". Vary imagery and vocabulary from story to story.
@@ -830,88 +886,7 @@ WONDER & ENDINGS ENGINE RULES:
   • markets that open only when the moon is full,
   • observatories carved into sleeping mountains.
 
-THEME-DRIVEN ADVENTURE RULES:
-
-
-
-
-EMOTIONAL STORY ENGINE RULES:
-- In addition to the primary adventure archetype, silently choose ONE emotional theme that drives the heart of the story.
-
-Possible emotional themes include:
-- Keeping a Promise
-- Learning to Trust
-- Overcoming Fear
-- Sharing Something Precious
-- Helping a Friend Forgive
-- Finding Courage
-- Working Together
-- Letting Someone Go
-- Making a Difficult Choice
-- Being Patient
-- Welcoming Someone New
-- Helping Someone Feel Included
-- Discovering Confidence
-- Showing Kindness Without Expecting a Reward
-
-- The emotional theme should influence:
-  • the hero's decisions,
-  • the middle obstacles,
-  • the interactions with supporting characters,
-  • and the final lesson or callback.
-
-- Not every problem should be solved by finding an object.
-- Some stories should be solved through cooperation, understanding, bravery, trust, sharing, or kindness.
-
-- The ending should leave the child with a warm emotional takeaway rather than only a physical reward.
-
-GOOD NON-OBJECT STORY TYPES:
-- A fox is nervous about singing in front of friends.
-- A squirrel accidentally upsets a friend and tries to make things right.
-- A bear prepares a surprise celebration.
-- A rabbit learns patience while waiting for seeds to grow.
-- A young owl discovers that asking for help is brave.
-- A child helps an old turtle remember a forgotten song.
-
 STORY ARCHETYPE RULES:
-- Before writing the story, silently choose ONE primary story archetype and build the plot around it.
-- Vary the archetype from story to story to avoid repetitive structures.
-
-Possible archetypes include:
-- Rescue Mission
-- Mystery to Solve
-- Lost Object
-- Race Against Time
-- Treasure Hunt
-- Secret Hidden Place
-- Broken Spell
-- Delivery Mission
-- Helping Rivals Become Friends
-- Magical Competition
-- Mistaken Identity
-- Two Paths / Difficult Choice
-- Preparing for a Celebration
-- Repairing Something Magical
-
-- The chosen archetype should influence:
-  • how the story begins,
-  • the middle obstacle,
-  • the resolution,
-  • and the ending callback.
-
-- Avoid repeatedly using:
-  find creature → help creature → receive gift → go home.
-
-- Different stories should begin in different ways:
-  • a strange sound,
-  • an unusual visitor,
-  • a mysterious object,
-  • an invitation,
-  • a problem already in progress,
-  • a celebration,
-  • a map or clue,
-  • a magical accident.
-
 - Every story must contain a small problem, mystery, challenge, or goal that cannot be solved immediately. The middle of the story should involve at least one meaningful obstacle, choice, or discovery before the resolution.
 - The chosen theme must actively drive the plot, not merely decorate the setting. If the theme is dragons, the dragons should shape the adventure through flying, nests, treasure, fire puffs, dragon games, dragon customs, secret caves, sky races, smoke signals, scales, wings, eggs, hoards, or other dragon-specific behaviour.
 - For every theme, include at least two theme-specific actions, places, objects, or customs. A pirate story should involve maps, ships, islands, codes, tides, treasure, or crews. A space story should involve planets, telescopes, comets, rockets, constellations, moon stations, or star maps. A princess/kingdom story should involve courts, gardens, castles, royal duties, festivals, crowns, bridges, or quests.
@@ -932,11 +907,38 @@ Possible archetypes include:
 - Strongly avoid repetitive AI phrases and wording such as: "rhythmic humming", "steady humming", "safe, happy, and warm", "closed its eyes", "floated peacefully", "softly humming", "shivering alone", "calm heart", "long breath", "everything was quiet and safe", and "ready for sleep". Also avoid repeatedly ending with generic marbles, crystals, glowing stones, seeds, or coins. Use fresh language and concrete actions instead.
 
 STORY MEMORY RULES:
-- Every story must include one memorable side character with a specific trait, habit, job, or small comic detail. Avoid generic helpers who only exist to explain the plot.
+PICTURE-BOOK MOMENT RULE:
+- Every story MUST contain one unforgettable picture-book illustration moment.
+- Include one scene that a child could easily draw or describe tomorrow.
+
+Examples:
+• a dragon wearing oven gloves
+• a whale carrying lanterns
+• a staircase made of books
+• a fox painting stars
+• a tree growing bells
+• a teacup floating on a cloud
+• a pirate ship made of pillows
+• a pony wearing a flower crown
+- Every story MUST include at least one supporting character who:
+  • has a job,
+  • has a funny habit,
+  • says something unusual,
+  • or owns an unusual object.
+- Supporting characters should feel specific and memorable rather than generic helpers.
 - Every story must include one memorable object that a child could draw, describe, or ask about tomorrow. The object should matter to the story, not just appear as decoration.
 - Every story must include one memorable place that feels different from an ordinary setting and shapes what happens there.
 - Every story must include one moment of kindness, humour, surprise, courage, patience, or reassurance that changes what happens next.
-- At least one scene should feel like a picture-book illustration: clear, concrete, simple, and memorable.
+- At least one scene MUST feel like the front cover of a premium children's picture book.
+- The image should be concrete, visual, and easy to remember.
+- The hero should feel like a real child with habits and preferences.
+- Give the hero one memorable quirk and one comfort habit.
+- Include one gentle smile or giggle moment in every story.
+- Humour should come from behaviour, habits, misunderstandings, or personality rather than jokes.
+- Important side characters should have distinctive habits, jobs, sayings, or behaviours.
+- At least one personality trait or quirk should help solve the story problem.
+- Avoid describing characters only with adjectives.
+- Show personality through actions and repeated behaviours.
 - Give important side characters small personalities or jobs, such as a dragon who collects teacups, a fox who paints stars, a snail who delivers letters, a rabbit who draws maps, a bear who bakes midnight pies, or a pirate who sorts buttons.
 - After introducing an important character, avoid repeating their name in every paragraph.
 - Vary references naturally using descriptions, species, titles, occupations, or relationships.
@@ -947,17 +949,10 @@ STORY MEMORY RULES:
 - Do not rely on generic labels such as guardian, keeper, magical creature, mysterious animal, wise helper, or friendly guide unless the character also has a specific personality, relationship, or job.
 - Strengthen the story promise beyond simply finding a clue. Examples of stronger bedtime-safe promises: deliver the last moon biscuit, repair the rainbow bridge, find the missing laugh, return a borrowed song, wake tomorrow's sunrise, rescue a lost recipe, or help a shy dragon practise a tiny roar.
 - Make at least one story detail something a child might say again the next day, such as “the teacup dragon”, “the bell tree”, “the map rabbit”, “the biscuit moon”, or “the boat made from folded maps”.
-- The final page should include an emotional callback to something that appeared earlier in the story:
-  - a side character
-  - a magical object
-  - a memorable place
-  - a promise made during the adventure
-  - a funny or comforting moment.
-- The final paragraph should remind the reader of something they encountered earlier rather than introducing entirely new ideas.
-- The final sentence should leave one final magical image in the child's imagination.
-- Good endings often place an important object beside the bed, show a helper continuing their work somewhere far away, suggest a magical place still exists tonight, or hint that the adventure quietly continues after sleep.
-- Whenever possible, include one final magical beat or image in the last paragraph: a distant roar, a glowing map mark, a bell ringing once, a feather moving, a tiny light appearing, or another callback that leaves a sense of wonder.
-- Avoid generic endings such as "ready for sleep", "drifted into dreams", "slept peacefully", or "everything was quiet" unless they are combined with a specific callback from the story.
+- The final page should contain an emotional callback to an earlier object, place, promise, or supporting character.
+- The final paragraph should remind the reader of something encountered earlier.
+- End with one final magical image and avoid generic sleep endings.
+- The ending should feel emotionally earned and memorable.
 - The ending should feel emotionally earned and memorable, as if a child might ask for this particular story again tomorrow.
 - Never directly state a character's thoughts, wishes, intentions, realizations, or feelings. Do not write: "she wanted...", "he hoped...", "she realised...", "he knew...", "she felt...", "he understood...", or "she decided...". Instead, show these through:
   - actions
@@ -1112,11 +1107,14 @@ ENGLISH STORY STYLE:
         target_pages = "7"
         paragraphs_per_page = "2"
         sentence_range = "5-7"
-        target_words = "850-1100"
-        max_words_per_page = "175"
+        target_words = "950-1100"
+        min_words_per_page = "125"
+        ideal_words_per_page = "135-155"
+        max_words_per_page = "170"
         pacing_note = (
             "Create a substantial but calm bedtime story suitable for an approximately eight-minute bedtime experience. "
-            "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment."
+            "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment. "
+            "Keep page lengths balanced so the reader does not feel that some pages are rushed while others are overloaded."
         )
 
         language_style_block = self._language_style_block(request.storyLanguageCode)
@@ -1155,10 +1153,13 @@ STORY REQUIREMENTS:
 {personality_humour_block}
 LENGTH AND STRUCTURE REQUIREMENTS (STRICT PERFORMANCE RULES):
 - EXACTLY {target_pages} pages. Do not return more or fewer pages.
-- EACH page should contain {paragraphs_per_page} gentle paragraphs.
+- EACH page should contain exactly {paragraphs_per_page} gentle paragraphs.
 - EACH page should contain approximately {sentence_range} bedtime-friendly sentences in total.
 - TOTAL story length MUST be approximately {target_words} words.
-- Each page should be substantial, normally 120-165 words, but DO NOT exceed {max_words_per_page} words on any single page.
+- PAGE BALANCE IS STRICT: each page should normally be {ideal_words_per_page} words.
+- No page should be under {min_words_per_page} words unless it is the final page and the emotional ending is already complete.
+- No page may exceed {max_words_per_page} words.
+- Do not create one very long page followed by a very short page. Distribute story beats evenly across all 7 pages.
 - Use simple, natural sentences suitable for spoken bedtime narration.
 - Do not make pages too short. Avoid summarising scenes in only one or two sentences.
 - Every page must move the story forward gently and include one memorable story beat.
@@ -1178,9 +1179,10 @@ Return ONLY valid JSON:
 
 OUTPUT QUALITY RULES:
 - Return a complete bedtime story, not an outline
+- Before returning JSON, silently check that all 7 pages are similar in length and each page contains a complete story beat.
 - Do not include notes, markdown, or explanations outside the JSON
 - Keep the story calm and readable, but do not make it too short.
-- If unsure, prioritise reaching the requested narration length while staying bedtime-safe.
+- If unsure, prioritise balanced page length and the requested narration length while staying bedtime-safe.
 - The JSON pages array must contain exactly {target_pages} strings."""
 
 
@@ -1241,14 +1243,10 @@ OUTPUT QUALITY RULES:
 
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         blocks = self._language_and_character_blocks(request, companion)
-        archetype = self._select_story_archetype()
-        archetype_block = self._story_archetype_block(archetype)
-        emotional_theme = self._select_emotional_story_type()
-        emotional_block = self._emotional_story_block(emotional_theme)
-        character_trait = self._select_character_trait()
-        funny_quirk = self._select_funny_quirk()
-        personality_humour_block = self._personality_humour_block(character_trait, funny_quirk)
 
+        # Keep Page 1 prompt deliberately lean. Page 1 exists to unlock early
+        # narration fast; richer archetype / emotional / personality guidance is
+        # applied during background continuation generation instead.
         opening_seed = self._select_opening_seed(request)
         opening = opening_seed["sentence"]
         opening_transition_rule = self._opening_transition_rule(opening_seed["family"])
@@ -1289,9 +1287,6 @@ STORY CONTEXT:
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
 
-{archetype_block}
-{emotional_block}
-{personality_humour_block}
 START THE STORY WITH THIS EXACT SENTENCE:
 "{opening}"
 
@@ -1305,43 +1300,13 @@ INSTRUCTIONS:
 
 PAGE 1 STRUCTURE:
 - {page_length_rule}
-- This length limit is important because page 1 starts narration. Keep page 1 short, clear, and complete; move extra world-building to page 2.
+- This length limit is critical because Page 1 starts narration. Keep it short, clear, and complete; move extra world-building to page 2.
 - 1-2 gentle paragraphs
 - {sentence_rule}
-- The first page MUST begin like a classic children's story.
-- First establish:
-  - who {request.childName} is in this story world,
-  - where they live or where they begin the story,
-  - and one or two simple details about their normal world.
-- If the opening sentence has already introduced {request.childName} naturally, do not introduce them again.
-- Do not repeat the child's name as a second introduction immediately after the opening sentence.
-- Expand naturally from the opening sentence by describing:
-  - who the child is in this story world,
-  - what their normal life is like,
-  - and why this setting matters.
-- If a role or identity fits naturally, weave it into the existing setup rather than starting a new introduction.
-  Good example: "{request.childName}, a curious young explorer, loved searching the shore for treasures."
-  Avoid: "{request.childName} lived on the island. A curious young explorer named {request.childName}..."
-- Only then introduce:
-  - the magical discovery,
-  - mystery,
-  - wish,
-  - challenge,
-  - or gentle adventure.
-- Think:
-  "Once upon a time there lived..."
-  before
-  "And then something happened..."
-- The reader should understand why {request.childName} is in this setting before the adventure begins.
-- By the end of page 1, the child must understand:
-  - who the main character is,
-  - where they are,
-  - what has changed,
-  - and what needs to happen next.
-- By the end of page 1, introduce a clear story promise.
-- The story promise should be specific to the chosen theme, not a generic clue or glowing object. For example, a dragon story might promise a lost nest, a secret flight path, a smoke-signal problem, a hidden cave, a shy hatchling, or a dragon custom that needs help.
-- The child should understand what they are trying to achieve, discover, solve, help, find, or learn during the adventure.
-- Avoid openings that jump straight to a magical object, door, clue, or event before explaining who {request.childName} is and why they are there.
+- Start from the exact opening sentence without reintroducing {request.childName}.
+- Establish who {request.childName} is in this world, where they are, and what has changed.
+- By the end of Page 1, introduce one clear story promise specific to the theme.
+- The child should understand what they are trying to achieve, discover, solve, help, find, or learn next.
 - Do not add clothing or appearance details unless the parent provided them.
 - Keep the setup magical, warm, bedtime-safe, and easy for a child to follow.
 
@@ -1400,11 +1365,11 @@ Return ONLY valid JSON:
                     ),
                 },
                 {
-                    "title": f"{child} and the Little Cloud Boat",
+                    "title": f"{child}'s First Small Adventure",
                     "middle": (
-                        f"A tiny cloud boat drifted close, rocking softly as if it had been waiting for a careful passenger. "
-                        f"Inside was a folded note asking for help with a gentle {theme} journey before the stars settled down. "
-                        f"{child} climbed in quietly, knowing that {moral} would matter more than rushing ahead."
+                        f"A small sign appeared where it had not been before, pointing toward a quiet {theme} problem that needed careful help. "
+                        f"Something nearby was out of place, but nothing felt frightening or rushed. "
+                        f"{child} stepped closer, ready to see how {moral} might help."
                     ),
                 },
             ],
@@ -1558,8 +1523,11 @@ CONTINUATION REQUIREMENTS:
 - Continue naturally from page 1.
 - Do not recap page 1.
 - Do not contradict page 1.
-- Each page should contain 2-3 gentle paragraphs.
-- Each page should be approximately 120-170 words.
+- Each page should contain exactly 2 gentle paragraphs.
+- PAGE BALANCE IS STRICT: each continuation page should normally be 135-155 words.
+- No continuation page should be under 125 words unless it is the final page and the emotional ending is already complete.
+- No continuation page may exceed 170 words.
+- Do not create one very long page followed by a very short page. Spread events evenly across the remaining pages.
 - Each page should contain around 5-7 bedtime-friendly sentences in total.
 - Do not make pages too short; each page should feel like a complete story moment, not a summary.
 - Every page must move the story forward gently and include one memorable story beat.
@@ -1578,6 +1546,7 @@ Return ONLY valid JSON:
 
 OUTPUT QUALITY RULES:
 - Return continuation pages only.
+- Before returning JSON, silently check that the continuation pages are similar in length and each page contains a complete story beat.
 - Do not include notes, markdown, or explanations outside the JSON.
 - The JSON pages array must contain exactly {remaining_page_count} strings."""
 
@@ -1727,20 +1696,29 @@ OUTPUT QUALITY RULES:
                 'generation_error': None,
             }
 
-            t_metadata = time.time()
-            print(f"[PERF] metadata_extract START story_id={story_id}")
-            metadata = await self.extract_metadata(title, full_text)
-            print(f"[PERF] metadata_extract DONE story_id={story_id} total={time.time() - t_metadata:.2f}s")
-            update_payload.update({
-                'story_summary': metadata.get('summary', ''),
-                'characters': metadata.get('characters', []),
-                'setting': metadata.get('setting', ''),
-            })
-
+            # Make pages 2+ available immediately. Metadata is useful for the
+            # library, but it must never delay the reader/polling flow.
             t_update = time.time()
             print(f"[PERF] story_update_complete START story_id={story_id}")
             self.story_repo.update(story_id, user_id, update_payload)
             print(f"[PERF] story_update_complete DONE story_id={story_id} total={time.time() - t_update:.2f}s")
+
+            try:
+                t_metadata = time.time()
+                print(f"[PERF] metadata_extract START story_id={story_id}")
+                metadata = await self.extract_metadata(title, full_text)
+                print(f"[PERF] metadata_extract DONE story_id={story_id} total={time.time() - t_metadata:.2f}s")
+                t_metadata_update = time.time()
+                print(f"[PERF] metadata_update START story_id={story_id}")
+                self.story_repo.update(story_id, user_id, {
+                    'story_summary': metadata.get('summary', ''),
+                    'characters': metadata.get('characters', []),
+                    'setting': metadata.get('setting', ''),
+                })
+                print(f"[PERF] metadata_update DONE story_id={story_id} total={time.time() - t_metadata_update:.2f}s")
+            except Exception as metadata_exc:
+                print(f"[PERF] metadata_extract skipped story_id={story_id}: {metadata_exc}")
+
             print(f"[PERF] complete_story_background DONE story_id={story_id} pages={len(all_pages)} total={time.time() - start_total:.2f}s")
         except Exception as exc:
             print(f"[PERF] complete_story_background FAILED story_id={story_id}: {exc}")
@@ -1835,7 +1813,7 @@ OUTPUT QUALITY RULES:
         )
         try:
             t_gemini = time.time()
-            response = self.model.generate_content(prompt)
+            response = await asyncio.to_thread(self.model.generate_content, prompt)
             print(f"[PERF] extract_metadata Gemini took {time.time() - t_gemini:.2f}s")
             text = getattr(response, 'text', '')
             start = text.find('{')

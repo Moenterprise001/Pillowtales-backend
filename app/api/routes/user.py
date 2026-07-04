@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import logging
+import re
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Dict, Optional
@@ -116,11 +117,19 @@ async def get_user_settings(user_id: str = Depends(get_current_user), user_repo:
         profile.get('preferred_language', 'en'),
         profile.get('subscription_status') or profile.get('plan') or 'free',
     )
-    return {'preferred_language': profile.get('preferred_language', 'en'), 'bedtime_mode': profile.get('bedtime_mode', False), 'plan': profile.get('subscription_status') or profile.get('plan') or 'free'}
+    return {
+        'preferred_language': profile.get('preferred_language', 'en'),
+        'bedtime_mode': profile.get('bedtime_mode', False),
+        'plan': profile.get('subscription_status') or profile.get('plan') or 'free',
+        'bedtime_reminders_enabled': bool(profile.get('bedtime_reminders_enabled', False)),
+        'bedtime_reminder_time': profile.get('bedtime_reminder_time') or '20:00',
+        'bedtime_reminder_days': profile.get('bedtime_reminder_days') or '1,2,3,4,5,6,7',
+        'bedtime_reminder_child_name': profile.get('bedtime_reminder_child_name') or '',
+    }
 
 
 @router.put('/settings')
-async def update_user_settings(preferred_language: Optional[str] = None, bedtime_mode: Optional[bool] = None, user_id: str = Depends(get_current_user), user_repo: UserRepository = Depends(get_user_repo)) -> dict:
+async def update_user_settings(preferred_language: Optional[str] = None, bedtime_mode: Optional[bool] = None, bedtime_reminders_enabled: Optional[bool] = None, bedtime_reminder_time: Optional[str] = None, bedtime_reminder_days: Optional[str] = None, bedtime_reminder_child_name: Optional[str] = None, user_id: str = Depends(get_current_user), user_repo: UserRepository = Depends(get_user_repo)) -> dict:
     updates: Dict[str, Any] = {}
     if preferred_language is not None:
         if preferred_language not in SUPPORTED_LANGUAGES:
@@ -128,6 +137,28 @@ async def update_user_settings(preferred_language: Optional[str] = None, bedtime
         updates['preferred_language'] = preferred_language
     if bedtime_mode is not None:
         updates['bedtime_mode'] = bedtime_mode
+    if bedtime_reminders_enabled is not None:
+        updates['bedtime_reminders_enabled'] = bedtime_reminders_enabled
+    if bedtime_reminder_time is not None:
+        reminder_time = str(bedtime_reminder_time).strip()
+        if not reminder_time:
+            updates['bedtime_reminder_time'] = None
+        elif not re.match(r'^\d{2}:\d{2}(:\d{2})?$', reminder_time):
+            raise HTTPException(status_code=400, detail='Invalid reminder time format. Use HH:MM.')
+        else:
+            updates['bedtime_reminder_time'] = reminder_time[:5]
+    if bedtime_reminder_days is not None:
+        days = str(bedtime_reminder_days).strip()
+        if days:
+            allowed_days = {'1', '2', '3', '4', '5', '6', '7'}
+            parsed_days = [day.strip() for day in days.split(',') if day.strip()]
+            if not parsed_days or any(day not in allowed_days for day in parsed_days):
+                raise HTTPException(status_code=400, detail='Invalid reminder days. Use comma-separated values 1-7.')
+            updates['bedtime_reminder_days'] = ','.join(dict.fromkeys(parsed_days))
+        else:
+            updates['bedtime_reminder_days'] = ''
+    if bedtime_reminder_child_name is not None:
+        updates['bedtime_reminder_child_name'] = str(bedtime_reminder_child_name).strip()[:80]
     if not updates:
         raise HTTPException(status_code=400, detail='No update data provided')
     logger.info('[SETTINGS_UPDATE] user_id=%s updates=%s', user_id, sorted(updates.keys()))
