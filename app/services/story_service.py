@@ -361,6 +361,224 @@ OPENING_SEED_FAMILIES = [
 # Backward-compatible English seed list kept for any older imports/tests.
 OPENING_SEEDS = [seed["en"] for seed in OPENING_SEED_FAMILIES]
 
+
+# Phase 10C: age-appropriate seed families.
+# These rules keep the opening worlds matched to the child's comprehension level.
+# Younger ages get familiar, low-load places; older ages may get broader fantasy worlds.
+AGE_SEED_FAMILY_ALLOWLIST = {
+    "0_2": {
+        "pillow_harbour",
+        "hidden_garden_gate",
+        "meadow_clock",
+        "moon_bakery",
+        "dinosaur_kindergarten",
+    },
+    "3_4": {
+        "pillow_harbour",
+        "hidden_garden_gate",
+        "moon_bakery",
+        "forest_school",
+        "toymaker_workshop",
+        "dinosaur_kindergarten",
+        "rainbow_garden",
+        "sleepy_forest_path",
+        "lantern_treehouse",
+    },
+    "5_6": {
+        "sleepy_forest_path",
+        "lantern_treehouse",
+        "hidden_garden_gate",
+        "moonlit_library",
+        "seaside_cave",
+        "sleepy_castle_hall",
+        "glowing_attic",
+        "river_of_stars",
+        "pillow_harbour",
+        "dragon_market",
+        "glass_slipper_cafe",
+        "dragon_post_office",
+        "moon_bakery",
+        "forest_school",
+        "toymaker_workshop",
+        "star_painter_cottage",
+        "cloud_circus",
+        "rainbow_garden",
+        "sleepy_puppet_theatre",
+        "honeybee_palace",
+        "little_lighthouse_cafe",
+        "dinosaur_kindergarten",
+    },
+    "7_8": {
+        "sleepy_forest_path",
+        "lantern_treehouse",
+        "hidden_garden_gate",
+        "cloud_island",
+        "moonlit_library",
+        "seaside_cave",
+        "sleepy_castle_hall",
+        "glowing_attic",
+        "snowy_village",
+        "river_of_stars",
+        "meadow_clock",
+        "pillow_harbour",
+        "underwater_palace",
+        "pirate_harbour",
+        "dragon_market",
+        "northern_lights_village",
+        "sky_train_station",
+        "whale_island",
+        "enchanted_hot_air_balloon",
+        "glass_slipper_cafe",
+        "dragon_post_office",
+        "moon_bakery",
+        "forest_school",
+        "toymaker_workshop",
+        "star_painter_cottage",
+        "cloud_circus",
+        "mermaid_library",
+        "rainbow_garden",
+        "clockwork_greenhouse",
+        "sleepy_puppet_theatre",
+        "honeybee_palace",
+        "dream_train_carriage",
+        "little_lighthouse_cafe",
+        "dinosaur_kindergarten",
+    },
+    "9_10": {
+        "sleepy_forest_path",
+        "lantern_treehouse",
+        "hidden_garden_gate",
+        "cloud_island",
+        "moonlit_library",
+        "seaside_cave",
+        "sleepy_castle_hall",
+        "glowing_attic",
+        "snowy_village",
+        "river_of_stars",
+        "meadow_clock",
+        "amazon_treehouse",
+        "nile_river_boat",
+        "desert_caravan",
+        "underwater_palace",
+        "pirate_harbour",
+        "dragon_market",
+        "crystal_cavern",
+        "northern_lights_village",
+        "sky_train_station",
+        "jungle_waterfall",
+        "hidden_dinosaur_valley",
+        "whale_island",
+        "floating_cloud_city",
+        "enchanted_hot_air_balloon",
+        "glass_slipper_cafe",
+        "dragon_post_office",
+        "moon_bakery",
+        "forest_school",
+        "toymaker_workshop",
+        "star_painter_cottage",
+        "cloud_circus",
+        "mermaid_library",
+        "rainbow_garden",
+        "clockwork_greenhouse",
+        "sleepy_puppet_theatre",
+        "honeybee_palace",
+        "dream_train_carriage",
+        "little_lighthouse_cafe",
+    },
+    "11_12": set(),
+}
+
+AGE_HUMOUR_PROFILES = {
+    "0_2": {
+        "quirks": [
+            "likes saying hello to animals",
+            "claps when something wobbles",
+            "keeps a soft toy close",
+            "giggles at funny sounds",
+        ],
+        "events": [
+            "a duck says the wrong sound and everyone smiles",
+            "a cushion gives a tiny squeak and points the way",
+            "a sleepy animal wears a blanket like a hat",
+        ],
+        "instruction": "Use one very simple smile moment: a funny sound, a wobbly hat, or an animal doing one silly thing.",
+    },
+    "3_4": {
+        "quirks": [
+            "loves funny animal sounds",
+            "counts snacks out loud",
+            "waves at every animal",
+            "keeps a favourite pebble in a pocket",
+        ],
+        "events": [
+            "a small animal puts a hat on backwards and walks the wrong way",
+            "a dragon sneezes one bubble that lands on someone's nose",
+            "a rabbit takes an instruction too literally and carries a spoon like a flag",
+        ],
+        "instruction": "Use 1-2 clear visual giggles that a preschool child can picture immediately.",
+    },
+    "5_6": {
+        "quirks": [
+            "packs one unnecessary snack for emergencies",
+            "names every tiny creature they meet",
+            "talks to important objects before using them",
+            "counts steps when thinking",
+        ],
+        "events": [
+            "a helper misunderstands the plan and proudly brings the wrong object first",
+            "a dragon sneezes a harmless puff that reveals the next clue",
+            "a squirrel's oversized hat slips down and accidentally shows where to look",
+            "a map folds itself into a paper bird and lands on the useful clue",
+        ],
+        "instruction": "Use two warm giggle moments: one visual mishap and one simple misunderstanding. At least one must help the plot.",
+    },
+    "7_8": {
+        "quirks": [
+            "keeps tiny notes in unexpected pockets",
+            "cannot resist making things neat before solving them",
+            "collects unusual buttons",
+            "gives serious names to silly objects",
+        ],
+        "events": [
+            "a side character follows the instruction exactly but in the least helpful way",
+            "a clue is discovered because someone trips over their own overpacked bag",
+            "a grumpy helper says a dramatic phrase at completely the wrong time",
+            "a magical object behaves like a stubborn pet before revealing its purpose",
+        ],
+        "instruction": "Use character-based humour that still feels gentle; the joke should reveal personality or create a useful clue.",
+    },
+    "9_10": {
+        "quirks": [
+            "keeps a notebook of odd rules",
+            "notices patterns other people miss",
+            "uses overly careful plans that need changing",
+            "gives practical advice to very impractical creatures",
+        ],
+        "events": [
+            "a formal rule is misunderstood in a funny but useful way",
+            "a character's over-complicated plan fails, then inspires a simpler solution",
+            "a serious helper is embarrassed by a harmless but revealing mistake",
+            "a strange tradition creates a comic obstacle that the child must interpret",
+        ],
+        "instruction": "Use smarter situational humour, but keep it warm, not sarcastic. The humour should expose the real problem.",
+    },
+    "11_12": {
+        "quirks": [
+            "notices contradictions in rules",
+            "uses dry but kind observations",
+            "keeps calm when adults overcomplicate things",
+            "tests ideas before trusting them",
+        ],
+        "events": [
+            "a grand tradition turns out to be based on a small misunderstanding",
+            "an impressive title hides a very ordinary problem",
+            "a complicated system fails because everyone ignored a simple detail",
+            "a formal ceremony goes slightly wrong in a way that reveals the solution",
+        ],
+        "instruction": "Use age-older wit through irony, over-formality, or clever misunderstanding, but avoid sarcasm or meanness.",
+    },
+}
+
 # Phase 7: weighted away from object-retrieval as the default.
 # Object stories still exist, but emotional / relationship / mystery shapes should win more often.
 STORY_ARCHETYPE_WEIGHTS = [
@@ -425,6 +643,16 @@ FUNNY_QUIRKS = [
     "carries too many snacks",
     "forgets names",
     "speaks in rhymes",
+    "cannot stop collecting pebbles",
+    "thinks every cloud looks like a sandwich",
+    "always packs far too many snacks",
+    "names every ladybird they meet",
+    "believes hats have feelings",
+    "keeps talking to their shoes",
+    "cannot resist counting things",
+    "waves at every fish",
+    "tries to teach birds to sing",
+    "puts important things in strange places",
 ]
 
 COMFORT_HABITS = [
@@ -447,6 +675,11 @@ SIGNATURE_BEHAVIOURS = [
     "polishes spectacles that are never dirty",
     "talks to flowers as if they can answer",
     "keeps pockets full of interesting things",
+    "alphabetises biscuits before eating them",
+    "wears three scarves even indoors",
+    "is scared of seagulls but pretends not to be",
+    "keeps forgetting where they put their hat",
+    "paints vegetables instead of pictures",
 ]
 
 FAVOURITE_PHRASES = [
@@ -457,6 +690,19 @@ FAVOURITE_PHRASES = [
     "What a curious thing!",
     "By the sleepy sea!",
     "Biscuit crumbs and dragon tails!",
+]
+
+PLOT_HUMOUR_EVENTS = [
+    "a dragon sneezes and accidentally reveals a secret door",
+    "a rabbit loses its spoon and discovers an important clue",
+    "a squirrel wears the wrong hat and causes a funny misunderstanding",
+    "a teacup rolls away and leads everyone to a hidden place",
+    "a map gets folded into a paper bird and flies off",
+    "a shy owl gives the wrong directions at first",
+    "a bear mistakes a recipe for a treasure map",
+    "a tiny boat floats away carrying an important message",
+    "a bell tree rings because someone sat on a branch",
+    "a sleepy badger fixes the wrong thing before finding the real problem",
 ]
 
 STORY_ARCHETYPE_INSTRUCTIONS = {
@@ -757,17 +1003,22 @@ class StoryService:
     def _select_favourite_phrase(self) -> str:
         return random.choice(FAVOURITE_PHRASES)
 
+    def _select_plot_humour_event(self) -> str:
+        return random.choice(PLOT_HUMOUR_EVENTS)
+
     def _personality_humour_block(
-    	self,
-    	character_trait: Optional[str],
-    	funny_quirk: Optional[str],
+        self,
+        character_trait: Optional[str],
+        funny_quirk: Optional[str],
+        age: Any,
     ) -> str:
+        comfort_habit = self._select_comfort_habit()
+        signature = self._select_signature_behaviour()
+        phrase = self._select_favourite_phrase()
+        plot_humour = self._select_age_plot_humour_event(age)
+        age_humour_instruction = self._age_humour_instruction(age)
 
-    	comfort_habit = self._select_comfort_habit()
-    	signature = self._select_signature_behaviour()
-    	phrase = self._select_favourite_phrase()
-
-    	return f"""
+        return f"""
 SELECTED CHARACTER PERSONALITY ENGINE:
 - Give the child or one important side character a clear personality trait: {character_trait}.
 - Give the child a memorable quirk: {funny_quirk}.
@@ -781,12 +1032,333 @@ SIDE CHARACTER RULES:
 - That character may occasionally say:
   "{phrase}"
 
+PLOT HUMOUR RULES:
+- Age-specific humour guidance: {age_humour_instruction}
+- Include this funny event somewhere in the story:
+  {plot_humour}
+
+- The funny event MUST change what happens next.
+- The funny event should create a clue, obstacle, solution, or new discovery.
+- Do not include humour that can be removed without affecting the story.
+- At least one supporting character should have a recurring funny behaviour that appears more than once.
+
 SHOW DON'T TELL RULES:
 - Never describe a character only as kind, brave, curious, or gentle.
 - Show personality through actions, choices, dialogue, mistakes, and habits.
 - Let quirks create gentle humour naturally.
+- Include at least one funny misunderstanding or unexpected behaviour caused by a quirk.
+- The humour should make a parent smile and may make a child giggle.
 - The ending should feel earned because of the hero's personality.
 - Avoid slapstick, sarcasm, teasing, or loud comedy.
+"""
+
+
+
+    def _safe_child_age(self, age: Any) -> int:
+        """Return a bounded child age for prompt guidance only.
+
+        This is deliberately local and prompt-only. It does not affect API
+        contracts, page count, narration, polling, storage, or subscriptions.
+        """
+        try:
+            parsed = int(age)
+        except (TypeError, ValueError):
+            parsed = 6
+        return max(0, min(parsed, 12))
+
+    def _age_band_key(self, age: Any) -> str:
+        child_age = self._safe_child_age(age)
+        if child_age <= 2:
+            return "0_2"
+        if child_age <= 4:
+            return "3_4"
+        if child_age <= 6:
+            return "5_6"
+        if child_age <= 8:
+            return "7_8"
+        if child_age <= 10:
+            return "9_10"
+        return "11_12"
+
+    def _seed_pool_for_age(self, age: Any) -> list[dict]:
+        """Return opening seeds suitable for the child's age.
+
+        Age-appropriate seeds reduce cognitive load for younger children by
+        avoiding complex, faraway, multi-concept settings until older ages.
+        """
+        band = self._age_band_key(age)
+        allowed = AGE_SEED_FAMILY_ALLOWLIST.get(band) or set()
+        if not allowed:
+            return OPENING_SEED_FAMILIES
+
+        filtered = [seed for seed in OPENING_SEED_FAMILIES if seed.get("family") in allowed]
+        return filtered or OPENING_SEED_FAMILIES
+
+    def _age_humour_profile(self, age: Any) -> dict:
+        return AGE_HUMOUR_PROFILES.get(self._age_band_key(age), AGE_HUMOUR_PROFILES["5_6"])
+
+    def _select_age_funny_quirk(self, age: Any) -> str:
+        profile = self._age_humour_profile(age)
+        return random.choice(profile.get("quirks") or FUNNY_QUIRKS)
+
+    def _select_age_plot_humour_event(self, age: Any) -> str:
+        profile = self._age_humour_profile(age)
+        return random.choice(profile.get("events") or PLOT_HUMOUR_EVENTS)
+
+    def _age_humour_instruction(self, age: Any) -> str:
+        profile = self._age_humour_profile(age)
+        return profile.get("instruction") or "Use gentle bedtime-safe humour that moves the plot forward."
+
+    def _age_readability_block(self, age: Any) -> str:
+        """Oxford-inspired age guidance for readability and story complexity.
+
+        This is guidance only. PillowTales stories are usually read aloud by a
+        parent or narrator, so the rules focus on comprehension, vocabulary,
+        sentence length, character count, and plot load rather than strict
+        independent-reading schemes.
+        """
+        child_age = self._safe_child_age(age)
+
+        if child_age <= 2:
+            profile = """
+AGE READABILITY ENGINE — AGE 0-2:
+- Write for a baby or toddler being read to, not for independent reading.
+- Use very simple, soothing language with familiar words.
+- Most sentences should be 3-8 words.
+- Use rhythm, repetition, sounds, colours, animals, bedtime routines, cuddles, and simple feelings.
+- Use one clear setting only.
+- Use one tiny event only.
+- Use no more than 1 important helper character.
+- Avoid mysteries, twists, clues, complex choices, busy worlds, or multiple locations.
+- The story should feel like a calm sensory bedtime story.
+"""
+        elif child_age <= 4:
+            profile = """
+AGE READABILITY ENGINE — AGE 3-4:
+- Use very clear early bedtime language.
+- Most sentences should be 5-10 words.
+- Use familiar words, simple actions, and obvious cause and effect.
+- Use one small problem that is easy to understand.
+- Use no more than 2 important characters.
+- Avoid complicated mysteries, layered clues, subplots, or abstract emotional explanations.
+- Repetition is good when it helps the child follow the story.
+"""
+        elif child_age <= 6:
+            profile = """
+AGE READABILITY ENGINE — AGE 5-6:
+- Use simple adventure language that a tired young child can follow.
+- Most sentences should be 6-12 words, with only occasional longer sentences when very clear.
+- Use familiar vocabulary. Allow only one or two richer storybook words per page, and make their meaning obvious.
+- Use one clear goal, one main helper, and one main obstacle.
+- Use no more than 3 important characters.
+- Funny moments should be visual and easy to understand.
+- Do not introduce several new characters, places, objects, and problems on the same page.
+- Avoid advanced, poetic, or abstract phrases such as "silent circus of clouds", "silver acrobats", "balanced on moonbeams", or "belonged to the great Star Ringmaster" for this age unless the meaning is immediately concrete.
+"""
+        elif child_age <= 8:
+            profile = """
+AGE READABILITY ENGINE — AGE 7-8:
+- Use confident child-friendly story language with clear adventure structure.
+- Most sentences should be 10-18 words.
+- Allow richer vocabulary, but keep the plot easy to track.
+- Mysteries may include 2-3 clues, but each clue should be clearly connected.
+- Use no more than 4 important characters.
+- Emotional moments can be deeper, but should still be shown through actions and dialogue.
+"""
+        elif child_age <= 10:
+            profile = """
+AGE READABILITY ENGINE — AGE 9-10:
+- Use richer language and stronger story arcs while keeping bedtime clarity.
+- Most sentences should be 12-22 words.
+- Allow small subplots, deeper choices, and more character motivation.
+- Use no more than 5 important characters.
+- The child can infer more, but the main goal must remain clear on every page.
+- World-building can be more detailed, but must not obscure the story goal.
+"""
+        else:
+            profile = """
+AGE READABILITY ENGINE — AGE 11-12:
+- Use more sophisticated language, layered feelings, and stronger adventure structure.
+- Sentences may be longer when clear and natural.
+- Allow more nuanced emotions, motives, and choices.
+- Use no more than 5 important characters.
+- The story may include a more intricate mystery or challenge, but the reader must never lose the main thread.
+- Keep the tone bedtime-safe rather than childish or patronising.
+"""
+
+        return profile + """
+GENERAL AGE RULE:
+- Match the story to the child's age, not to a single default style.
+- Younger children need clarity, repetition, and fewer moving parts.
+- Older children can handle richer language and deeper emotion, but still need a clear story goal.
+"""
+
+    def _age_cognitive_load_block(self, age: Any) -> str:
+        """Control how much the child has to remember at once."""
+        child_age = self._safe_child_age(age)
+
+        if child_age <= 2:
+            profile = """
+AGE COGNITIVE LOAD — AGE 0-2:
+- Use one location only.
+- Use one tiny goal only.
+- Use one helper only.
+- Do not use clues, mysteries, hidden motives, choices, journeys, or time jumps.
+- Repeat the same comforting object, sound, or action so the story is easy to follow.
+"""
+        elif child_age <= 4:
+            profile = """
+AGE COGNITIVE LOAD — AGE 3-4:
+- Use one location or one very simple transition.
+- Use one clear goal and one simple problem.
+- Use no more than one magical rule.
+- Do not use layered clues, secret maps, puzzles, or several helpers.
+- Each page should be understandable even if the child misses the previous detail.
+"""
+        elif child_age <= 6:
+            profile = """
+AGE COGNITIVE LOAD — AGE 5-6:
+- Use one main goal from Page 1 to Page 7.
+- Use one main helper and one main obstacle.
+- Use no more than two magical rules, and explain them through action.
+- Do not ask the child to remember several names, objects, places, and rules at once.
+- Avoid poetic or symbolic openings that sound beautiful but make the story harder to follow.
+"""
+        elif child_age <= 8:
+            profile = """
+AGE COGNITIVE LOAD — AGE 7-8:
+- Two connected goals are allowed if the link is clear.
+- A small mystery may use 2-3 clues.
+- Use up to three magical rules, but remind the reader when they matter.
+- Keep the main thread visible on every page.
+"""
+        elif child_age <= 10:
+            profile = """
+AGE COGNITIVE LOAD — AGE 9-10:
+- A subplot or deeper choice is allowed, but it must support the main goal.
+- More detailed worlds are allowed, but do not let world-building bury the action.
+- Keep named characters, magical rules, and locations controlled.
+"""
+        else:
+            profile = """
+AGE COGNITIVE LOAD — AGE 11-12:
+- Layered motives, subplots, and more nuanced choices are allowed.
+- The main story thread must still remain easy to summarise in one sentence.
+- Do not confuse sophistication with overloaded description.
+"""
+
+        return profile + """
+GENERAL COGNITIVE LOAD RULE:
+- If the story starts to feel busy, remove one character, one object, one location, or one magical rule.
+- The child and parent should always understand what problem is being solved now.
+"""
+
+    def _age_emotional_conflict_block(self, age: Any) -> str:
+        """Match emotion, conflict type, and humour to the child's age."""
+        child_age = self._safe_child_age(age)
+
+        if child_age <= 2:
+            profile = """
+AGE EMOTION AND CONFLICT — AGE 0-2:
+- Use simple feelings: happy, sleepy, cosy, surprised, sad, or excited.
+- Use tiny conflicts: a lost blanket, sleepy animal, missing cuddle, quiet sound, or bedtime routine.
+- Humour should be sound-based or visual: a squeak, a wobble, a tiny sneeze, or a silly hat.
+"""
+        elif child_age <= 4:
+            profile = """
+AGE EMOTION AND CONFLICT — AGE 3-4:
+- Use simple feelings: happy, sad, scared, excited, worried, proud.
+- Use simple conflicts: a lost toy, a sleepy animal, a stuck door, a missing hat, or preparing a small party.
+- Humour should be obvious and visual, with no wordplay required.
+"""
+        elif child_age <= 6:
+            profile = """
+AGE EMOTION AND CONFLICT — AGE 5-6:
+- Use child-friendly feelings: worried, shy, proud, disappointed, brave, patient.
+- Use clear conflicts: helping a friend, fixing one problem, delivering one invitation, understanding a misunderstanding, or helping someone try again.
+- Avoid abstract conflicts such as a kingdom losing hope, a village forgetting courage, or a world needing balance.
+- Humour should be easy to picture and should come from behaviour, not complex dialogue.
+"""
+        elif child_age <= 8:
+            profile = """
+AGE EMOTION AND CONFLICT — AGE 7-8:
+- Use feelings such as confused, jealous, nervous, determined, left out, or responsible.
+- Conflicts may include a small mystery, secret, promise, or choice.
+- Humour may include simple misunderstandings or character habits.
+"""
+        elif child_age <= 10:
+            profile = """
+AGE EMOTION AND CONFLICT — AGE 9-10:
+- Use more layered feelings such as guilt, loyalty, pressure, fairness, or responsibility.
+- Conflicts may include competing promises, mistakes, trust, teamwork, or a more involved mystery.
+- Humour can be drier, but must remain warm and bedtime-safe.
+"""
+        else:
+            profile = """
+AGE EMOTION AND CONFLICT — AGE 11-12:
+- Use nuanced feelings such as regret, uncertainty, responsibility, forgiveness, independence, or self-doubt.
+- Conflicts may involve motives, consequences, identity, loyalty, or difficult choices.
+- Keep the tone emotionally mature but still comforting and bedtime-safe.
+"""
+
+        return profile + """
+ABSTRACT CONCEPT GUARD:
+- For children under 7, show feelings through actions instead of explaining abstract ideas.
+- Prefer: "nobody wanted to hang the lanterns" over "the village had lost hope".
+- Prefer: "the dragon hid behind the chair" over "the dragon doubted himself".
+- Do not use symbolic lessons that require adult interpretation.
+"""
+
+    def _age_opening_and_page_rules(self, age: Any) -> str:
+        child_age = self._safe_child_age(age)
+        if child_age <= 2:
+            max_named = 1
+        elif child_age <= 4:
+            max_named = 2
+        elif child_age <= 6:
+            max_named = 3
+        elif child_age <= 8:
+            max_named = 4
+        else:
+            max_named = 5
+
+        return f"""AGE OPENING AND PAGE RULES:
+- By the end of Page 1, the reader must clearly know where the child started, what happened, and why the child is involved.
+- Page 1 must not introduce more than one main helper, one problem, and one magical setting idea.
+- Do not open with a crowded catalogue of poetic details.
+- Each page must have one clear job: arrive, meet, notice, try, choose, solve, or settle.
+- Do not introduce a new character, a new place, a new object, and a new problem on the same page.
+- Use no more than {max_named} named supporting characters for this age.
+- If a page needs explanation to make sense, simplify the page rather than adding more explanation.
+"""
+
+    def _age_quality_control_block(self, age: Any) -> str:
+        return (
+            self._age_cognitive_load_block(age)
+            + "\n"
+            + self._age_emotional_conflict_block(age)
+            + "\n"
+            + self._age_opening_and_page_rules(age)
+        )
+
+    def _story_clarity_rules(self) -> str:
+        return """STORY CLARITY ENGINE:
+- Clarity is more important than beautiful writing.
+- Prefer clear > clever, simple > poetic, focused > complicated.
+- The reader should always know:
+  1. Where are we?
+  2. Who are we with?
+  3. What are we trying to do next?
+- Introduce only ONE major new thing per page: one new character, one new place, one new problem, or one new clue.
+- Never introduce a new character, a new object, a new place, and a new problem together on the same page.
+- Do not introduce several characters, objects, places, and goals in the same paragraph.
+- At the start of each page, briefly re-anchor the reader in the current situation.
+- Every page should follow clear cause and effect: because A happened, the child did B, which caused C.
+- If the story feels busy, remove details rather than add explanations.
+- Avoid long chains of events that feel like: this happened, then this happened, then this happened.
+- Avoid decorative details that do not help the reader understand the story.
+- A tired parent should never have to stop and wonder who a character is, where the story is, or why the child is doing something.
+- Before returning the story, silently apply the Lost Test: if a tired parent cannot answer where we are, who we are with, and what we are trying to do next, simplify the page.
 """
 
     def _storycraft_rules(self) -> str:
@@ -809,6 +1381,13 @@ SHOW DON'T TELL RULES:
 - The adventure may begin anywhere that suits the theme, not only near a home, bedroom, window, blanket, or bedtime object.
 - Use a wide variety of bedtime-safe locations when appropriate: rainforests, river boats, deserts, castles, islands, mountains, oceans, cloud cities, ancient observatories, magical markets, treehouses, hidden valleys, peaceful pirate harbours, underwater palaces, and faraway lands.
 - Establish the setting naturally and give the child a simple, believable reason for being there. Avoid stories where the child simply appears in a magical place without context or purpose.
+- Every adventure should begin with an Adventure Entry sequence: ordinary world → trigger → transition → reason for the adventure.
+- Page 1 should answer three questions before introducing the magical setting: Where was the child? What happened? How did the adventure begin?
+- The child should never suddenly appear in a magical forest, floating island, crystal cave, underwater kingdom, or other fantasy location without explanation.
+- Begin in an ordinary or understandable place whenever possible: a bedroom, garden, beach, kitchen, campsite, grandparents' house, school, library, or another believable setting.
+- Introduce a trigger such as a strange noise, a letter, an animal, a wish, a telescope, footprints, or a hidden path.
+- Show a clear transition into the adventure, such as a hidden door, dream, rainbow, tunnel, tree hollow, or secret gate.
+- Establish why the adventure matters before the end of page 1: someone needs help, a mystery needs solving, a celebration is beginning, an invitation has arrived, or something important has gone missing.
 - Make the setting important to the story rather than background scenery. Distinctive places such as cafés, bakeries, schools, workshops, theatres, trains, and gardens should influence the problem and its solution.
 - If the child has a role or identity (princess, pirate, explorer, baker, inventor, astronaut), that role should meaningfully influence the story's events.
 - Do not invent unnecessary physical descriptions of the child such as hair colour, eye colour, skin colour, height, clothing, or appearance unless explicitly provided.
@@ -933,13 +1512,30 @@ Examples:
 - The image should be concrete, visual, and easy to remember.
 - The hero should feel like a real child with habits and preferences.
 - Give the hero one memorable quirk and one comfort habit.
-- Include one gentle smile or giggle moment in every story.
+- Include at least TWO gentle giggle moments in every story.
+- At least one giggle moment must directly change the plot.
+- One should come from a character's behaviour or habit.
+- One should come from dialogue or a misunderstanding.
 - Humour should come from behaviour, habits, misunderstandings, or personality rather than jokes.
+- The humour should feel warm, character-driven, and memorable, in the tradition of classic bedtime picture books.
 - Important side characters should have distinctive habits, jobs, sayings, or behaviours.
+
+GENTLE HUMOUR RULES:
+- Include 1-2 genuine giggle moments.
+- Supporting characters may:
+  • misunderstand instructions
+  • take things too literally
+  • collect unusual objects
+  • say unexpected things
+  • become distracted by something silly
+- Humour should never be noisy, mean, or embarrassing.
+- Avoid modern jokes, sarcasm, memes, or punchlines.
+- Funny moments must move the story forward and create consequences.
 - At least one personality trait or quirk should help solve the story problem.
 - Avoid describing characters only with adjectives.
 - Show personality through actions and repeated behaviours.
 - Give important side characters small personalities or jobs, such as a dragon who collects teacups, a fox who paints stars, a snail who delivers letters, a rabbit who draws maps, a bear who bakes midnight pies, or a pirate who sorts buttons.
+- Extra supporting character examples: a dragon who alphabetises biscuits, a rabbit who wears three scarves, a pirate who is scared of seagulls, a bear who keeps forgetting where he put his hat, or a fox who paints vegetables instead of pictures.
 - After introducing an important character, avoid repeating their name in every paragraph.
 - Vary references naturally using descriptions, species, titles, occupations, or relationships.
   Examples: Barnaby -> the badger, the Burrow Warden, her new friend; Princess Elara -> the young princess, the gardener's daughter; Captain Moss -> the old sailor, the map keeper.
@@ -990,7 +1586,7 @@ Examples:
         """
         child = request.childName or "the child"
         language_code = (request.storyLanguageCode or "en").lower()[:2]
-        seed = random.choice(OPENING_SEED_FAMILIES)
+        seed = random.choice(self._seed_pool_for_age(request.age))
         template = seed.get(language_code) or seed["en"]
         return {
             "family": seed.get("family", "place_entry"),
@@ -1073,8 +1669,8 @@ ENGLISH STORY STYLE:
         emotional_theme = self._select_emotional_story_type()
         emotional_block = self._emotional_story_block(emotional_theme)
         character_trait = self._select_character_trait()
-        funny_quirk = self._select_funny_quirk()
-        personality_humour_block = self._personality_humour_block(character_trait, funny_quirk)
+        funny_quirk = self._select_age_funny_quirk(request.age)
+        personality_humour_block = self._personality_humour_block(character_trait, funny_quirk, request.age)
 
         companion_line = self._no_companion_required_text(language_code)
         if localized_companion:
@@ -1147,6 +1743,9 @@ STORY REQUIREMENTS:
 - End peacefully and softly
 
 {self._storycraft_rules()}
+{self._story_clarity_rules()}
+{self._age_readability_block(request.age)}
+{self._age_quality_control_block(request.age)}
 
 {archetype_block}
 {emotional_block}
@@ -1287,8 +1886,17 @@ STORY CONTEXT:
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
 
-START THE STORY WITH THIS EXACT SENTENCE:
+{self._story_clarity_rules()}
+{self._age_readability_block(request.age)}
+{self._age_quality_control_block(request.age)}
+
+START THE STORY USING THIS OPENING IDEA:
 "{opening}"
+
+- Rewrite this opening in your own words.
+- Keep the same setting and magical idea.
+- Do not copy the sentence exactly.
+- Create a fresh first sentence every time.
 
 Then continue immediately from it.
 
@@ -1303,8 +1911,14 @@ PAGE 1 STRUCTURE:
 - This length limit is critical because Page 1 starts narration. Keep it short, clear, and complete; move extra world-building to page 2.
 - 1-2 gentle paragraphs
 - {sentence_rule}
-- Start from the exact opening sentence without reintroducing {request.childName}.
+- Start from a rewritten version of the opening idea without reintroducing {request.childName}.
 - Establish who {request.childName} is in this world, where they are, and what has changed.
+- Follow the Adventure Entry Engine:
+  1. Establish the child's ordinary world.
+  2. Introduce a trigger or discovery.
+  3. Show the transition into the adventure.
+  4. Give a clear reason for the adventure.
+- Do not begin with the child already inside a magical location unless the story is intentionally set there from the start and explains why.
 - By the end of Page 1, introduce one clear story promise specific to the theme.
 - The child should understand what they are trying to achieve, discover, solve, help, find, or learn next.
 - Do not add clothing or appearance details unless the parent provided them.
@@ -1491,6 +2105,14 @@ ORIGINAL STORY REQUIREMENTS:
 - The complete story should feel suitable for an approximately eight-minute bedtime experience.
 
 {self._storycraft_rules()}
+{self._story_clarity_rules()}
+{self._age_readability_block(request.age)}
+{self._age_quality_control_block(request.age)}
+
+AGE HUMOUR LOCK:
+- {self._age_humour_instruction(request.age)}
+- Humour must be age-appropriate, easy to picture, and connected to the plot.
+- For younger children, keep jokes visual and simple. For older children, allow cleverer situational humour without sarcasm.
 
 EXISTING STORY START:
 Title: {title}
