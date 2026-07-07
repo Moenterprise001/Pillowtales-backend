@@ -838,7 +838,16 @@ FIRST_PAGE_TIMEOUT_SECONDS = 30
 # User-facing consistency target: if Gemini has not produced page 1
 # quickly enough, return a deterministic page-1 fallback so Reader can open.
 # The full story still completes in the normal background Gemini path.
-FIRST_PAGE_SOFT_LIMIT_SECONDS = 18
+FIRST_PAGE_SOFT_LIMIT_SECONDS = 22
+
+# Background continuation is generated in small batches so pages 2+ can
+# become available to the reader sooner. This preserves Page-1-first playback
+# while avoiding one long Gemini call blocking all remaining pages.
+BACKGROUND_PAGE_BATCH_SIZE = 3
+
+# Keep Page 1 generation small and fast. This only affects the initial
+# Gemini Page 1 call; background continuation keeps its normal generation.
+FIRST_PAGE_MAX_OUTPUT_TOKENS = 320
 
 
 class StoryService:
@@ -1720,10 +1729,8 @@ GENTLE HUMOUR RULES:
 
     def _opening_transition_rule(self, opening_family: str) -> str:
         return (
-            f"The first sentence uses the '{opening_family}' place-entry opening. "
-            "After that exact sentence, keep the story grounded in that place and move into the first gentle action. "
-            "Do not drift into another abstract moon/window/glowing-light setup. "
-            "Make the place feel like the doorway into the story."
+            f"Use the '{opening_family}' place-entry idea as the story doorway. "
+            "Stay grounded in that place and move into one clear first action."
         )
 
     def _localized_opening_sentence(self, request: GenerateStoryRequest) -> str:
@@ -1779,6 +1786,24 @@ ENGLISH STORY STYLE:
 - Use warm, premium British bedtime storytelling with soft rhythm, clear emotion, and child-friendly magic.
 - Keep the story gentle, imaginative, cosy, and easy to read aloud.
 """
+
+    def _first_page_language_style_block(self, language_code: Optional[str]) -> str:
+        """Compact language guidance for the speed-critical Page 1 call.
+
+        The full language style block is intentionally not used here because
+        Page 1 must return quickly. Richer language rules remain in the
+        background continuation prompts.
+        """
+        language_code = (language_code or "en").lower()[:2]
+        if language_code == "es":
+            return "Write natural Spanish from Spain (castellano), warm, simple, and read-aloud friendly. Avoid Latin-American or stiff translated phrasing."
+        if language_code == "fr":
+            return "Write natural French bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff translation or overly literary phrasing."
+        if language_code == "it":
+            return "Write natural Italian bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff or literal phrasing."
+        if language_code == "de":
+            return "Write natural German bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff or academic phrasing."
+        return "Write warm, clear, read-aloud English bedtime prose. Keep sentences direct and child-friendly."
 
     def _build_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
@@ -2036,7 +2061,8 @@ OUTPUT QUALITY RULES:
 IMPORTANT LANGUAGE RULE:
 - Write ONLY in {blocks['language_name']}.
 - Do NOT mix languages.
-{self._language_style_block(request.storyLanguageCode)}
+{self._first_page_language_style_block(request.storyLanguageCode)}
+
 STORY CONTEXT:
 - Child: {request.childName}, age {request.age}
 - Theme: {blocks['effective_theme']}
@@ -2046,25 +2072,19 @@ STORY CONTEXT:
 {age_rules}
 
 PAGE 1 JOB:
-- Start the story quickly and clearly.
-- Show where the child is, what changes, and why the child is involved.
-- Use one ordinary or understandable starting place.
-- Introduce one trigger or discovery.
-- Give one clear story promise before the page ends.
-- Include one simple memory seed that can return later: an object, phrase, promise, habit, preference, helper detail, or world rule.
-- The child should notice, choose, ask, help, follow, or begin solving something.
-- Do not resolve the story yet.
-- Do not introduce danger, fear, villains, or fast pacing.
-- Do not add clothing or appearance details unless the parent provided them.
-- Keep clarity above decorative writing.
+- Show where the child is, what unusual thing happens, and why the child must join in.
+- Use one clear trigger/discovery and one clear story promise.
+- Include one reusable detail for later: object, phrase, habit, helper detail, promise, or simple world rule.
+- The child must actively notice, ask, choose, follow, help, or begin solving.
+- Do not resolve the story yet. No danger, villains, appearance details, or heavy world-building.
+- Prefer curiosity/action/dialogue over explanation.
 
 OPENING IDEA:
 "{opening}"
 
 OPENING RULES:
-- Rewrite the opening in fresh words.
-- Keep the same setting and magical idea.
-- Continue immediately from it.
+- Rewrite the opening in fresh words and continue immediately from it.
+- Keep the same setting/magical idea; do not switch to a different setup.
 - {opening_transition_rule}
 
 PAGE LENGTH:
@@ -2274,8 +2294,9 @@ Return ONLY valid JSON:
         request: GenerateStoryRequest,
         companion: Optional[dict],
         title: str,
-        page_one: str,
+        existing_pages: list[str],
         remaining_page_count: int,
+        next_page_number: int,
     ) -> str:
         """Build a compact continuation prompt for pages 2+.
 
@@ -2288,8 +2309,12 @@ Return ONLY valid JSON:
         age_rules = self._first_page_age_prompt_rules(request.age)
         humour_rule = self._age_humour_instruction(request.age)
         language_style = self._language_style_block(request.storyLanguageCode)
+        existing_pages_text = "\n\n".join(
+            f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or [])
+        )
+        final_page_number = next_page_number + remaining_page_count - 1
 
-        return f"""Continue this premium bedtime story from Page 1.
+        return f"""Continue this premium bedtime story from the existing pages.
 
 LANGUAGE:
 - Write ONLY in {blocks['language_name']}.
@@ -2302,16 +2327,18 @@ STORY FACTS:
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
-- Existing Page 1: {page_one}
+- Existing pages so far:
+{existing_pages_text}
 
 AGE / STYLE LOCK:
 {age_rules}
 - Humour guidance: {humour_rule}
 
 CONTINUATION JOB:
-- Write exactly {remaining_page_count} remaining pages, continuing naturally from Page 1.
-- Do not recap Page 1 and do not contradict it.
-- Keep the same world, promise, object, helper, mood, and story direction established by Page 1.
+- Write exactly {remaining_page_count} new pages: Page {next_page_number} through Page {final_page_number}.
+- Continue naturally from the latest existing page.
+- Do not recap existing pages and do not contradict them.
+- Keep the same world, promise, object, helper, mood, and story direction already established.
 - The story must feel like one coherent picture-book adventure, not separate scenes.
 - Keep one clear goal visible from page to page.
 - Each page needs one clear job: arrive, meet, notice, try, choose, solve, or settle.
@@ -2355,7 +2382,7 @@ CHARACTERS:
 
 OUTPUT FORMAT STRICT:
 Return ONLY valid JSON:
-{{{{"pages":["page 2 text","page 3 text"]}}}}
+{{{{"pages":["new page text","new page text"]}}}}
 - The pages array must contain exactly {remaining_page_count} strings.
 - No markdown, notes, explanations, or extra keys.
 """
@@ -2389,7 +2416,11 @@ Return ONLY valid JSON:
                 # the soft limit, return a polished deterministic page 1 and let
                 # the remaining story continue through the normal background path.
                 response = await asyncio.wait_for(
-                    asyncio.to_thread(self.model.generate_content, prompt),
+                    asyncio.to_thread(
+                        self.model.generate_content,
+                        prompt,
+                        generation_config={"max_output_tokens": FIRST_PAGE_MAX_OUTPUT_TOKENS},
+                    ),
                     timeout=FIRST_PAGE_SOFT_LIMIT_SECONDS,
                 )
             except asyncio.TimeoutError:
@@ -2475,27 +2506,68 @@ Return ONLY valid JSON:
                     })
                     return
 
-                prompt = self._build_remaining_pages_prompt(
-                    request=request,
-                    companion=companion,
-                    title=title,
-                    page_one=current_pages[0] if current_pages else '',
-                    remaining_page_count=remaining_count,
-                )
-                print(f"[PERF] remaining_pages prompt chars={len(prompt)} expected_remaining={remaining_count}")
-                t_gemini = time.time()
-                response = await asyncio.to_thread(self.model.generate_content, prompt)
-                print(f"[PERF] remaining_pages Gemini took {time.time() - t_gemini:.2f}s")
+                remaining = []
+                working_pages = postprocess_story_pages(current_pages)[:expected_pages]
 
-                response_text = getattr(response, 'text', None)
-                if not response_text or not isinstance(response_text, str):
-                    raise ValueError('Failed to generate remaining pages')
+                while len(working_pages) < expected_pages:
+                    batch_count = min(BACKGROUND_PAGE_BATCH_SIZE, expected_pages - len(working_pages))
+                    next_page_number = len(working_pages) + 1
+                    prompt = self._build_remaining_pages_prompt(
+                        request=request,
+                        companion=companion,
+                        title=title,
+                        existing_pages=working_pages,
+                        remaining_page_count=batch_count,
+                        next_page_number=next_page_number,
+                    )
+                    print(
+                        f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
+                        f"next_page={next_page_number} count={batch_count}"
+                    )
+                    t_gemini = time.time()
+                    response = await asyncio.to_thread(self.model.generate_content, prompt)
+                    print(
+                        f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
+                        f"next_page={next_page_number} count={batch_count}"
+                    )
 
-                story_data = self._clean_json_response(response_text)
-                if not isinstance(story_data, dict) or 'pages' not in story_data:
-                    raise ValueError('Invalid remaining-pages story format returned by AI')
+                    response_text = getattr(response, 'text', None)
+                    if not response_text or not isinstance(response_text, str):
+                        raise ValueError('Failed to generate remaining pages batch')
 
-                remaining = postprocess_story_pages(story_data.get('pages', []))
+                    story_data = self._clean_json_response(response_text)
+                    if not isinstance(story_data, dict) or 'pages' not in story_data:
+                        raise ValueError('Invalid remaining-pages batch format returned by AI')
+
+                    batch_pages = postprocess_story_pages(story_data.get('pages', []))[:batch_count]
+                    if len(batch_pages) < batch_count:
+                        raise ValueError(
+                            f'Remaining generation produced only {len(batch_pages)} of {batch_count} pages in batch'
+                        )
+
+                    working_pages = postprocess_story_pages([*working_pages, *batch_pages])[:expected_pages]
+                    remaining.extend(batch_pages)
+
+                    # Publish partial pages immediately. Reader polling can then
+                    # advance to pages 2+ without waiting for the full story.
+                    if len(working_pages) < expected_pages:
+                        partial_text = '\n\n'.join(working_pages)
+                        t_partial_update = time.time()
+                        print(
+                            f"[PERF] story_update_partial START story_id={story_id} "
+                            f"pages={len(working_pages)}/{expected_pages}"
+                        )
+                        self.story_repo.update(story_id, user_id, {
+                            'pages': working_pages,
+                            'full_text': partial_text,
+                            'generation_status': 'partial',
+                            'expected_pages': expected_pages,
+                            'generation_error': None,
+                        })
+                        print(
+                            f"[PERF] story_update_partial DONE story_id={story_id} "
+                            f"total={time.time() - t_partial_update:.2f}s"
+                        )
 
             all_pages = postprocess_story_pages([*current_pages, *remaining])[:expected_pages]
             if len(all_pages) < expected_pages:

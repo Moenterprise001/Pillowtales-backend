@@ -244,6 +244,40 @@ def _narrations_in_window(stories: list[dict], since: datetime, now: datetime) -
     )
 
 
+def _stories_in_window(stories: list[dict], since: datetime, now: datetime) -> list[dict]:
+    return [
+        story for story in stories
+        if (created := _parse_dt(story.get('created_at'))) and since <= created <= now
+    ]
+
+
+def _fallback_reason(story: dict) -> str | None:
+    reason = story.get('generation_fallback_reason')
+    if reason:
+        return str(reason)
+    return None
+
+
+def _fallback_metrics(stories: list[dict], since: datetime, now: datetime) -> dict[str, Any]:
+    window_stories = _stories_in_window(stories, since, now)
+    fallback_reasons: Counter[str] = Counter()
+    for story in window_stories:
+        reason = _fallback_reason(story)
+        if reason:
+            fallback_reasons[reason] += 1
+
+    fallback_total = sum(fallback_reasons.values())
+    total = len(window_stories)
+    return {
+        'stories_created': total,
+        'fallbacks': fallback_total,
+        'fallback_rate_percent': _pct(fallback_total, total),
+        'by_reason': dict(fallback_reasons.most_common()),
+        'timeout': fallback_reasons.get('first_page_timeout', 0),
+        'exception': fallback_reasons.get('first_page_exception', 0),
+    }
+
+
 def _build_periods(now: datetime) -> dict[str, datetime]:
     start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     return {
@@ -280,7 +314,7 @@ async def get_admin_dashboard(
     )
     stories_columns = (
         'id,user_id,title,theme,moral,age,language,story_language_code,narration_language_code,'
-        'audio_created_at,audio_status,created_at,generation_status,expected_pages,generation_error'
+        'audio_created_at,audio_status,created_at,generation_status,expected_pages,generation_error,generation_fallback_reason'
     )
 
     users, users_error = _safe_fetch_table_rows(
@@ -368,15 +402,22 @@ async def get_admin_dashboard(
             'has_narration': bool(story.get('audio_created_at')),
             'generation_status': story.get('generation_status'),
             'generation_error': bool(story.get('generation_error')),
+            'generation_fallback_reason': _fallback_reason(story),
         })
 
     def period_payload(since: datetime) -> dict:
+        fallback = _fallback_metrics(active_stories, since, now)
         return {
             'new_users': _count_users_in_window(active_users, since, now),
             'active_story_users': _unique_story_users_in_window(active_stories, since, now),
             'stories_created': _count_stories_in_window(active_stories, since, now),
             'narrations_created': _narrations_in_window(active_stories, since, now),
+            'page1_fallbacks': fallback['fallbacks'],
+            'page1_fallback_rate_percent': fallback['fallback_rate_percent'],
+            'page1_fallbacks_by_reason': fallback['by_reason'],
         }
+
+    fallback_24h = _fallback_metrics(active_stories, periods['last_24h'], now)
 
     headline = {
         'total_users': len(active_users),
@@ -388,6 +429,10 @@ async def get_admin_dashboard(
         'stories_with_narration': len(narrated_stories),
         'story_narration_rate_percent': _pct(len(narrated_stories), len(active_stories)),
         'story_generation_failures': len(failed_stories),
+        'page1_fallbacks_24h': fallback_24h['fallbacks'],
+        'page1_fallback_rate_24h_percent': fallback_24h['fallback_rate_percent'],
+        'page1_fallback_timeout_24h': fallback_24h['timeout'],
+        'page1_fallback_exception_24h': fallback_24h['exception'],
         'parent_voice_ready_users': len(parent_voice_ready),
         'parent_voice_consented_users': len(parent_voice_consented),
         'parent_voice_intro_used_users': len(parent_voice_intro_used),
@@ -433,6 +478,8 @@ async def get_admin_dashboard(
             'top_themes_by_age_group': _top_values_by_age_group(active_stories, 'theme'),
             'top_morals_by_age_group': _top_values_by_age_group(active_stories, 'moral'),
             'by_generation_status': _count_by(active_stories, 'generation_status'),
+            'page1_fallbacks_by_reason': _count_by([s for s in active_stories if _fallback_reason(s)], 'generation_fallback_reason'),
+            'page1_fallbacks_24h': fallback_24h,
             'recent_stories': recent_stories,
         },
         'parent_voice': {
@@ -560,12 +607,14 @@ def _render_period_table(periods: dict[str, dict[str, Any]]) -> str:
             f'<td>{_fmt_metric(item.get("active_story_users", 0))}</td>'
             f'<td>{_fmt_metric(item.get("stories_created", 0))}</td>'
             f'<td>{_fmt_metric(item.get("narrations_created", 0))}</td>'
+            f'<td>{_fmt_metric(item.get("page1_fallbacks", 0))}</td>'
+            f'<td>{_fmt_metric(item.get("page1_fallback_rate_percent", 0))}%</td>'
             '</tr>'
         )
     return (
         '<section class="panel wide">'
         '<h2>Activity by period</h2>'
-        '<table><thead><tr><th>Period</th><th>New users</th><th>Story users</th><th>Stories</th><th>Narrations</th></tr></thead><tbody>'
+        '<table><thead><tr><th>Period</th><th>New users</th><th>Story users</th><th>Stories</th><th>Narrations</th><th>Page 1 fallbacks</th><th>Fallback %</th></tr></thead><tbody>'
         + ''.join(rows) +
         '</tbody></table></section>'
     )
@@ -586,11 +635,11 @@ def _render_recent_stories(stories: list[dict[str, Any]], *, limit: int = 12) ->
             '</tr>'
         )
     if not rows:
-        rows.append('<tr><td colspan="7" class="muted">No recent stories yet</td></tr>')
+        rows.append('<tr><td colspan="8" class="muted">No recent stories yet</td></tr>')
     return (
         '<section class="panel wide">'
         '<h2>Recent stories</h2>'
-        '<table><thead><tr><th>Created</th><th>Title</th><th>User</th><th>Age</th><th>Story lang</th><th>Narration lang</th><th>Narrated</th></tr></thead><tbody>'
+        '<table><thead><tr><th>Created</th><th>Title</th><th>User</th><th>Age</th><th>Story lang</th><th>Narration lang</th><th>Narrated</th><th>Fallback</th></tr></thead><tbody>'
         + ''.join(rows) +
         '</tbody></table></section>'
     )
@@ -633,8 +682,8 @@ def _dashboard_html(snapshot: dict[str, Any], include_internal: bool) -> str:
         ('Premium', headline.get('premium_users', 0), 'Current premium users'),
         ('Stories', headline.get('stories_total', 0), 'Total story records'),
         ('Narrated', headline.get('stories_with_narration', 0), f'{headline.get("story_narration_rate_percent", 0)}% narration rate'),
+        ('Page 1 Fallbacks', headline.get('page1_fallbacks_24h', 0), f'{headline.get("page1_fallback_rate_24h_percent", 0)}% last 24h'),
         ('Parent Voice Ready', headline.get('parent_voice_ready_users', 0), 'Users with voice ready'),
-        ('PV Intro Used', headline.get('parent_voice_intro_used_users', 0), 'Free intro consumed'),
     ])
 
     warning = ''
@@ -706,6 +755,7 @@ code {{ background:rgba(255,255,255,.08); padding:2px 5px; border-radius:6px; }}
 {_render_kv('Themes', stories.get('by_theme', {}))}
 {_render_kv('Morals', stories.get('by_moral', {}))}
 {_render_kv('Stories by age', stories.get('by_age', {}), limit=20)}
+{_render_kv('Page 1 fallback reasons', stories.get('page1_fallbacks_by_reason', {}), limit=10)}
 {_render_age_group_breakdown('Top themes by age group', stories.get('top_themes_by_age_group', {}))}
 {_render_age_group_breakdown('Top morals by age group', stories.get('top_morals_by_age_group', {}))}
 {_render_kv('User preferred languages', users.get('by_preferred_language', {}))}
