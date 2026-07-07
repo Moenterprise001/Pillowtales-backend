@@ -838,7 +838,7 @@ FIRST_PAGE_TIMEOUT_SECONDS = 30
 # User-facing consistency target: if Gemini has not produced page 1
 # quickly enough, return a deterministic page-1 fallback so Reader can open.
 # The full story still completes in the normal background Gemini path.
-FIRST_PAGE_SOFT_LIMIT_SECONDS = 12
+FIRST_PAGE_SOFT_LIMIT_SECONDS = 18
 
 
 class StoryService:
@@ -1193,6 +1193,92 @@ GENERAL AGE RULE:
 - Older children can handle richer language and deeper emotion, but still need a clear story goal.
 """
 
+
+    def _age_vocabulary_block(self, age: Any) -> str:
+        """Oxford Reading Tree-inspired vocabulary and sentence rhythm guidance.
+
+        This is prompt-only. It does not affect narration, chunking, polling,
+        page count, storage, subscriptions, or reader behaviour.
+        """
+        child_age = self._safe_child_age(age)
+
+        if child_age <= 2:
+            profile = """
+AGE VOCABULARY ENGINE — AGE 0-2:
+- Use mostly first words and high-frequency concrete words: mum, dad, bed, bear, ball, duck, dog, cat, tree, moon, star, cup, hat, home, up, down, in, out, go, see, look, help, hug, sleep.
+- Use repeated short phrases and predictable rhythm.
+- Prefer sound words and sensory words: pop, splash, tap, hush, warm, soft, big, small.
+- Avoid storybook vocabulary that requires explanation: mysterious, ancient, enormous, invisible, discover, adventure, responsibility, promise, courage, patient.
+- Avoid figurative language, symbolic lessons, complex magic rules, and abstract feelings.
+- Word budget: about 98% familiar words, 2% new words at most.
+- Sentence rhythm: very short sentences, one idea per sentence, no clauses joined by commas.
+"""
+        elif child_age <= 4:
+            profile = """
+AGE VOCABULARY ENGINE — AGE 3-4:
+- Use early-reader, high-frequency words: look, find, help, make, run, jump, play, hold, open, close, happy, sad, brave, kind, big, small, soft, warm, funny, home, garden, toy, bear, rabbit, boat, door, path.
+- Introduce only one or two simple storybook words naturally, such as cosy, twinkle, sparkle, whisper, surprise, or adventure.
+- Keep new words concrete and easy to understand from the sentence around them.
+- Avoid older-child words such as investigate, extraordinary, remarkable, magnificent, responsibility, complicated, mysterious, ancient, impatient, determined, invisible.
+- Avoid long noun phrases and poetic descriptions.
+- Word budget: about 95% familiar words, 5% new storybook words.
+- Sentence rhythm: simple subject-verb-object sentences; short repeated patterns are welcome.
+"""
+        elif child_age <= 6:
+            profile = """
+AGE VOCABULARY ENGINE — AGE 5-6:
+- Use vocabulary that matches early independent reading and read-aloud comprehension: careful, clever, brave, kind, hidden, lost, found, bright, dark, near, far, bridge, river, forest, castle, dragon, friend, idea, plan, try, choose, fix, share, promise.
+- Allow one or two richer words per page when the meaning is clear from context: curious, wondered, discovered, shimmered, puzzled, patient, festival, invitation.
+- Prefer clear concrete verbs over adult or abstract verbs: looked, noticed, asked, tried, carried, opened, helped.
+- Avoid frequent use of older vocabulary such as investigate, responsibility, extraordinary, magnificent, peculiar, complicated, astonished, remarkable, consequence, tradition, official.
+- Do not use adult abstract phrases like “the village had lost hope”, “the courage inside her heart”, or “a symbol of belonging”.
+- Word budget: about 90% familiar words, 10% gentle new vocabulary.
+- Sentence rhythm: mostly short sentences with one clear action; occasional longer sentence only when easy to read aloud.
+"""
+        elif child_age <= 8:
+            profile = """
+AGE VOCABULARY ENGINE — AGE 7-8:
+- Use confident chapter-book vocabulary while staying read-aloud friendly: discover, puzzled, curious, careful, ancient, narrow, secret, journey, clue, pattern, practice, promise, festival, invention, message, nervous, proud.
+- Allow richer descriptive words, but keep each page anchored in clear action.
+- New vocabulary may appear more often, but should still be understandable without stopping the story.
+- Avoid language that feels like age 11+ fiction: responsibility as a theme, complicated politics, symbolic identity, consequence-heavy explanations, or sophisticated irony.
+- Do not flatten the story into age 3-4 language; the child can handle connected clues, clearer motives, and more varied verbs.
+- Word budget: about 82-85% familiar words, 15-18% richer story vocabulary.
+- Sentence rhythm: allow joined sentences and short clauses, but avoid dense paragraphs.
+"""
+        elif child_age <= 10:
+            profile = """
+AGE VOCABULARY ENGINE — AGE 9-10:
+- Use richer middle-grade vocabulary: investigate, mysterious, remarkable, determined, responsibility, confidence, invention, challenge, solution, tradition, invisible, complicated, cautious, suspicious, generous, loyal.
+- Allow more precise emotional and problem-solving language, but keep the bedtime tone warm and clear.
+- The child can handle clues, motives, promises, fairness, pressure, and two connected problems.
+- Do not use babyish repetition or over-simple phrasing unless it is dialogue from a younger character.
+- Avoid adult literary prose, heavy symbolism, academic wording, or sentences that feel written for teenagers.
+- Word budget: about 75-80% familiar words, 20-25% richer vocabulary.
+- Sentence rhythm: varied sentence lengths, including some longer sentences with clear clauses.
+"""
+        else:
+            profile = """
+AGE VOCABULARY ENGINE — AGE 11-12:
+- Use upper-child vocabulary with nuance: extraordinary, uncertainty, consequence, determination, responsibility, independent, reluctant, thoughtful, remarkable, investigate, evidence, contradiction, confidence, loyalty, forgiveness.
+- Allow more layered emotions, stronger dialogue, and more precise descriptions while keeping the story bedtime-safe.
+- The story should not sound childish, but it should still sound like children's fiction rather than adult literary prose.
+- Avoid talking down to the reader with toddler-level repetition, over-explained feelings, or very basic vocabulary throughout.
+- Avoid grim, cynical, romantic, violent, or teen-focused themes.
+- Word budget: about 65-70% familiar words, 30-35% richer vocabulary.
+- Sentence rhythm: varied and fluent, with longer sentences allowed when clear and natural.
+"""
+
+        return profile + """
+OXFORD-INSPIRED VOCABULARY RULE:
+- Match vocabulary, sentence rhythm, dialogue, and abstraction to the child's age band.
+- Do not give age-12 vocabulary to a 3, 4, 5, or 6-year-old.
+- Do not give babyish 3-year-old language to a 9, 10, 11, or 12-year-old.
+- New words are welcome when they help children grow, but they must be age-suitable and clear from context.
+- Prefer natural spoken bedtime language over school-workbook language.
+- Vocabulary level should change with age even when the story theme stays the same.
+"""
+
     def _age_cognitive_load_block(self, age: Any) -> str:
         """Control how much the child has to remember at once."""
         child_age = self._safe_child_age(age)
@@ -1359,6 +1445,45 @@ ABSTRACT CONCEPT GUARD:
 - Avoid decorative details that do not help the reader understand the story.
 - A tired parent should never have to stop and wonder who a character is, where the story is, or why the child is doing something.
 - Before returning the story, silently apply the Lost Test: if a tired parent cannot answer where we are, who we are with, and what we are trying to do next, simplify the page.
+"""
+
+    def _character_memory_rules(self) -> str:
+        return """PHASE 11 CHARACTER MEMORY AND CALLBACK RULES:
+- Treat early details as promises to the reader. If the story introduces a preference, object, phrase, habit, fear, small joke, helper job, or promise, bring at least two of them back later with purpose.
+- By Page 2, establish 2-3 reusable memory seeds. Good seeds include: a favourite snack, a repeated phrase, a comfort habit, a helper's job, an unusual object, a small promise, a rule of the place, or a funny misunderstanding.
+- Each memory seed must be simple enough for the child's age. Do not create a complicated list of clues for younger children.
+- At least one early detail must become useful in the middle of the story, not just decorative.
+- At least one early detail must return on the final page as an emotional or visual payoff.
+- Characters should remember what other characters said or did. Use this to show friendship, trust, confidence, kindness, patience, or courage through action.
+- A side character should not appear, help once, and vanish unless that is the point of the story. If they matter, let their habit, job, phrase, or promise echo later.
+- Avoid random callbacks. A callback should either solve a problem, reveal character growth, repair a relationship, create a warm joke, or make the ending feel earned.
+- Do not add extra plot just to create callbacks. Reuse what already exists instead.
+- The final callback should make a child feel, "I remember that," without the narrator explaining the lesson.
+"""
+
+    def _emotional_cohesion_rules(self) -> str:
+        return """PHASE 11B EMOTIONAL COHESION RULES:
+- Do not merely remember objects. Remember emotions, small conversations, promises, worries, phrases, and choices.
+- Select only the 2-4 most meaningful callbacks in the story and make those matter. Do not try to recall every object or detail.
+- Give one important supporting character a memorable identity that can be recognised later: a specific job, habit, worry, repeated phrase, unusual tool, or small comic behaviour.
+- That supporting character's identity should affect the plot at least once. Avoid generic helpers who only explain the next step.
+- Create one simple emotional phrase or idea early in the story, then let the child or helper echo it later through dialogue or action.
+- A good emotional callback should sound natural, such as a child remembering a helper's words, repeating a phrase, using a habit, or noticing that someone has changed.
+- The child should be the person who makes the decisive emotional or practical choice near the middle or ending. Helpers may guide, but the child should not be carried through the plot.
+- Avoid ending by listing everything that happened. The final page should choose one strong emotional callback and one concrete final image.
+- Avoid writing "remembered the lesson", "learned that", or "realised". Show memory through what the child says, does, keeps, gives back, or notices.
+- If the story includes a repeated phrase, use it no more than twice after the first mention, and make the final use feel earned.
+- If a side character changes, show it through behaviour: a worried character pauses, a rushed character waits, a shy character speaks, or a grumpy character helps.
+"""
+
+    def _world_logic_rules(self) -> str:
+        return """PHASE 11B WORLD LOGIC RULES:
+- Give the magical place one simple internal rule, custom, or reason that explains the main problem.
+- The rule must be understandable to the child's age and should not require a long explanation.
+- Examples: boxes hop when labels are rushed; lanterns only rise after everyone waits for the same breeze; a bakery's biscuits sing only when the oven door is thanked; a post office sorts letters by kindness instead of size.
+- Use the world rule to create one obstacle and one solution. Do not add several unrelated magical rules.
+- The world should feel handcrafted, not random. Strange details should connect to the setting's jobs, customs, weather, food, animals, or daily routines.
+- Prefer one memorable world rule over many magical decorations.
 """
 
     def _storycraft_rules(self) -> str:
@@ -1744,7 +1869,11 @@ STORY REQUIREMENTS:
 
 {self._storycraft_rules()}
 {self._story_clarity_rules()}
+{self._character_memory_rules()}
+{self._emotional_cohesion_rules()}
+{self._world_logic_rules()}
 {self._age_readability_block(request.age)}
+{self._age_vocabulary_block(request.age)}
 {self._age_quality_control_block(request.age)}
 
 {archetype_block}
@@ -1840,45 +1969,73 @@ OUTPUT QUALITY RULES:
             'character_instruction': character_instruction,
         }
 
+    def _first_page_age_prompt_rules(self, age: Any) -> str:
+        """Compact age-specific Page 1 rules.
+
+        Page 1 is the speed-critical path. Do not include the full age,
+        vocabulary, cognitive-load, and emotional engines here. Those richer
+        rules still apply to the background continuation/full-story prompts.
+        """
+        child_age = self._safe_child_age(age)
+        if child_age <= 2:
+            return """AGE-SPECIFIC PAGE 1 RULES — 0-2:
+- Write for a baby or toddler being read to.
+- Use very short, soothing sentences of about 3-8 words.
+- Use familiar concrete words, soft sounds, bedtime objects, animals, colours, cuddles, and simple feelings.
+- Use one familiar place, one tiny discovery, and at most one helper.
+- Do not use mysteries, clues, choices, busy worlds, abstract lessons, or complex magic.
+- The page should feel calm, sensory, repetitive, and easy to follow."""
+        if child_age <= 5:
+            return """AGE-SPECIFIC PAGE 1 RULES — 3-5:
+- Use clear early-childhood bedtime language.
+- Most sentences should be 5-10 words.
+- Use one clear place, one simple magical discovery, one small problem, and no more than one helper.
+- Make cause and effect obvious: something changes, the child notices, then the child gently joins in.
+- Use concrete words and simple visual humour only if it fits naturally.
+- Avoid layered clues, several characters, abstract feelings, and poetic description."""
+        if child_age <= 8:
+            return """AGE-SPECIFIC PAGE 1 RULES — 6-8:
+- Use confident child-friendly adventure language.
+- Most sentences should be 8-16 words.
+- Establish one clear goal, one main helper or clue, and one memorable setting detail.
+- A small mystery, delivery, rescue, repair, celebration, or misunderstanding may begin here.
+- Include one reusable memory seed that can matter later.
+- Keep the page clear; do not introduce several names, objects, places, and rules together."""
+        return """AGE-SPECIFIC PAGE 1 RULES — 9-12:
+- Use richer but still bedtime-safe language.
+- Sentences may be more varied, but the opening must remain clear and quick to understand.
+- Establish a stronger hook, one clear story problem, and one specific reason the child is involved.
+- Allow a more interesting mystery, choice, responsibility, or world rule, but keep only one main thread.
+- Include one emotionally useful memory seed, phrase, promise, or character detail.
+- Avoid dense world-building, adult literary prose, or over-complicated setup."""
+
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         blocks = self._language_and_character_blocks(request, companion)
 
-        # Keep Page 1 prompt deliberately lean. Page 1 exists to unlock early
-        # narration fast; richer archetype / emotional / personality guidance is
-        # applied during background continuation generation instead.
+        # Phase 11C: Page 1 prompt is now age-specific and deliberately compact.
+        # Page 1 is the speed-critical path for narration. Do not include the
+        # full Story Bible, full age engines, archetypes, emotional engine, or
+        # character/personality engine here. Those remain in background
+        # continuation generation where they cannot delay first narration.
         opening_seed = self._select_opening_seed(request)
         opening = opening_seed["sentence"]
         opening_transition_rule = self._opening_transition_rule(opening_seed["family"])
         language_code = (request.storyLanguageCode or "en").lower()
         is_english = language_code == "en"
+        age_rules = self._first_page_age_prompt_rules(request.age)
 
         if is_english:
-            page_length_rule = "450-525 characters total, including spaces and the opening sentence. Do not exceed 525 characters. If extra description is needed, move it to page 2."
-            sentence_rule = "3-5 calm, read-aloud sentences"
-            instruction_block = f"""- Continue naturally from the opening above
-- Keep the tone warm, magical, calm, and bedtime-safe
-- Use one or two soft sensory details only; save richer description for page 2
-- Let {request.childName} notice or choose something meaningful
-- Do NOT introduce danger, fear, or fast pacing
-- Do NOT resolve the story yet"""
+            page_length_rule = "500-650 characters total, including spaces. Do not exceed 650 characters."
+            sentence_rule = "4-6 calm, read-aloud sentences"
         else:
-            # Non-English first pages can be slower because the model must obey
-            # language-only output while generating valid JSON. Keep the same
-            # bedtime shape, but reduce output length and instruction load so
-            # page 1 is ready faster. The full 7-page story remains unchanged.
-            page_length_rule = "425-500 characters total, including spaces and the opening sentence. Do not exceed 500 characters. If extra description is needed, move it to page 2."
-            sentence_rule = "3-5 calm, read-aloud sentences"
-            instruction_block = f"""- Continue naturally from the opening above
-- Keep the tone warm, magical, calm, and bedtime-safe
-- Include one clear, gentle story moment for {request.childName}
-- Do NOT introduce danger, fear, or fast pacing
-- Do NOT resolve the story yet"""
+            page_length_rule = "475-625 characters total, including spaces. Do not exceed 625 characters."
+            sentence_rule = "4-6 calm, read-aloud sentences"
 
-        return f"""You are continuing a premium children's bedtime story.
+        return f"""You are writing Page 1 of a premium children's bedtime story.
 
 IMPORTANT LANGUAGE RULE:
-- Write ONLY in {blocks['language_name']}
-- Do NOT mix languages
+- Write ONLY in {blocks['language_name']}.
+- Do NOT mix languages.
 {self._language_style_block(request.storyLanguageCode)}
 STORY CONTEXT:
 - Child: {request.childName}, age {request.age}
@@ -1886,43 +2043,35 @@ STORY CONTEXT:
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
 
-{self._story_clarity_rules()}
-{self._age_readability_block(request.age)}
-{self._age_quality_control_block(request.age)}
+{age_rules}
 
-START THE STORY USING THIS OPENING IDEA:
+PAGE 1 JOB:
+- Start the story quickly and clearly.
+- Show where the child is, what changes, and why the child is involved.
+- Use one ordinary or understandable starting place.
+- Introduce one trigger or discovery.
+- Give one clear story promise before the page ends.
+- Include one simple memory seed that can return later: an object, phrase, promise, habit, preference, helper detail, or world rule.
+- The child should notice, choose, ask, help, follow, or begin solving something.
+- Do not resolve the story yet.
+- Do not introduce danger, fear, villains, or fast pacing.
+- Do not add clothing or appearance details unless the parent provided them.
+- Keep clarity above decorative writing.
+
+OPENING IDEA:
 "{opening}"
 
-- Rewrite this opening in your own words.
+OPENING RULES:
+- Rewrite the opening in fresh words.
 - Keep the same setting and magical idea.
-- Do not copy the sentence exactly.
-- Create a fresh first sentence every time.
-
-Then continue immediately from it.
-
-PLACE-ENTRY RULE:
+- Continue immediately from it.
 - {opening_transition_rule}
 
-INSTRUCTIONS:
-{instruction_block}
-
-PAGE 1 STRUCTURE:
+PAGE LENGTH:
 - {page_length_rule}
-- This length limit is critical because Page 1 starts narration. Keep it short, clear, and complete; move extra world-building to page 2.
-- 1-2 gentle paragraphs
-- {sentence_rule}
-- Start from a rewritten version of the opening idea without reintroducing {request.childName}.
-- Establish who {request.childName} is in this world, where they are, and what has changed.
-- Follow the Adventure Entry Engine:
-  1. Establish the child's ordinary world.
-  2. Introduce a trigger or discovery.
-  3. Show the transition into the adventure.
-  4. Give a clear reason for the adventure.
-- Do not begin with the child already inside a magical location unless the story is intentionally set there from the start and explains why.
-- By the end of Page 1, introduce one clear story promise specific to the theme.
-- The child should understand what they are trying to achieve, discover, solve, help, find, or learn next.
-- Do not add clothing or appearance details unless the parent provided them.
-- Keep the setup magical, warm, bedtime-safe, and easy for a child to follow.
+- 1-2 gentle paragraphs.
+- {sentence_rule}.
+- This limit matters because Page 1 starts narration. Move extra world-building to Page 2.
 
 COMPANION:
 - {blocks['companion_line']}
@@ -1930,141 +2079,187 @@ COMPANION:
 CHARACTERS:
 - {blocks['character_instruction']}
 
-OUTPUT FORMAT (STRICT):
+OUTPUT FORMAT STRICT:
 Return ONLY valid JSON:
 {{"title":"Short magical title","pages":["page 1 text"]}}
 """
 
     def _build_first_page_fallback(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, Any]:
-        """Fast varied page-1 fallback used only when Gemini is too slow.
+        """Fast polished page-1 fallback used only when Gemini is too slow.
 
-        This protects the launch UX from occasional LLM latency spikes without
-        repeatedly returning the same story. The remaining pages still complete
-        through Gemini in the normal background flow, so full story quality is
-        preserved after the reader opens.
+        This must remain deterministic and instant. It protects the Page-1-first
+        architecture without making fallback feel like a two-sentence placeholder.
+        Do not call Gemini here and do not generate the full story here.
         """
         child = request.childName or "the child"
         language_code = (request.storyLanguageCode or "en").lower()[:2]
         expected_pages = self._intended_page_count(request)
         theme = self._localized_theme_label(request.theme, language_code) or "magic"
+        theme_key = str(request.theme or "").lower().replace("-", "_").replace(" ", "_")
         moral = str(request.moral or "kindness").strip().lower()
+        localized_companion = self._localized_companion(companion, language_code)
 
-        opening_seed = self._select_opening_seed(request)
-        opening = opening_seed.get("sentence") or f"Once upon a time, {child} discovered a quiet little path full of wonder."
+        companion_en = ""
+        if localized_companion:
+            companion_en = f" {localized_companion['name']} came too, carrying the clue as carefully as a biscuit on a plate."
 
-        fallback_variants = {
-            "en": [
+        english_theme_setups = {
+            "dragons": [
+                {
+                    "title": f"{child} and the Dragon Bell",
+                    "page": (
+                        f"Just before story time, {child} heard a polite tap on the window and found a folded note outside. "
+                        f"A small dragon footprint marked the corner, and the note smelled faintly of warm toast. "
+                        f"It asked for help at the mountain post office, where the bedtime bell would not ring unless everyone shared the last bundle of letters. "
+                        f"{child} tucked the note close and followed a trail of harmless smoke curls toward the first step of the adventure."
+                        f"{companion_en}"
+                    ),
+                },
                 {
                     "title": f"{child} and the Teacup Dragon",
-                    "middle": (
-                        f"That evening, a teacup-sized dragon knocked over a stack of story cards and hid behind the cushions. "
-                        f"The dragon's wings rattled like paper whenever anyone looked at him. "
-                        f"{child} sat nearby and began a quiet {theme} adventure where {moral} mattered more than being quick or clever."
-                    ),
-                },
-                {
-                    "title": f"{child} and the Biscuit Moon Parade",
-                    "middle": (
-                        f"As the evening grew still, the village bakers discovered their parade drum had rolled into a cupboard full of flour. "
-                        f"Everyone had an idea, but nobody could agree which one to try first. "
-                        f"{child} stepped into a small {theme} adventure where {moral} could help the whole room breathe again."
-                    ),
-                },
-                {
-                    "title": f"{child} and the Sleepy Moon Garden",
-                    "middle": (
-                        f"Near the quietest corner, {child} found a path sprinkled with pale moon-dust and tiny sleeping flowers. "
-                        f"Nothing hurried there; every leaf seemed to breathe slowly in the night air. "
-                        f"{child} stepped forward gently, ready to learn how {moral} could help the garden wake just enough to share its secret."
-                    ),
-                },
-                {
-                    "title": f"{child}'s First Small Adventure",
-                    "middle": (
-                        f"A small sign appeared where it had not been before, pointing toward a quiet {theme} problem that needed careful help. "
-                        f"Something nearby was out of place, but nothing felt frightening or rushed. "
-                        f"{child} stepped closer, ready to see how {moral} might help."
+                    "page": (
+                        f"A tiny puff of smoke rolled under the story-room door and stopped beside {child}'s foot. "
+                        f"Inside it sat a teacup with a dragon scale for a handle and a message wrapped around the spoon. "
+                        f"The message said the dragon tea party had one cake left and three hungry guests, so someone kind was needed before the kettle sang. "
+                        f"{child} opened the door a little wider and stepped after the smoky trail."
+                        f"{companion_en}"
                     ),
                 },
             ],
+            "space": [
+                {
+                    "title": f"{child} and the Star Signal",
+                    "page": (
+                        f"While {child} was choosing a bedtime story, the telescope gave three small taps against the shelf. "
+                        f"Through the lens, one faraway star blinked in a pattern that looked almost like words. "
+                        f"A message appeared on the glass: the sky train had too many wishes and not enough seats, and someone needed to help them share the ride. "
+                        f"{child} pressed one hand to the telescope and watched a narrow path of starlight appear."
+                        f"{companion_en}"
+                    ),
+                }
+            ],
+            "animals": [
+                {
+                    "title": f"{child} and the Pawprint Parade",
+                    "page": (
+                        f"Just before bedtime, {child} spotted a line of pawprints crossing the floor where no pawprints had been before. "
+                        f"They led behind the story chair to a nervous rabbit holding a ribbon in both paws. "
+                        f"The animals were preparing a quiet parade, but nobody could agree how to share the first drumbeat. "
+                        f"{child} knelt down, listened to the rabbit's whisper, and followed the pawprints toward the garden gate."
+                        f"{companion_en}"
+                    ),
+                }
+            ],
+            "princess": [
+                {
+                    "title": f"Princess {child} and the Shared Crown",
+                    "page": (
+                        f"{child} was building a pretend castle from cushions when a paper crown slid out from under the tallest tower. "
+                        f"It was decorated with crayon jewels, but one side had been left blank on purpose. "
+                        f"A note inside said the castle garden was waiting for a princess who could help two friends share the honour of leading the lantern walk. "
+                        f"{child} picked up the crown, noticed the empty space, and stepped through an arch made from blankets."
+                        f"{companion_en}"
+                    ),
+                },
+                {
+                    "title": f"{child} and the Cushion Castle Promise",
+                    "page": (
+                        f"Before the bedtime story began, {child} arranged cushions into a castle with a blanket bridge across the floor. "
+                        f"When the bridge wrinkled, a small invitation popped out from between two cushions. "
+                        f"It asked for help in the royal garden, where the last ribbon for the evening parade had to be shared fairly. "
+                        f"{child} smoothed the bridge, promised to listen first, and followed the invitation through the blanket arch."
+                        f"{companion_en}"
+                    ),
+                },
+            ],
+            "adventure": [
+                {
+                    "title": f"{child} and the Map Under the Book",
+                    "page": (
+                        f"When {child} lifted the bedtime book, a folded map was hiding underneath it. "
+                        f"The map showed the room, the doorway, and one path that definitely had not been there before. "
+                        f"At the edge, a note said someone nearby needed help sharing the last bright idea before the night settled in. "
+                        f"{child} traced the path with one finger, tucked the map safely away, and took the first quiet step."
+                        f"{companion_en}"
+                    ),
+                }
+            ],
+        }
+
+        generic_english = [
+            {
+                "title": f"{child}'s {theme.title()} Promise",
+                "page": (
+                    f"Just before story time, {child} noticed something unusual beside the bedtime book. "
+                    f"A folded message waited there, marked with a picture from a {theme} place and tied with one crooked thread. "
+                    f"It said that two friends needed help before the evening settled, because sharing one small thing could change the whole adventure. "
+                    f"{child} read the message twice, kept the crooked thread as a promise, and followed the first clue toward the doorway."
+                    f"{companion_en}"
+                ),
+            },
+            {
+                "title": f"{child} and the First Promise",
+                "page": (
+                    f"A quiet knock came from a place where knocks did not usually come from. "
+                    f"When {child} looked closer, a small sign pointed toward a {theme} problem waiting just beyond the room. "
+                    f"The sign showed two hands holding the same ribbon, as if the adventure could only begin when someone chose to share. "
+                    f"{child} touched the ribbon, made a careful promise to help, and stepped toward the first clue."
+                    f"{companion_en}"
+                ),
+            },
+        ]
+
+        fallback_variants = {
+            "en": english_theme_setups.get(theme_key, generic_english),
             "es": [
                 {
-                    "title": f"{child} y el mapa de luna",
-                    "middle": (
-                        f"Aquella tarde, {child} encontró un pequeño mapa plateado junto a una linterna tranquila. "
-                        f"El mapa no tenía prisa; parecía recordar que {moral} podía empezar con una decisión pequeña y amable. "
-                        f"Con un suspiro sereno, {child} siguió la primera pista y se preguntó qué magia suave guardaba la noche."
+                    "title": f"La promesa de {child}",
+                    "page": (
+                        f"Antes del cuento, {child} encontró un mensaje doblado junto al libro de dormir. "
+                        f"Tenía un dibujo de {theme} y un hilo torcido atado en una esquina. "
+                        f"El mensaje decía que dos amigos necesitaban ayuda antes de que terminara la tarde, porque compartir una cosa pequeña podía cambiar toda la aventura. "
+                        f"{child} guardó el hilo como una promesa y siguió la primera pista hacia la puerta."
                     ),
-                },
-                {
-                    "title": f"{child} y la linterna susurrante",
-                    "middle": (
-                        f"Cuando todo quedó en calma, una linterna empezó a brillar con una luz cálida. "
-                        f"Parecía anunciar un pequeño cuento de {theme}, tranquilo y seguro. "
-                        f"{child} escuchó con atención, recordando que {moral} podía ayudar incluso a la luz más pequeña."
-                    ),
-                },
+                }
             ],
             "fr": [
                 {
-                    "title": f"{child} et la carte de lune",
-                    "middle": (
-                        f"Ce soir-là, {child} aperçut une petite carte argentée près d’une lanterne calme. "
-                        f"La carte ne pressait personne; elle semblait rappeler que {moral} commence parfois par un tout petit choix doux. "
-                        f"Avec une respiration tranquille, {child} suivit le premier indice et se demanda quelle magie tendre attendait dans la nuit."
+                    "title": f"La promesse de {child}",
+                    "page": (
+                        f"Avant l'histoire du soir, {child} trouva un message plié près du livre. "
+                        f"Il portait un dessin de {theme} et un fil de travers noué dans un coin. "
+                        f"Le message disait que deux amis avaient besoin d'aide avant la fin du soir, car partager une petite chose pouvait changer toute l'aventure. "
+                        f"{child} garda le fil comme une promesse et suivit le premier indice vers la porte."
                     ),
-                },
-                {
-                    "title": f"{child} et la lanterne qui murmurait",
-                    "middle": (
-                        f"Quand le soir devint silencieux, une petite lanterne se mit à briller d’une lumière chaude. "
-                        f"Elle semblait annoncer une douce aventure de {theme}, calme et rassurante. "
-                        f"{child} écouta avec attention, en se souvenant que {moral} pouvait aider même la plus petite lumière."
-                    ),
-                },
+                }
             ],
             "de": [
                 {
-                    "title": f"{child} und die Mondkarte",
-                    "middle": (
-                        f"An diesem Abend entdeckte {child} neben einer stillen Laterne eine kleine silberne Karte. "
-                        f"Die Karte hatte keine Eile; sie erinnerte leise daran, dass {moral} manchmal mit einer kleinen freundlichen Entscheidung beginnt. "
-                        f"Mit einem ruhigen Atemzug folgte {child} dem ersten Hinweis und fragte sich, welche sanfte Magie die Nacht bereithielt."
+                    "title": f"{child}s Versprechen",
+                    "page": (
+                        f"Vor der Gute-Nacht-Geschichte fand {child} eine gefaltete Nachricht neben dem Buch. "
+                        f"Darauf war ein Bild von {theme} zu sehen, und an einer Ecke hing ein schiefer Faden. "
+                        f"In der Nachricht stand, dass zwei Freunde Hilfe brauchten, weil Teilen ein kleines Abenteuer verändern konnte. "
+                        f"{child} bewahrte den Faden wie ein Versprechen auf und folgte dem ersten Hinweis zur Tür."
                     ),
-                },
-                {
-                    "title": f"{child} und die flüsternde Laterne",
-                    "middle": (
-                        f"Als der Abend ganz still wurde, begann eine kleine Laterne warm zu leuchten. "
-                        f"Sie schien von einem ruhigen Abenteuer über {theme} zu erzählen. "
-                        f"{child} hörte aufmerksam zu und dachte daran, dass {moral} selbst dem kleinsten Licht helfen konnte."
-                    ),
-                },
+                }
             ],
             "it": [
                 {
-                    "title": f"{child} e la mappa di luna",
-                    "middle": (
-                        f"Quella sera, {child} trovò una piccola mappa d’argento accanto a una lanterna tranquilla. "
-                        f"La mappa non aveva fretta; sembrava ricordare che {moral} a volte comincia con una piccola scelta gentile. "
-                        f"Con un respiro calmo, {child} seguì il primo indizio e si chiese quale magia dolce aspettasse nella notte."
+                    "title": f"La promessa di {child}",
+                    "page": (
+                        f"Prima della storia della sera, {child} trovò un messaggio piegato vicino al libro. "
+                        f"Aveva un disegno di {theme} e un filo storto legato a un angolo. "
+                        f"Il messaggio diceva che due amici avevano bisogno di aiuto, perché condividere una piccola cosa poteva cambiare tutta l'avventura. "
+                        f"{child} tenne il filo come una promessa e seguì il primo indizio verso la porta."
                     ),
-                },
-                {
-                    "title": f"{child} e la lanterna che sussurrava",
-                    "middle": (
-                        f"Quando la sera diventò silenziosa, una piccola lanterna iniziò a brillare di luce calda. "
-                        f"Sembrava annunciare una tenera avventura di {theme}, calma e sicura. "
-                        f"{child} ascoltò con attenzione, ricordando che {moral} poteva aiutare anche la luce più piccola."
-                    ),
-                },
+                }
             ],
         }
 
         variants = fallback_variants.get(language_code, fallback_variants["en"])
         selected = random.choice(variants)
-        page = f"{opening} {selected['middle']}"
-        pages = postprocess_story_pages([page])[:1]
+        pages = postprocess_story_pages([selected["page"]])[:1]
         return {
             'title': selected['title'],
             'pages': pages,
@@ -2082,79 +2277,75 @@ Return ONLY valid JSON:
         page_one: str,
         remaining_page_count: int,
     ) -> str:
-        blocks = self._language_and_character_blocks(request, companion)
-        return f"""You are continuing a premium children's bedtime story.
+        """Build a compact continuation prompt for pages 2+.
 
-IMPORTANT LANGUAGE RULE:
-- Continue ONLY in {blocks['language_name']}.
-- Do NOT use English unless the language is English.
-- Do NOT mix languages.
-{self._language_style_block(request.storyLanguageCode)}
-ORIGINAL STORY REQUIREMENTS:
-- Child name: {request.childName}
-- Age: {request.age}
+        Page 1 is already generated and returned to the reader. This prompt is
+        intentionally much smaller than the full Story Bible prompt so pages 2+
+        can complete faster in the background without changing narration,
+        chunking, subscriptions, Parent Voice, page count, or reader flow.
+        """
+        blocks = self._language_and_character_blocks(request, companion)
+        age_rules = self._first_page_age_prompt_rules(request.age)
+        humour_rule = self._age_humour_instruction(request.age)
+        language_style = self._language_style_block(request.storyLanguageCode)
+
+        return f"""Continue this premium bedtime story from Page 1.
+
+LANGUAGE:
+- Write ONLY in {blocks['language_name']}.
+- Do not mix languages.
+{language_style}
+
+STORY FACTS:
+- Title: {title}
+- Child: {request.childName}, age {request.age}
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
-- Tone: warm, magical, calming, bedtime-safe
-- Use simple, natural language suitable for reading aloud
-- No scary content
-- No rushed ending
-- Do NOT write "The end"
-- End peacefully and softly on the final page.
-- The complete story should feel suitable for an approximately eight-minute bedtime experience.
+- Existing Page 1: {page_one}
 
-{self._storycraft_rules()}
-{self._story_clarity_rules()}
-{self._age_readability_block(request.age)}
-{self._age_quality_control_block(request.age)}
+AGE / STYLE LOCK:
+{age_rules}
+- Humour guidance: {humour_rule}
 
-AGE HUMOUR LOCK:
-- {self._age_humour_instruction(request.age)}
-- Humour must be age-appropriate, easy to picture, and connected to the plot.
-- For younger children, keep jokes visual and simple. For older children, allow cleverer situational humour without sarcasm.
+CONTINUATION JOB:
+- Write exactly {remaining_page_count} remaining pages, continuing naturally from Page 1.
+- Do not recap Page 1 and do not contradict it.
+- Keep the same world, promise, object, helper, mood, and story direction established by Page 1.
+- The story must feel like one coherent picture-book adventure, not separate scenes.
+- Keep one clear goal visible from page to page.
+- Each page needs one clear job: arrive, meet, notice, try, choose, solve, or settle.
+- Introduce only one major new thing per page.
+- Avoid adding several new names, places, objects, and rules together.
 
-EXISTING STORY START:
-Title: {title}
-Page 1: {page_one}
+STORY QUALITY RULES:
+- Show, do not explain. Avoid “learned”, “realised”, “remembered the lesson”, “explained that”, or moral lectures.
+- Reveal world rules through discovery: questions, dialogue, mistakes, signs, objects behaving strangely, or characters demonstrating the rule.
+- Use “explained” at most once in the whole continuation. Prefer short dialogue or visible action.
+- The child must drive the outcome: notice a clue, ask a useful question, test an idea, make a mistake, adjust, and solve the key problem.
+- Magical helpers may guide, worry, interrupt, or make funny mistakes, but they must not rescue the child or solve the main problem for them.
+- Every page needs one clear job: arrive, meet, notice, try, choose, solve, or settle.
+- Every page must include at least one of: dialogue, action, surprise, humour, emotional choice, or a visual change caused by the child.
+- Include one gentle middle complication where the first idea does not fully work.
+- Include 1-2 warm humour moments caused by character behaviour, misunderstanding, or a funny habit.
+- If a funny trait appears early, reuse it once later as a callback or payoff.
+- Give one supporting character a memorable identity: job, habit, phrase, tool, worry, or comic behaviour.
+- Make the world feel alive with one small background detail, such as a side character doing a tiny job, an object misbehaving, or a custom happening nearby.
+- Reuse 2-3 important details from Page 1 later with purpose.
+- At least one Page 1 detail should help in the middle.
+- At least one Page 1 detail should return on the final page as a visual or emotional callback.
+- Give the magical place one simple rule or custom that affects both the problem and solution.
+- Avoid generic object quests unless Page 1 clearly requires one.
+- Avoid overusing these words: tiny, little, soft, gentle, golden, silver, shimmering, glowing, sparkling, moonlit, sleepy.
+- Prefer concrete actions and memorable images over decorative adjectives.
+- Keep the ending peaceful, specific, and emotionally earned.
 
-CONTINUATION ARCHETYPE RULE:
-- Continue the story archetype already established by page 1.
-- Do not switch into a different structure.
-- If page 1 began as a mystery, continue with clues and a reveal.
-- If page 1 began as a rescue, continue with a meaningful rescue complication.
-- If page 1 began with a delivery, repair, race, competition, or difficult choice, continue that same shape through the ending.
-- Avoid collapsing the continuation into a simple retrieve-object-and-go-home quest unless the established page 1 specifically requires it.
-
-CONTINUATION QUALITY BOOST:
-- Continue the specific world from page 1 and make it feel handcrafted, not generic.
-- Make the chosen theme actively drive what happens next. Do not let the story become mostly walking, eating, tidying, watering, or chatting unless those actions directly solve the central problem.
-- If a quirky object, colour, or phrase appears, use it with purpose but do not let it dominate multiple pages unless it is central to the plot.
-- Add one gentle emotional thread: someone needs kindness, courage, patience, friendship, sharing, or reassurance.
-- Preserve any personality trait or funny quirk established in page 1, and let it help create one small warm humour beat or useful choice in the continuation.
-- Keep humour subtle, sweet, bedtime-safe, and character-based; do not add noisy slapstick or let jokes take over the plot.
-- Keep the emotional thread more important than any magical object. Do not turn the continuation into a retrieve/fix/return-object plot unless page 1 clearly requires it.
-- Resolve the final page through a relationship, promise, brave choice, repaired misunderstanding, or confidence gained; any object callback should support that emotional resolution.
-- Include one clear middle turning point where {request.childName}'s action changes the outcome.
-- Include one tiny, sweet, memorable moment that fits the world naturally.
-- Use short natural dialogue only where it reveals feelings.
-- Make the final page slow down clearly and end with a specific callback image from the adventure, not a generic sleep sentence.
-
-CONTINUATION REQUIREMENTS:
-- Write exactly {remaining_page_count} remaining pages.
-- Continue naturally from page 1.
-- Do not recap page 1.
-- Do not contradict page 1.
-- Each page should contain exactly 2 gentle paragraphs.
-- PAGE BALANCE IS STRICT: each continuation page should normally be 135-155 words.
-- No continuation page should be under 125 words unless it is the final page and the emotional ending is already complete.
-- No continuation page may exceed 170 words.
-- Do not create one very long page followed by a very short page. Spread events evenly across the remaining pages.
-- Each page should contain around 5-7 bedtime-friendly sentences in total.
-- Do not make pages too short; each page should feel like a complete story moment, not a summary.
-- Every page must move the story forward gently and include one memorable story beat.
-- The moral should be discovered through the child's actions, not explained like a lesson.
-- The final page must end peacefully and softly, with a clear callback to an object, place, helper, or promise from earlier in the story.
+PAGE LENGTH:
+- Each continuation page should be 125-165 words.
+- Each page should have exactly 2 gentle paragraphs.
+- Each page should contain about 5-7 read-aloud sentences.
+- No page should feel like a summary.
+- Final page may be slightly shorter if the ending is complete and calm.
 
 COMPANION:
 - {blocks['companion_line']}
@@ -2162,15 +2353,12 @@ COMPANION:
 CHARACTERS:
 - {blocks['character_instruction']}
 
-OUTPUT FORMAT (STRICT):
+OUTPUT FORMAT STRICT:
 Return ONLY valid JSON:
-{{"pages": ["page 2 text", "page 3 text"]}}
-
-OUTPUT QUALITY RULES:
-- Return continuation pages only.
-- Before returning JSON, silently check that the continuation pages are similar in length and each page contains a complete story beat.
-- Do not include notes, markdown, or explanations outside the JSON.
-- The JSON pages array must contain exactly {remaining_page_count} strings."""
+{{{{"pages":["page 2 text","page 3 text"]}}}}
+- The pages array must contain exactly {remaining_page_count} strings.
+- No markdown, notes, explanations, or extra keys.
+"""
 
     async def generate_story_first_page(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Dict[str, Any]:
         start_total = time.time()
@@ -2246,11 +2434,15 @@ OUTPUT QUALITY RULES:
                 'generation_status': 'partial',
             }
         except Exception as exc:
-            print(f"[PERF] first_page failed, falling back to full story: {exc}")
-            full_story = await self.generate_story(request, subscription)
-            full_story['expected_pages'] = len(full_story.get('pages') or [])
-            full_story['generation_status'] = 'complete'
-            return full_story
+            # Never fall back to full story generation inside the initial
+            # Page-1 request. That can block the frontend until the 90s
+            # timeout and breaks the Page-1-first architecture. Return the
+            # deterministic Page 1 fallback instead; pages 2+ can still be
+            # generated by the normal background continuation path.
+            print(f"[PERF] first_page failed, using deterministic page 1 fallback: {exc}")
+            fallback = self._build_first_page_fallback(request, companion)
+            fallback['generation_fallback_reason'] = 'first_page_exception'
+            return fallback
 
     async def complete_story_background(
         self,
