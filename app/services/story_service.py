@@ -2169,138 +2169,6 @@ OUTPUT QUALITY RULES:
             print(f"[DEBUG] json_parse_failed label={label} error={primary_exc}")
             raise
 
-    def _salvage_complete_pages_from_partial_json(self, response_text: str, label: str) -> list[str]:
-        """Recover usable page strings from a truncated {"pages": [...]} response.
-
-        Gemini sometimes returns the page text but stops before closing the JSON
-        string/array/object. The previous repair only accepted fully closed JSON
-        strings, which meant a perfectly usable Page 2 could still be rejected.
-
-        This scanner is conservative but practical:
-        - It only looks inside a top-level "pages" array.
-        - It decodes normal JSON escapes such as \n, \", and \\.
-        - It accepts fully closed page strings.
-        - It may also accept the final open/truncated page string only when it
-          looks like a complete page: enough text, enough words, and ending on
-          natural sentence punctuation.
-        - It never invents a missing page or asks the reader/frontend to change.
-        """
-        if not response_text or not isinstance(response_text, str):
-            return []
-
-        text = response_text.strip()
-        if text.startswith('```json'):
-            text = text[7:].strip()
-        if text.startswith('```'):
-            text = text[3:].strip()
-        if text.endswith('```'):
-            text = text[:-3].strip()
-
-        pages_key = text.find('"pages"')
-        if pages_key == -1:
-            return []
-        array_start = text.find('[', pages_key)
-        if array_start == -1:
-            return []
-
-        def _decode_json_string_at(start_idx: int) -> tuple[Optional[str], int, bool]:
-            """Decode a JSON string starting at start_idx.
-
-            Returns (value, next_index, closed). If Gemini truncated inside the
-            string, closed is False and value contains the decoded open text.
-            """
-            if start_idx >= len(text) or text[start_idx] != '"':
-                return None, start_idx, False
-
-            chars: list[str] = []
-            idx = start_idx + 1
-            while idx < len(text):
-                ch = text[idx]
-                if ch == '"':
-                    return ''.join(chars), idx + 1, True
-                if ch == '\\':
-                    idx += 1
-                    if idx >= len(text):
-                        break
-                    esc = text[idx]
-                    if esc == 'n':
-                        chars.append('\n')
-                    elif esc == 'r':
-                        chars.append('\r')
-                    elif esc == 't':
-                        chars.append('\t')
-                    elif esc == 'b':
-                        chars.append('\b')
-                    elif esc == 'f':
-                        chars.append('\f')
-                    elif esc in ['"', '\\', '/']:
-                        chars.append(esc)
-                    elif esc == 'u' and idx + 4 < len(text):
-                        hex_value = text[idx + 1:idx + 5]
-                        try:
-                            chars.append(chr(int(hex_value, 16)))
-                            idx += 4
-                        except ValueError:
-                            chars.append('\\u' + hex_value)
-                            idx += 4
-                    else:
-                        # Keep unknown escapes as their visible character rather
-                        # than discarding usable story text.
-                        chars.append(esc)
-                else:
-                    chars.append(ch)
-                idx += 1
-            return ''.join(chars), idx, False
-
-        def _looks_like_complete_page(value: str) -> bool:
-            cleaned = ' '.join(str(value or '').split())
-            if len(cleaned) < 220:
-                return False
-            if len(cleaned.split()) < 35:
-                return False
-            if cleaned[-1:] not in {'.', '!', '?', '”', '"'}:
-                return False
-            return True
-
-        pages: list[str] = []
-        idx = array_start + 1
-        n = len(text)
-
-        while idx < n:
-            while idx < n and text[idx] in ' \r\n\t,':
-                idx += 1
-            if idx >= n or text[idx] == ']':
-                break
-            if text[idx] != '"':
-                break
-
-            value, next_idx, closed = _decode_json_string_at(idx)
-            if not isinstance(value, str) or not value.strip():
-                break
-
-            if closed:
-                pages.append(value)
-                idx = next_idx
-                continue
-
-            # Gemini stopped inside the current page string. Accept it only if
-            # it appears to be a complete page that simply lacks JSON closure.
-            if _looks_like_complete_page(value):
-                pages.append(value)
-                print(
-                    f"[DEBUG] json_open_page_salvaged label={label} "
-                    f"chars={len(value)} words={len(value.split())} response_chars={len(response_text)}"
-                )
-            break
-
-        cleaned_pages = postprocess_story_pages(pages)
-        if cleaned_pages:
-            print(
-                f"[DEBUG] json_partial_pages_salvaged label={label} "
-                f"count={len(cleaned_pages)} response_chars={len(response_text)}"
-            )
-        return cleaned_pages
-
     async def _generate_remaining_pages_batch(
         self,
         request: GenerateStoryRequest,
@@ -2342,19 +2210,12 @@ OUTPUT QUALITY RULES:
         if not response_text or not isinstance(response_text, str):
             raise ValueError(f'Failed to generate remaining pages batch attempt={attempt_label}')
 
-        label = f"remaining_pages_next_{next_page_number}_count_{batch_count}_{attempt_label}"
         try:
-            story_data = self._parse_json_response_with_repair(response_text, label)
+            story_data = self._parse_json_response_with_repair(
+                response_text,
+                f"remaining_pages_next_{next_page_number}_count_{batch_count}_{attempt_label}",
+            )
         except Exception as parse_exc:
-            salvaged_pages = self._salvage_complete_pages_from_partial_json(response_text, label)[:batch_count]
-            if salvaged_pages:
-                print(
-                    f"[PERF] remaining_pages_batch salvaged complete pages "
-                    f"next_page={next_page_number} requested={batch_count} salvaged={len(salvaged_pages)} "
-                    f"attempt={attempt_label}"
-                )
-                return salvaged_pages
-
             raw_preview = str(response_text or '')[:1200]
             print(
                 f"[DEBUG] remaining_pages raw Gemini response parse_failed "
@@ -2370,15 +2231,9 @@ OUTPUT QUALITY RULES:
             raise ValueError(f'Invalid remaining-pages batch format returned by AI attempt={attempt_label}')
 
         batch_pages = postprocess_story_pages(story_data.get('pages', []))[:batch_count]
-        if not batch_pages:
-            raise ValueError(
-                f'Remaining generation produced no usable pages in batch attempt={attempt_label}'
-            )
         if len(batch_pages) < batch_count:
-            print(
-                f"[PERF] remaining_pages_batch accepted partial valid pages "
-                f"next_page={next_page_number} requested={batch_count} got={len(batch_pages)} "
-                f"attempt={attempt_label}"
+            raise ValueError(
+                f'Remaining generation produced only {len(batch_pages)} of {batch_count} pages in batch attempt={attempt_label}'
             )
         return batch_pages
 
