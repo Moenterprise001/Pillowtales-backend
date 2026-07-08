@@ -2169,6 +2169,64 @@ OUTPUT QUALITY RULES:
             print(f"[DEBUG] json_parse_failed label={label} error={primary_exc}")
             raise
 
+    def _salvage_complete_pages_from_partial_json(self, response_text: str, label: str) -> list[str]:
+        """Recover fully closed page strings from a truncated {"pages": [...]} response.
+
+        Gemini occasionally stops mid-string. This helper only salvages strings
+        that were completely closed before truncation. It never invents text,
+        never closes an unfinished sentence, and never fabricates JSON. The
+        caller can publish the complete pages and ask Gemini only for what is
+        still missing.
+        """
+        if not response_text or not isinstance(response_text, str):
+            return []
+
+        text = response_text.strip()
+        if text.startswith('```json'):
+            text = text[7:].strip()
+        if text.startswith('```'):
+            text = text[3:].strip()
+        if text.endswith('```'):
+            text = text[:-3].strip()
+
+        pages_key = text.find('"pages"')
+        if pages_key == -1:
+            return []
+        array_start = text.find('[', pages_key)
+        if array_start == -1:
+            return []
+
+        pages: list[str] = []
+        idx = array_start + 1
+        n = len(text)
+        decoder = json.JSONDecoder()
+
+        while idx < n:
+            while idx < n and text[idx] in ' \r\n\t,':
+                idx += 1
+            if idx >= n or text[idx] == ']':
+                break
+            if text[idx] != '"':
+                # If the next value is not a JSON string, stop conservatively.
+                break
+            try:
+                value, end_idx = decoder.raw_decode(text[idx:])
+            except json.JSONDecodeError:
+                # Most likely an unterminated final page. Keep earlier pages only.
+                break
+            if not isinstance(value, str):
+                break
+            pages.append(value)
+            idx += end_idx
+
+        cleaned_pages = postprocess_story_pages(pages)
+        if cleaned_pages:
+            print(
+                f"[DEBUG] json_partial_pages_salvaged label={label} "
+                f"count={len(cleaned_pages)} response_chars={len(response_text)}"
+            )
+        return cleaned_pages
+
     async def _generate_remaining_pages_batch(
         self,
         request: GenerateStoryRequest,
@@ -2210,12 +2268,19 @@ OUTPUT QUALITY RULES:
         if not response_text or not isinstance(response_text, str):
             raise ValueError(f'Failed to generate remaining pages batch attempt={attempt_label}')
 
+        label = f"remaining_pages_next_{next_page_number}_count_{batch_count}_{attempt_label}"
         try:
-            story_data = self._parse_json_response_with_repair(
-                response_text,
-                f"remaining_pages_next_{next_page_number}_count_{batch_count}_{attempt_label}",
-            )
+            story_data = self._parse_json_response_with_repair(response_text, label)
         except Exception as parse_exc:
+            salvaged_pages = self._salvage_complete_pages_from_partial_json(response_text, label)[:batch_count]
+            if salvaged_pages:
+                print(
+                    f"[PERF] remaining_pages_batch salvaged complete pages "
+                    f"next_page={next_page_number} requested={batch_count} salvaged={len(salvaged_pages)} "
+                    f"attempt={attempt_label}"
+                )
+                return salvaged_pages
+
             raw_preview = str(response_text or '')[:1200]
             print(
                 f"[DEBUG] remaining_pages raw Gemini response parse_failed "
@@ -2231,9 +2296,15 @@ OUTPUT QUALITY RULES:
             raise ValueError(f'Invalid remaining-pages batch format returned by AI attempt={attempt_label}')
 
         batch_pages = postprocess_story_pages(story_data.get('pages', []))[:batch_count]
-        if len(batch_pages) < batch_count:
+        if not batch_pages:
             raise ValueError(
-                f'Remaining generation produced only {len(batch_pages)} of {batch_count} pages in batch attempt={attempt_label}'
+                f'Remaining generation produced no usable pages in batch attempt={attempt_label}'
+            )
+        if len(batch_pages) < batch_count:
+            print(
+                f"[PERF] remaining_pages_batch accepted partial valid pages "
+                f"next_page={next_page_number} requested={batch_count} got={len(batch_pages)} "
+                f"attempt={attempt_label}"
             )
         return batch_pages
 
