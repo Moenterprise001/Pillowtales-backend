@@ -5,7 +5,7 @@ import json
 import random
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
+from typing import Any, Dict, Optional, List
 
 import google.generativeai as genai
 from fastapi import HTTPException
@@ -844,10 +844,48 @@ FIRST_PAGE_SOFT_LIMIT_SECONDS = 22
 # become available to the reader sooner. This preserves Page-1-first playback
 # while avoiding one long Gemini call blocking all remaining pages.
 BACKGROUND_PAGE_BATCH_SIZE = 3
+# If Gemini truncates a continuation batch, reduce the request size instead of
+# leaving the story stuck on a partial page count. This only affects background
+# pages 2+ and never changes Page-1-first narration behaviour.
+BACKGROUND_RECOVERY_BATCH_SIZES = [2, 1]
 
 # Keep Page 1 generation small and fast. This only affects the initial
 # Gemini Page 1 call; background continuation keeps its normal generation.
-FIRST_PAGE_MAX_OUTPUT_TOKENS = 320
+# 768 gives enough headroom for valid JSON wrapper + title + 500-650 chars
+# while still keeping Page 1 small for the Page-1-first performance rule.
+FIRST_PAGE_MAX_OUTPUT_TOKENS = 768
+
+# Per-call Gemini configs. Keep these local and explicit because PillowTales
+# uses Gemini for different jobs: Page 1 speed, continuation creativity, full
+# fallback generation, and deterministic metadata extraction. Do not configure
+# the model globally with one setting for every task.
+FIRST_PAGE_GENERATION_CONFIG = {
+    "temperature": 0.85,
+    "top_p": 0.95,
+    "max_output_tokens": FIRST_PAGE_MAX_OUTPUT_TOKENS,
+    "response_mime_type": "application/json",
+}
+
+REMAINING_PAGES_GENERATION_CONFIG = {
+    "temperature": 0.95,
+    "top_p": 0.95,
+    "max_output_tokens": 4096,
+    "response_mime_type": "application/json",
+}
+
+FULL_STORY_GENERATION_CONFIG = {
+    "temperature": 0.95,
+    "top_p": 0.95,
+    "max_output_tokens": 8192,
+    "response_mime_type": "application/json",
+}
+
+METADATA_GENERATION_CONFIG = {
+    "temperature": 0.1,
+    "top_p": 0.8,
+    "max_output_tokens": 768,
+    "response_mime_type": "application/json",
+}
 
 
 class StoryService:
@@ -856,6 +894,35 @@ class StoryService:
         if settings.gemini_api_key:
             genai.configure(api_key=settings.gemini_api_key)
         self.model = genai.GenerativeModel(settings.gemini_model) if settings.gemini_api_key else None
+
+    def _log_gemini_response_metadata(self, label: str, response: Any) -> None:
+        """Log lightweight Gemini metadata without exposing full story text.
+
+        This is diagnostic only. It helps identify MAX_TOKENS, SAFETY, empty
+        candidates, or SDK response issues when JSON parsing fails. It does not
+        change prompts, narration, chunking, polling, storage, or reader flow.
+        """
+        try:
+            candidates = getattr(response, 'candidates', None) or []
+            candidate_count = len(candidates) if hasattr(candidates, '__len__') else 0
+            prompt_feedback = getattr(response, 'prompt_feedback', None)
+            usage_metadata = getattr(response, 'usage_metadata', None)
+            text_value = getattr(response, 'text', '') or ''
+            print(
+                f"[DEBUG] Gemini metadata label={label} "
+                f"candidates={candidate_count} response_chars={len(text_value)} "
+                f"prompt_feedback={prompt_feedback} usage={usage_metadata}"
+            )
+
+            for idx, candidate in enumerate(candidates[:2]):
+                finish_reason = getattr(candidate, 'finish_reason', None)
+                safety_ratings = getattr(candidate, 'safety_ratings', None)
+                print(
+                    f"[DEBUG] Gemini candidate label={label} index={idx} "
+                    f"finish_reason={finish_reason} safety_ratings={safety_ratings}"
+                )
+        except Exception as metadata_exc:
+            print(f"[DEBUG] Gemini metadata log skipped label={label}: {metadata_exc}")
 
     def _select_companion(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Optional[dict]:
         # V1 production focus: do not randomly introduce companions.
@@ -1074,6 +1141,91 @@ SHOW DON'T TELL RULES:
         except (TypeError, ValueError):
             parsed = 6
         return max(0, min(parsed, 12))
+
+    def _oxford_inspired_age_profile_block(self, age: Any) -> str:
+        """Internal age calibration inspired by Oxford Owl reading progression.
+
+        This does not copy Oxford Reading Tree content or style. It is only a
+        developmental guide for sentence length, vocabulary load, dialogue,
+        plot complexity, emotional range, and humour. Prompt-only: no narration,
+        chunking, polling, storage, subscriptions, or reader behaviour changes.
+        """
+        child_age = self._safe_child_age(age)
+
+        if child_age <= 2:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 0-2:
+- Reading/listening stage: earliest shared read-aloud and nursery-rhythm level.
+- Sentence shape: very short, one idea per sentence, mostly 3-8 words.
+- Vocabulary: almost entirely familiar concrete words, sounds, colours, animals, body actions, bedtime objects, and family words.
+- Dialogue: minimal; short phrases only.
+- Plot: one place, one tiny event, one comfort action.
+- Emotion: happy, sad, sleepy, surprised, cosy. Show through cuddles, looking, reaching, hiding, or sounds.
+- Humour: one visual or sound-based smile moment.
+- New words: almost none; any new word must be obvious from context.
+"""
+        elif child_age <= 4:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 3-4:
+- Reading/listening stage: early picture-book comprehension and simple patterned language.
+- Sentence shape: short, clear sentences, usually 5-10 words, with occasional repetition.
+- Vocabulary: familiar everyday words plus a few simple storybook words such as cosy, twinkle, whisper, surprise, or sparkle when concrete.
+- Dialogue: short, direct lines that a young child can repeat.
+- Plot: one clear place, one simple problem, one helper, one solution path.
+- Emotion: happy, worried, scared, proud, kind, brave. Show through simple actions.
+- Humour: obvious visual silliness, animal behaviour, wrong hats, funny sounds, or simple misunderstandings.
+- New words: one or two only, supported by the sentence around them.
+"""
+        elif child_age <= 6:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 5-6:
+- Reading/listening stage: early independent-reader clarity with richer read-aloud adventure.
+- Sentence shape: mostly 6-12 words, with occasional longer sentences when very clear.
+- Vocabulary: familiar action words plus gentle story vocabulary such as curious, discovered, puzzled, patient, invitation, bridge, promise, clue.
+- Dialogue: regular but simple; dialogue should reveal what someone needs, notices, or misunderstands.
+- Plot: one main goal, one main helper, one obstacle, one first idea that may partly fail.
+- Emotion: worried, shy, disappointed, brave, proud, patient. Show through choices and behaviour.
+- Humour: visual mishaps and simple misunderstandings that affect the plot.
+- New words: a small number per page, always clear from context.
+"""
+        elif child_age <= 8:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 7-8:
+- Reading/listening stage: confident early chapter-book feel while remaining bedtime clear.
+- Sentence shape: varied but readable, usually 10-18 words.
+- Vocabulary: richer but still child-friendly words such as pattern, narrow, secret, festival, invention, nervous, proud, practice, promise, clue.
+- Dialogue: more frequent and characterful; characters may disagree gently, ask questions, or reveal motives.
+- Plot: connected scenes, 2-3 clues or steps, a clear midpoint complication, and a child-led decision.
+- Emotion: confused, jealous, nervous, determined, left out, responsible, relieved. Show through dialogue and choices.
+- Humour: character habits, literal misunderstandings, over-serious helpers, or repeated funny behaviour with payoff.
+- New words: welcome when useful, but action must stay easy to follow.
+"""
+        elif child_age <= 10:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 9-10:
+- Reading/listening stage: richer middle-grade-style bedtime story with controlled complexity.
+- Sentence shape: varied sentences, often 12-22 words, but never dense or adult.
+- Vocabulary: allow more precise words such as investigate, tradition, responsibility, generous, cautious, suspicious, determined, solution.
+- Dialogue: should reveal motives, pressure, uncertainty, or changing trust.
+- Plot: one main thread with a small subplot or deeper choice when useful.
+- Emotion: loyalty, guilt, fairness, pressure, confidence, regret, responsibility. Keep it hopeful and bedtime-safe.
+- Humour: smarter situational humour, over-complicated plans, rules misunderstood, or formal traditions going wrong.
+- New words: acceptable if they support story richness and do not slow comprehension.
+"""
+        else:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 11-12:
+- Reading/listening stage: upper-child storytelling with nuance, but still warm bedtime fiction.
+- Sentence shape: fluent and varied, with longer sentences allowed when natural and clear.
+- Vocabulary: richer words such as uncertainty, consequence, reluctant, contradiction, evidence, independence, forgiveness, thoughtful.
+- Dialogue: more layered; characters can imply feelings without explaining everything.
+- Plot: nuanced motives, a stronger mystery or choice, and clear consequences, but no grim or teen-focused themes.
+- Emotion: uncertainty, responsibility, independence, loyalty, forgiveness, self-doubt, confidence.
+- Humour: gentle wit, irony of rules, over-formality, or clever misunderstanding, never sarcasm or meanness.
+- New words: richer vocabulary is allowed, but the story must still read aloud smoothly.
+"""
+
+        return profile + """
+GENERAL OXFORD-INSPIRED CALIBRATION RULE:
+- Use these profiles only as developmental guidance for language complexity.
+- Do not copy or imitate Oxford Reading Tree stories, characters, wording, plots, or branded style.
+- The story must remain original PillowTales bedtime fiction.
+- Age should change more than vocabulary: it should change sentence rhythm, dialogue, plot load, emotional depth, humour, and how much the child must infer.
+"""
 
     def _age_band_key(self, age: Any) -> str:
         child_age = self._safe_child_age(age)
@@ -1730,7 +1882,8 @@ GENTLE HUMOUR RULES:
     def _opening_transition_rule(self, opening_family: str) -> str:
         return (
             f"Use the '{opening_family}' place-entry idea as the story doorway. "
-            "Stay grounded in that place and move into one clear first action."
+            "Stay grounded in that place and move into one clear first action. "
+            "Make the magical trigger feel caused by something the child is already doing there."
         )
 
     def _localized_opening_sentence(self, request: GenerateStoryRequest) -> str:
@@ -1893,6 +2046,7 @@ STORY REQUIREMENTS:
 - End peacefully and softly
 
 {self._storycraft_rules()}
+{self._oxford_inspired_age_profile_block(request.age)}
 {self._story_clarity_rules()}
 {self._character_memory_rules()}
 {self._emotional_cohesion_rules()}
@@ -1951,6 +2105,326 @@ OUTPUT QUALITY RULES:
         if cleaned.endswith('```'):
             cleaned = cleaned[:-3]
         return json.loads(cleaned.strip())
+
+    def _extract_balanced_json_object(self, response_text: str) -> Optional[str]:
+        """Extract the first balanced JSON object from a model response.
+
+        Gemini sometimes returns valid JSON surrounded by fences or whitespace.
+        This repair is intentionally conservative: it only succeeds when braces
+        balance cleanly. It does not invent missing story text or close partial
+        strings, so it cannot convert a truly truncated response into a fake
+        page.
+        """
+        if not response_text or not isinstance(response_text, str):
+            return None
+
+        text = response_text.strip()
+        if text.startswith('```json'):
+            text = text[7:].strip()
+        if text.startswith('```'):
+            text = text[3:].strip()
+        if text.endswith('```'):
+            text = text[:-3].strip()
+
+        start = text.find('{')
+        if start == -1:
+            return None
+
+        depth = 0
+        in_string = False
+        escaped = False
+        for idx in range(start, len(text)):
+            ch = text[idx]
+            if escaped:
+                escaped = False
+                continue
+            if ch == '\\':
+                escaped = True
+                continue
+            if ch == '"':
+                in_string = not in_string
+                continue
+            if in_string:
+                continue
+            if ch == '{':
+                depth += 1
+            elif ch == '}':
+                depth -= 1
+                if depth == 0:
+                    return text[start:idx + 1]
+        return None
+
+    def _parse_json_response_with_repair(self, response_text: str, label: str) -> Dict[str, Any]:
+        try:
+            return self._clean_json_response(response_text)
+        except Exception as primary_exc:
+            extracted = self._extract_balanced_json_object(response_text)
+            if extracted:
+                try:
+                    parsed = json.loads(extracted)
+                    print(f"[DEBUG] json_repair_success label={label} chars={len(extracted)}")
+                    return parsed
+                except Exception as repair_exc:
+                    print(f"[DEBUG] json_repair_failed label={label} error={repair_exc}")
+            print(f"[DEBUG] json_parse_failed label={label} error={primary_exc}")
+            raise
+
+    def _salvage_complete_pages_from_partial_json(self, response_text: str, label: str) -> list[str]:
+        """Recover usable page strings from a truncated {"pages": [...]} response.
+
+        Gemini sometimes returns the page text but stops before closing the JSON
+        string/array/object. The previous repair only accepted fully closed JSON
+        strings, which meant a perfectly usable Page 2 could still be rejected.
+
+        This scanner is conservative but practical:
+        - It only looks inside a top-level "pages" array.
+        - It decodes normal JSON escapes such as \n, \", and \\.
+        - It accepts fully closed page strings.
+        - It may also accept the final open/truncated page string only when it
+          looks like a complete page: enough text, enough words, and ending on
+          natural sentence punctuation.
+        - It never invents a missing page or asks the reader/frontend to change.
+        """
+        if not response_text or not isinstance(response_text, str):
+            return []
+
+        text = response_text.strip()
+        if text.startswith('```json'):
+            text = text[7:].strip()
+        if text.startswith('```'):
+            text = text[3:].strip()
+        if text.endswith('```'):
+            text = text[:-3].strip()
+
+        pages_key = text.find('"pages"')
+        if pages_key == -1:
+            return []
+        array_start = text.find('[', pages_key)
+        if array_start == -1:
+            return []
+
+        def _decode_json_string_at(start_idx: int) -> tuple[Optional[str], int, bool]:
+            """Decode a JSON string starting at start_idx.
+
+            Returns (value, next_index, closed). If Gemini truncated inside the
+            string, closed is False and value contains the decoded open text.
+            """
+            if start_idx >= len(text) or text[start_idx] != '"':
+                return None, start_idx, False
+
+            chars: list[str] = []
+            idx = start_idx + 1
+            while idx < len(text):
+                ch = text[idx]
+                if ch == '"':
+                    return ''.join(chars), idx + 1, True
+                if ch == '\\':
+                    idx += 1
+                    if idx >= len(text):
+                        break
+                    esc = text[idx]
+                    if esc == 'n':
+                        chars.append('\n')
+                    elif esc == 'r':
+                        chars.append('\r')
+                    elif esc == 't':
+                        chars.append('\t')
+                    elif esc == 'b':
+                        chars.append('\b')
+                    elif esc == 'f':
+                        chars.append('\f')
+                    elif esc in ['"', '\\', '/']:
+                        chars.append(esc)
+                    elif esc == 'u' and idx + 4 < len(text):
+                        hex_value = text[idx + 1:idx + 5]
+                        try:
+                            chars.append(chr(int(hex_value, 16)))
+                            idx += 4
+                        except ValueError:
+                            chars.append('\\u' + hex_value)
+                            idx += 4
+                    else:
+                        # Keep unknown escapes as their visible character rather
+                        # than discarding usable story text.
+                        chars.append(esc)
+                else:
+                    chars.append(ch)
+                idx += 1
+            return ''.join(chars), idx, False
+
+        def _looks_like_complete_page(value: str) -> bool:
+            cleaned = ' '.join(str(value or '').split())
+            if len(cleaned) < 220:
+                return False
+            if len(cleaned.split()) < 35:
+                return False
+            if cleaned[-1:] not in {'.', '!', '?', '”', '"'}:
+                return False
+            return True
+
+        pages: list[str] = []
+        idx = array_start + 1
+        n = len(text)
+
+        while idx < n:
+            while idx < n and text[idx] in ' \r\n\t,':
+                idx += 1
+            if idx >= n or text[idx] == ']':
+                break
+            if text[idx] != '"':
+                break
+
+            value, next_idx, closed = _decode_json_string_at(idx)
+            if not isinstance(value, str) or not value.strip():
+                break
+
+            if closed:
+                pages.append(value)
+                idx = next_idx
+                continue
+
+            # Gemini stopped inside the current page string. Accept it only if
+            # it appears to be a complete page that simply lacks JSON closure.
+            if _looks_like_complete_page(value):
+                pages.append(value)
+                print(
+                    f"[DEBUG] json_open_page_salvaged label={label} "
+                    f"chars={len(value)} words={len(value.split())} response_chars={len(response_text)}"
+                )
+            break
+
+        cleaned_pages = postprocess_story_pages(pages)
+        if cleaned_pages:
+            print(
+                f"[DEBUG] json_partial_pages_salvaged label={label} "
+                f"count={len(cleaned_pages)} response_chars={len(response_text)}"
+            )
+        return cleaned_pages
+
+    async def _generate_remaining_pages_batch(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+        title: str,
+        working_pages: list[str],
+        batch_count: int,
+        next_page_number: int,
+        attempt_label: str,
+    ) -> list[str]:
+        prompt = self._build_remaining_pages_prompt(
+            request=request,
+            companion=companion,
+            title=title,
+            existing_pages=working_pages,
+            remaining_page_count=batch_count,
+            next_page_number=next_page_number,
+        )
+        print(
+            f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
+            f"next_page={next_page_number} count={batch_count} attempt={attempt_label}"
+        )
+        t_gemini = time.time()
+        response = await asyncio.to_thread(
+            self.model.generate_content,
+            prompt,
+            generation_config=REMAINING_PAGES_GENERATION_CONFIG,
+        )
+        print(
+            f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
+            f"next_page={next_page_number} count={batch_count} attempt={attempt_label}"
+        )
+        self._log_gemini_response_metadata(
+            f"remaining_pages_next_{next_page_number}_count_{batch_count}_{attempt_label}",
+            response,
+        )
+
+        response_text = getattr(response, 'text', None)
+        if not response_text or not isinstance(response_text, str):
+            raise ValueError(f'Failed to generate remaining pages batch attempt={attempt_label}')
+
+        label = f"remaining_pages_next_{next_page_number}_count_{batch_count}_{attempt_label}"
+        try:
+            story_data = self._parse_json_response_with_repair(response_text, label)
+        except Exception as parse_exc:
+            salvaged_pages = self._salvage_complete_pages_from_partial_json(response_text, label)[:batch_count]
+            if salvaged_pages:
+                print(
+                    f"[PERF] remaining_pages_batch salvaged complete pages "
+                    f"next_page={next_page_number} requested={batch_count} salvaged={len(salvaged_pages)} "
+                    f"attempt={attempt_label}"
+                )
+                return salvaged_pages
+
+            raw_preview = str(response_text or '')[:1200]
+            print(
+                f"[DEBUG] remaining_pages raw Gemini response parse_failed "
+                f"attempt={attempt_label} next_page={next_page_number} count={batch_count} error={parse_exc}"
+            )
+            print(
+                f"[DEBUG] remaining_pages raw Gemini response preview "
+                f"attempt={attempt_label} value={raw_preview!r}"
+            )
+            raise
+
+        if not isinstance(story_data, dict) or 'pages' not in story_data:
+            raise ValueError(f'Invalid remaining-pages batch format returned by AI attempt={attempt_label}')
+
+        batch_pages = postprocess_story_pages(story_data.get('pages', []))[:batch_count]
+        if not batch_pages:
+            raise ValueError(
+                f'Remaining generation produced no usable pages in batch attempt={attempt_label}'
+            )
+        if len(batch_pages) < batch_count:
+            print(
+                f"[PERF] remaining_pages_batch accepted partial valid pages "
+                f"next_page={next_page_number} requested={batch_count} got={len(batch_pages)} "
+                f"attempt={attempt_label}"
+            )
+        return batch_pages
+
+    async def _generate_remaining_pages_with_recovery(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+        title: str,
+        working_pages: list[str],
+        preferred_batch_count: int,
+    ) -> list[str]:
+        """Generate continuation pages, reducing batch size on parse/truncation failure.
+
+        This prevents the app becoming stranded at 4/7 if Gemini truncates a
+        3-page continuation. It is background-only and preserves Page 1 speed.
+        """
+        next_page_number = len(working_pages) + 1
+        attempts: List[tuple[int, str]] = [(preferred_batch_count, 'primary')]
+        for size in BACKGROUND_RECOVERY_BATCH_SIZES:
+            if size < preferred_batch_count and size > 0:
+                attempts.append((size, f'recovery_{size}page'))
+
+        last_exc: Optional[Exception] = None
+        for batch_count, attempt_label in attempts:
+            if batch_count > preferred_batch_count:
+                continue
+            try:
+                return await self._generate_remaining_pages_batch(
+                    request=request,
+                    companion=companion,
+                    title=title,
+                    working_pages=working_pages,
+                    batch_count=batch_count,
+                    next_page_number=next_page_number,
+                    attempt_label=attempt_label,
+                )
+            except Exception as exc:
+                last_exc = exc
+                print(
+                    f"[PERF] remaining_pages_batch attempt failed story_title={title!r} "
+                    f"next_page={next_page_number} count={batch_count} attempt={attempt_label} error={exc}"
+                )
+
+        raise ValueError(
+            f'Remaining pages recovery failed at page {next_page_number}: {last_exc}'
+        )
 
     def _language_and_character_blocks(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, str]:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
@@ -2071,13 +2545,31 @@ STORY CONTEXT:
 
 {age_rules}
 
+OXFORD-INSPIRED PAGE 1 CALIBRATION:
+- Match this opening to the child's developmental reading/listening level: age should affect sentence length, vocabulary, dialogue, humour, emotional simplicity, and plot load.
+- This is only guidance; do not copy Oxford Reading Tree content, characters, style, or wording.
+
 PAGE 1 JOB:
-- Show where the child is, what unusual thing happens, and why the child must join in.
+- Show where the child is, what the child is already doing there, what unusual thing happens, and why the child must join in.
+- The adventure must grow naturally from the place or activity, not feel like the child is suddenly dropped into a magical setting.
 - Use one clear trigger/discovery and one clear story promise.
 - Include one reusable detail for later: object, phrase, habit, helper detail, promise, or simple world rule.
 - The child must actively notice, ask, choose, follow, help, or begin solving.
 - Do not resolve the story yet. No danger, villains, appearance details, or heavy world-building.
 - Prefer curiosity/action/dialogue over explanation.
+
+NATURAL OPENING CONTRACT:
+- Do NOT begin with "Suddenly", "One day", "One night", "One evening", or "There once was".
+- Before the magic appears, make the ordinary reason clear: the child is playing, helping, visiting, building, reading, drawing, walking, tidying, waiting, or exploring.
+- The first magical event should be connected to that ordinary action.
+- Avoid teleport-style openings where the child simply finds themselves somewhere new.
+- Keep the setup quick, but make it understandable to a tired parent.
+
+ANTI-AI LANGUAGE RULES:
+- Avoid overused filler adverbs and reactions: carefully, excitedly, happily, suddenly, softly, gently, smiled, laughed, gasped, nodded.
+- Use specific actions instead: tucked, tilted, peered, balanced, whispered, offered, shuffled, patted, lifted, traced, listened, shared.
+- Do not use a chain of similar adjectives such as "soft, gentle, glowing, sparkling". Choose one concrete image.
+- Add one short line of natural dialogue if it helps the opening feel alive.
 
 OPENING IDEA:
 "{opening}"
@@ -2332,6 +2824,7 @@ STORY FACTS:
 
 AGE / STYLE LOCK:
 {age_rules}
+{self._oxford_inspired_age_profile_block(request.age)}
 - Humour guidance: {humour_rule}
 
 CONTINUATION JOB:
@@ -2347,6 +2840,8 @@ CONTINUATION JOB:
 
 STORY QUALITY RULES:
 - Show, do not explain. Avoid “learned”, “realised”, “remembered the lesson”, “explained that”, or moral lectures.
+- Continue from Page 1's ordinary reason and magical trigger. Do not make the child feel randomly transported into a new story.
+- Each important helper should have a simple reason for helping, worrying, hiding, making a mistake, or needing help. Show the reason through behaviour or dialogue, not explanation.
 - Reveal world rules through discovery: questions, dialogue, mistakes, signs, objects behaving strangely, or characters demonstrating the rule.
 - Use “explained” at most once in the whole continuation. Prefer short dialogue or visible action.
 - The child must drive the outcome: notice a clue, ask a useful question, test an idea, make a mistake, adjust, and solve the key problem.
@@ -2363,8 +2858,10 @@ STORY QUALITY RULES:
 - At least one Page 1 detail should return on the final page as a visual or emotional callback.
 - Give the magical place one simple rule or custom that affects both the problem and solution.
 - Avoid generic object quests unless Page 1 clearly requires one.
-- Avoid overusing these words: tiny, little, soft, gentle, golden, silver, shimmering, glowing, sparkling, moonlit, sleepy.
+- Avoid overusing these words: tiny, little, soft, gentle, golden, silver, shimmering, glowing, sparkling, moonlit, sleepy, carefully, excitedly, happily, smiled, laughed, gasped, nodded.
 - Prefer concrete actions and memorable images over decorative adjectives.
+- Use dialogue to reveal motives, worries, misunderstandings, and choices. At least two continuation pages should include natural child-friendly dialogue.
+- Vary sentence openings. Do not start consecutive paragraphs with the child's name or the same character name.
 - Keep the ending peaceful, specific, and emotionally earned.
 
 PAGE LENGTH:
@@ -2406,73 +2903,114 @@ Return ONLY valid JSON:
                 'generation_status': 'partial',
             }
 
-        try:
-            prompt = self._build_first_page_prompt(request, companion)
-            print(f"[PERF] first_page prompt chars={len(prompt)}")
-            t_gemini = time.time()
-            try:
-                # Consistency guard: do not let a slow Gemini first-page call hold
-                # the user on the generation screen. If page 1 is not back within
-                # the soft limit, return a polished deterministic page 1 and let
-                # the remaining story continue through the normal background path.
-                response = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self.model.generate_content,
-                        prompt,
-                        generation_config={"max_output_tokens": FIRST_PAGE_MAX_OUTPUT_TOKENS},
-                    ),
-                    timeout=FIRST_PAGE_SOFT_LIMIT_SECONDS,
-                )
-            except asyncio.TimeoutError:
-                elapsed = time.time() - t_gemini
-                print(
-                    f"[PERF] first_page Gemini soft limit hit after {elapsed:.2f}s; "
-                    "using fast fallback page 1"
-                )
-                fallback = self._build_first_page_fallback(request, companion)
-                fallback_page = (fallback.get('pages') or [''])[0]
-                print(f"[PERF] first_page_size fallback words={len(fallback_page.split())} chars={len(fallback_page)}")
-                print(f"[PERF] generate_story_first_page DONE fallback total={time.time() - start_total:.2f}s")
-                print("[PERF] ========================================")
-                return fallback
+        prompt = self._build_first_page_prompt(request, companion)
+        print(f"[PERF] first_page prompt chars={len(prompt)}")
 
-            elapsed = time.time() - t_gemini
-            print(f"[PERF] first_page Gemini took {elapsed:.2f}s")
+        async def _generate_first_page_once(attempt_label: str) -> Dict[str, Any]:
+            """Generate and validate Page 1 once.
+
+            This helper is intentionally local to the Page-1 path. It does not
+            change narration, chunking, polling, page count, storage, or the
+            reader flow. It only lets us retry malformed Gemini JSON once
+            before using the fast fallback.
+            """
+            t_attempt = time.time()
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self.model.generate_content,
+                    prompt,
+                    generation_config=FIRST_PAGE_GENERATION_CONFIG,
+                ),
+                timeout=FIRST_PAGE_SOFT_LIMIT_SECONDS,
+            )
+            elapsed = time.time() - t_attempt
+            print(f"[PERF] first_page Gemini {attempt_label} took {elapsed:.2f}s")
+            self._log_gemini_response_metadata(f"first_page_{attempt_label}", response)
 
             response_text = getattr(response, 'text', None)
             if not response_text or not isinstance(response_text, str):
-                raise ValueError('Failed to generate first page')
+                raise ValueError(f'Failed to generate first page on {attempt_label}')
 
-            story_data = self._clean_json_response(response_text)
+            try:
+                story_data = self._parse_json_response_with_repair(response_text, f"first_page_{attempt_label}")
+            except Exception as parse_exc:
+                raw_preview = str(response_text or '')[:3000]
+                print(f"[DEBUG] first_page raw Gemini response parse_failed attempt={attempt_label} error={parse_exc}")
+                print(f"[DEBUG] first_page raw Gemini response preview attempt={attempt_label} value={raw_preview!r}")
+                raise ValueError(f'first_page_json_parse_failed:{attempt_label}: {parse_exc}') from parse_exc
+
             if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
-                raise ValueError('Invalid first-page story format returned by AI')
+                raise ValueError(f'Invalid first-page story format returned by AI on {attempt_label}')
 
             pages = postprocess_story_pages(story_data.get('pages', []))[:1]
             if not pages:
-                raise ValueError('First-page story returned no pages')
+                raise ValueError(f'First-page story returned no pages on {attempt_label}')
 
             page_one_words = len(pages[0].split())
             page_one_chars = len(pages[0])
-            print(f"[PERF] first_page_size words={page_one_words} chars={page_one_chars}")
-            print(f"[PERF] first_page_ready_for_response pages=1 expected_pages={expected_pages}")
-            print(f"[PERF] generate_story_first_page DONE total={time.time() - start_total:.2f}s")
-            print("[PERF] ========================================")
+            print(f"[PERF] first_page_size words={page_one_words} chars={page_one_chars} source={attempt_label}")
+            print(f"[PERF] first_page_ready_for_response pages=1 expected_pages={expected_pages} source={attempt_label}")
             return {
                 'title': story_data['title'],
                 'pages': pages,
                 'companion': companion,
                 'expected_pages': expected_pages,
                 'generation_status': 'partial',
+                'first_page_generation_source': attempt_label,
             }
-        except Exception as exc:
-            # Never fall back to full story generation inside the initial
-            # Page-1 request. That can block the frontend until the 90s
-            # timeout and breaks the Page-1-first architecture. Return the
-            # deterministic Page 1 fallback instead; pages 2+ can still be
-            # generated by the normal background continuation path.
-            print(f"[PERF] first_page failed, using deterministic page 1 fallback: {exc}")
+
+        try:
+            story_data = await _generate_first_page_once('gemini_primary')
+            print(f"[PERF] generate_story_first_page DONE total={time.time() - start_total:.2f}s source=gemini_primary")
+            print("[PERF] ========================================")
+            return story_data
+        except asyncio.TimeoutError:
+            # Do not retry timeout. Retrying a slow first-page call would risk
+            # breaking the Page-1-first speed rule. Use the instant fallback.
+            print(
+                f"[PERF] first_page Gemini soft limit hit after {time.time() - start_total:.2f}s; "
+                "using fast fallback page 1"
+            )
             fallback = self._build_first_page_fallback(request, companion)
-            fallback['generation_fallback_reason'] = 'first_page_exception'
+            fallback['generation_fallback_reason'] = 'first_page_timeout'
+            fallback['first_page_generation_source'] = 'fallback_timeout'
+            fallback_page = (fallback.get('pages') or [''])[0]
+            print(f"[PERF] first_page_size fallback words={len(fallback_page.split())} chars={len(fallback_page)} source=fallback_timeout")
+            print(f"[PERF] generate_story_first_page DONE fallback total={time.time() - start_total:.2f}s reason=timeout")
+            print("[PERF] ========================================")
+            return fallback
+        except Exception as first_exc:
+            # Retry only malformed/invalid Gemini output once. This reduces
+            # repeated deterministic fallback stories while preserving speed for
+            # the normal successful path and avoiding retries on timeouts.
+            print(f"[PERF] first_page primary failed; retrying once before fallback: {first_exc}")
+            try:
+                story_data = await _generate_first_page_once('gemini_retry')
+                print(f"[PERF] generate_story_first_page DONE total={time.time() - start_total:.2f}s source=gemini_retry")
+                print("[PERF] ========================================")
+                return story_data
+            except asyncio.TimeoutError:
+                print(
+                    f"[PERF] first_page retry soft limit hit after {time.time() - start_total:.2f}s; "
+                    "using fast fallback page 1"
+                )
+                fallback_reason = 'first_page_retry_timeout'
+                fallback_source = 'fallback_retry_timeout'
+                fallback_exception = 'retry_timeout'
+            except Exception as retry_exc:
+                print(f"[PERF] first_page retry failed, using deterministic page 1 fallback: {retry_exc}")
+                fallback_reason = 'first_page_retry_exception'
+                fallback_source = 'fallback_retry_exception'
+                fallback_exception = str(retry_exc)
+
+            fallback = self._build_first_page_fallback(request, companion)
+            fallback['generation_fallback_reason'] = fallback_reason
+            fallback['first_page_generation_source'] = fallback_source
+            fallback['first_page_fallback_detail'] = fallback_exception[:300]
+            fallback_page = (fallback.get('pages') or [''])[0]
+            print(f"[PERF] first_page_size fallback words={len(fallback_page.split())} chars={len(fallback_page)} source={fallback_source}")
+            print(f"[PERF] generate_story_first_page DONE fallback total={time.time() - start_total:.2f}s reason={fallback_reason}")
+            print("[PERF] ========================================")
             return fallback
 
     async def complete_story_background(
@@ -2511,39 +3049,13 @@ Return ONLY valid JSON:
 
                 while len(working_pages) < expected_pages:
                     batch_count = min(BACKGROUND_PAGE_BATCH_SIZE, expected_pages - len(working_pages))
-                    next_page_number = len(working_pages) + 1
-                    prompt = self._build_remaining_pages_prompt(
+                    batch_pages = await self._generate_remaining_pages_with_recovery(
                         request=request,
                         companion=companion,
                         title=title,
-                        existing_pages=working_pages,
-                        remaining_page_count=batch_count,
-                        next_page_number=next_page_number,
+                        working_pages=working_pages,
+                        preferred_batch_count=batch_count,
                     )
-                    print(
-                        f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
-                        f"next_page={next_page_number} count={batch_count}"
-                    )
-                    t_gemini = time.time()
-                    response = await asyncio.to_thread(self.model.generate_content, prompt)
-                    print(
-                        f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
-                        f"next_page={next_page_number} count={batch_count}"
-                    )
-
-                    response_text = getattr(response, 'text', None)
-                    if not response_text or not isinstance(response_text, str):
-                        raise ValueError('Failed to generate remaining pages batch')
-
-                    story_data = self._clean_json_response(response_text)
-                    if not isinstance(story_data, dict) or 'pages' not in story_data:
-                        raise ValueError('Invalid remaining-pages batch format returned by AI')
-
-                    batch_pages = postprocess_story_pages(story_data.get('pages', []))[:batch_count]
-                    if len(batch_pages) < batch_count:
-                        raise ValueError(
-                            f'Remaining generation produced only {len(batch_pages)} of {batch_count} pages in batch'
-                        )
 
                     working_pages = postprocess_story_pages([*working_pages, *batch_pages])[:expected_pages]
                     remaining.extend(batch_pages)
@@ -2640,8 +3152,12 @@ Return ONLY valid JSON:
         print(f"[PERF] prompt built in {time.time() - t_prompt:.2f}s chars={len(prompt)}")
 
         t_gemini = time.time()
-        response = self.model.generate_content(prompt)
+        response = self.model.generate_content(
+            prompt,
+            generation_config=FULL_STORY_GENERATION_CONFIG,
+        )
         print(f"[PERF] Gemini generate_content took {time.time() - t_gemini:.2f}s")
+        self._log_gemini_response_metadata("full_story", response)
 
         response_text = getattr(response, 'text', None)
         if not response_text or not isinstance(response_text, str):
@@ -2660,7 +3176,7 @@ Return ONLY valid JSON:
         print(f"[PERF] cleaning took {time.time() - t_clean:.2f}s response_chars={len(response_text)}")
 
         t_parse = time.time()
-        story_data = json.loads(cleaned.strip())
+        story_data = self._parse_json_response_with_repair(cleaned.strip(), "full_story")
         print(f"[PERF] JSON parse took {time.time() - t_parse:.2f}s")
 
         if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
@@ -2699,8 +3215,13 @@ Return ONLY valid JSON:
         )
         try:
             t_gemini = time.time()
-            response = await asyncio.to_thread(self.model.generate_content, prompt)
+            response = await asyncio.to_thread(
+                self.model.generate_content,
+                prompt,
+                generation_config=METADATA_GENERATION_CONFIG,
+            )
             print(f"[PERF] extract_metadata Gemini took {time.time() - t_gemini:.2f}s")
+            self._log_gemini_response_metadata("metadata", response)
             text = getattr(response, 'text', '')
             start = text.find('{')
             end = text.rfind('}')
