@@ -5,7 +5,7 @@ import json
 import random
 import time
 from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional, List
+from typing import Any, Dict, Optional
 
 import google.generativeai as genai
 from fastapi import HTTPException
@@ -844,10 +844,6 @@ FIRST_PAGE_SOFT_LIMIT_SECONDS = 22
 # become available to the reader sooner. This preserves Page-1-first playback
 # while avoiding one long Gemini call blocking all remaining pages.
 BACKGROUND_PAGE_BATCH_SIZE = 3
-# If Gemini truncates a continuation batch, reduce the request size instead of
-# leaving the story stuck on a partial page count. This only affects background
-# pages 2+ and never changes Page-1-first narration behaviour.
-BACKGROUND_RECOVERY_BATCH_SIZES = [2, 1]
 
 # Keep Page 1 generation small and fast. This only affects the initial
 # Gemini Page 1 call; background continuation keeps its normal generation.
@@ -2106,252 +2102,6 @@ OUTPUT QUALITY RULES:
             cleaned = cleaned[:-3]
         return json.loads(cleaned.strip())
 
-    def _extract_balanced_json_object(self, response_text: str) -> Optional[str]:
-        """Extract the first balanced JSON object from a model response.
-
-        Gemini sometimes returns valid JSON surrounded by fences or whitespace.
-        This repair is intentionally conservative: it only succeeds when braces
-        balance cleanly. It does not invent missing story text or close partial
-        strings, so it cannot convert a truly truncated response into a fake
-        page.
-        """
-        if not response_text or not isinstance(response_text, str):
-            return None
-
-        text = response_text.strip()
-        if text.startswith('```json'):
-            text = text[7:].strip()
-        if text.startswith('```'):
-            text = text[3:].strip()
-        if text.endswith('```'):
-            text = text[:-3].strip()
-
-        start = text.find('{')
-        if start == -1:
-            return None
-
-        depth = 0
-        in_string = False
-        escaped = False
-        for idx in range(start, len(text)):
-            ch = text[idx]
-            if escaped:
-                escaped = False
-                continue
-            if ch == '\\':
-                escaped = True
-                continue
-            if ch == '"':
-                in_string = not in_string
-                continue
-            if in_string:
-                continue
-            if ch == '{':
-                depth += 1
-            elif ch == '}':
-                depth -= 1
-                if depth == 0:
-                    return text[start:idx + 1]
-        return None
-
-    def _parse_json_response_with_repair(self, response_text: str, label: str) -> Dict[str, Any]:
-        try:
-            return self._clean_json_response(response_text)
-        except Exception as primary_exc:
-            extracted = self._extract_balanced_json_object(response_text)
-            if extracted:
-                try:
-                    parsed = json.loads(extracted)
-                    print(f"[DEBUG] json_repair_success label={label} chars={len(extracted)}")
-                    return parsed
-                except Exception as repair_exc:
-                    print(f"[DEBUG] json_repair_failed label={label} error={repair_exc}")
-            print(f"[DEBUG] json_parse_failed label={label} error={primary_exc}")
-            raise
-
-    def _salvage_complete_pages_from_partial_json(self, response_text: str, label: str) -> list[str]:
-        """Recover fully closed page strings from a truncated {"pages": [...]} response.
-
-        Gemini occasionally stops mid-string. This helper only salvages strings
-        that were completely closed before truncation. It never invents text,
-        never closes an unfinished sentence, and never fabricates JSON. The
-        caller can publish the complete pages and ask Gemini only for what is
-        still missing.
-        """
-        if not response_text or not isinstance(response_text, str):
-            return []
-
-        text = response_text.strip()
-        if text.startswith('```json'):
-            text = text[7:].strip()
-        if text.startswith('```'):
-            text = text[3:].strip()
-        if text.endswith('```'):
-            text = text[:-3].strip()
-
-        pages_key = text.find('"pages"')
-        if pages_key == -1:
-            return []
-        array_start = text.find('[', pages_key)
-        if array_start == -1:
-            return []
-
-        pages: list[str] = []
-        idx = array_start + 1
-        n = len(text)
-        decoder = json.JSONDecoder()
-
-        while idx < n:
-            while idx < n and text[idx] in ' \r\n\t,':
-                idx += 1
-            if idx >= n or text[idx] == ']':
-                break
-            if text[idx] != '"':
-                # If the next value is not a JSON string, stop conservatively.
-                break
-            try:
-                value, end_idx = decoder.raw_decode(text[idx:])
-            except json.JSONDecodeError:
-                # Most likely an unterminated final page. Keep earlier pages only.
-                break
-            if not isinstance(value, str):
-                break
-            pages.append(value)
-            idx += end_idx
-
-        cleaned_pages = postprocess_story_pages(pages)
-        if cleaned_pages:
-            print(
-                f"[DEBUG] json_partial_pages_salvaged label={label} "
-                f"count={len(cleaned_pages)} response_chars={len(response_text)}"
-            )
-        return cleaned_pages
-
-    async def _generate_remaining_pages_batch(
-        self,
-        request: GenerateStoryRequest,
-        companion: Optional[dict],
-        title: str,
-        working_pages: list[str],
-        batch_count: int,
-        next_page_number: int,
-        attempt_label: str,
-    ) -> list[str]:
-        prompt = self._build_remaining_pages_prompt(
-            request=request,
-            companion=companion,
-            title=title,
-            existing_pages=working_pages,
-            remaining_page_count=batch_count,
-            next_page_number=next_page_number,
-        )
-        print(
-            f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
-            f"next_page={next_page_number} count={batch_count} attempt={attempt_label}"
-        )
-        t_gemini = time.time()
-        response = await asyncio.to_thread(
-            self.model.generate_content,
-            prompt,
-            generation_config=REMAINING_PAGES_GENERATION_CONFIG,
-        )
-        print(
-            f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
-            f"next_page={next_page_number} count={batch_count} attempt={attempt_label}"
-        )
-        self._log_gemini_response_metadata(
-            f"remaining_pages_next_{next_page_number}_count_{batch_count}_{attempt_label}",
-            response,
-        )
-
-        response_text = getattr(response, 'text', None)
-        if not response_text or not isinstance(response_text, str):
-            raise ValueError(f'Failed to generate remaining pages batch attempt={attempt_label}')
-
-        label = f"remaining_pages_next_{next_page_number}_count_{batch_count}_{attempt_label}"
-        try:
-            story_data = self._parse_json_response_with_repair(response_text, label)
-        except Exception as parse_exc:
-            salvaged_pages = self._salvage_complete_pages_from_partial_json(response_text, label)[:batch_count]
-            if salvaged_pages:
-                print(
-                    f"[PERF] remaining_pages_batch salvaged complete pages "
-                    f"next_page={next_page_number} requested={batch_count} salvaged={len(salvaged_pages)} "
-                    f"attempt={attempt_label}"
-                )
-                return salvaged_pages
-
-            raw_preview = str(response_text or '')[:1200]
-            print(
-                f"[DEBUG] remaining_pages raw Gemini response parse_failed "
-                f"attempt={attempt_label} next_page={next_page_number} count={batch_count} error={parse_exc}"
-            )
-            print(
-                f"[DEBUG] remaining_pages raw Gemini response preview "
-                f"attempt={attempt_label} value={raw_preview!r}"
-            )
-            raise
-
-        if not isinstance(story_data, dict) or 'pages' not in story_data:
-            raise ValueError(f'Invalid remaining-pages batch format returned by AI attempt={attempt_label}')
-
-        batch_pages = postprocess_story_pages(story_data.get('pages', []))[:batch_count]
-        if not batch_pages:
-            raise ValueError(
-                f'Remaining generation produced no usable pages in batch attempt={attempt_label}'
-            )
-        if len(batch_pages) < batch_count:
-            print(
-                f"[PERF] remaining_pages_batch accepted partial valid pages "
-                f"next_page={next_page_number} requested={batch_count} got={len(batch_pages)} "
-                f"attempt={attempt_label}"
-            )
-        return batch_pages
-
-    async def _generate_remaining_pages_with_recovery(
-        self,
-        request: GenerateStoryRequest,
-        companion: Optional[dict],
-        title: str,
-        working_pages: list[str],
-        preferred_batch_count: int,
-    ) -> list[str]:
-        """Generate continuation pages, reducing batch size on parse/truncation failure.
-
-        This prevents the app becoming stranded at 4/7 if Gemini truncates a
-        3-page continuation. It is background-only and preserves Page 1 speed.
-        """
-        next_page_number = len(working_pages) + 1
-        attempts: List[tuple[int, str]] = [(preferred_batch_count, 'primary')]
-        for size in BACKGROUND_RECOVERY_BATCH_SIZES:
-            if size < preferred_batch_count and size > 0:
-                attempts.append((size, f'recovery_{size}page'))
-
-        last_exc: Optional[Exception] = None
-        for batch_count, attempt_label in attempts:
-            if batch_count > preferred_batch_count:
-                continue
-            try:
-                return await self._generate_remaining_pages_batch(
-                    request=request,
-                    companion=companion,
-                    title=title,
-                    working_pages=working_pages,
-                    batch_count=batch_count,
-                    next_page_number=next_page_number,
-                    attempt_label=attempt_label,
-                )
-            except Exception as exc:
-                last_exc = exc
-                print(
-                    f"[PERF] remaining_pages_batch attempt failed story_title={title!r} "
-                    f"next_page={next_page_number} count={batch_count} attempt={attempt_label} error={exc}"
-                )
-
-        raise ValueError(
-            f'Remaining pages recovery failed at page {next_page_number}: {last_exc}'
-        )
-
     def _language_and_character_blocks(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, str]:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
         language_code = (request.storyLanguageCode or "en").lower()[:2]
@@ -2858,7 +2608,7 @@ Return ONLY valid JSON:
                 raise ValueError(f'Failed to generate first page on {attempt_label}')
 
             try:
-                story_data = self._parse_json_response_with_repair(response_text, f"first_page_{attempt_label}")
+                story_data = self._clean_json_response(response_text)
             except Exception as parse_exc:
                 raw_preview = str(response_text or '')[:3000]
                 print(f"[DEBUG] first_page raw Gemini response parse_failed attempt={attempt_label} error={parse_exc}")
@@ -2975,13 +2725,47 @@ Return ONLY valid JSON:
 
                 while len(working_pages) < expected_pages:
                     batch_count = min(BACKGROUND_PAGE_BATCH_SIZE, expected_pages - len(working_pages))
-                    batch_pages = await self._generate_remaining_pages_with_recovery(
+                    next_page_number = len(working_pages) + 1
+                    prompt = self._build_remaining_pages_prompt(
                         request=request,
                         companion=companion,
                         title=title,
-                        working_pages=working_pages,
-                        preferred_batch_count=batch_count,
+                        existing_pages=working_pages,
+                        remaining_page_count=batch_count,
+                        next_page_number=next_page_number,
                     )
+                    print(
+                        f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
+                        f"next_page={next_page_number} count={batch_count}"
+                    )
+                    t_gemini = time.time()
+                    response = await asyncio.to_thread(
+                        self.model.generate_content,
+                        prompt,
+                        generation_config=REMAINING_PAGES_GENERATION_CONFIG,
+                    )
+                    print(
+                        f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
+                        f"next_page={next_page_number} count={batch_count}"
+                    )
+                    self._log_gemini_response_metadata(
+                        f"remaining_pages_next_{next_page_number}_count_{batch_count}",
+                        response,
+                    )
+
+                    response_text = getattr(response, 'text', None)
+                    if not response_text or not isinstance(response_text, str):
+                        raise ValueError('Failed to generate remaining pages batch')
+
+                    story_data = self._clean_json_response(response_text)
+                    if not isinstance(story_data, dict) or 'pages' not in story_data:
+                        raise ValueError('Invalid remaining-pages batch format returned by AI')
+
+                    batch_pages = postprocess_story_pages(story_data.get('pages', []))[:batch_count]
+                    if len(batch_pages) < batch_count:
+                        raise ValueError(
+                            f'Remaining generation produced only {len(batch_pages)} of {batch_count} pages in batch'
+                        )
 
                     working_pages = postprocess_story_pages([*working_pages, *batch_pages])[:expected_pages]
                     remaining.extend(batch_pages)
@@ -3102,7 +2886,7 @@ Return ONLY valid JSON:
         print(f"[PERF] cleaning took {time.time() - t_clean:.2f}s response_chars={len(response_text)}")
 
         t_parse = time.time()
-        story_data = self._parse_json_response_with_repair(cleaned.strip(), "full_story")
+        story_data = json.loads(cleaned.strip())
         print(f"[PERF] JSON parse took {time.time() - t_parse:.2f}s")
 
         if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
