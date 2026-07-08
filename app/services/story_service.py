@@ -1138,91 +1138,6 @@ SHOW DON'T TELL RULES:
             parsed = 6
         return max(0, min(parsed, 12))
 
-    def _oxford_inspired_age_profile_block(self, age: Any) -> str:
-        """Internal age calibration inspired by Oxford Owl reading progression.
-
-        This does not copy Oxford Reading Tree content or style. It is only a
-        developmental guide for sentence length, vocabulary load, dialogue,
-        plot complexity, emotional range, and humour. Prompt-only: no narration,
-        chunking, polling, storage, subscriptions, or reader behaviour changes.
-        """
-        child_age = self._safe_child_age(age)
-
-        if child_age <= 2:
-            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 0-2:
-- Reading/listening stage: earliest shared read-aloud and nursery-rhythm level.
-- Sentence shape: very short, one idea per sentence, mostly 3-8 words.
-- Vocabulary: almost entirely familiar concrete words, sounds, colours, animals, body actions, bedtime objects, and family words.
-- Dialogue: minimal; short phrases only.
-- Plot: one place, one tiny event, one comfort action.
-- Emotion: happy, sad, sleepy, surprised, cosy. Show through cuddles, looking, reaching, hiding, or sounds.
-- Humour: one visual or sound-based smile moment.
-- New words: almost none; any new word must be obvious from context.
-"""
-        elif child_age <= 4:
-            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 3-4:
-- Reading/listening stage: early picture-book comprehension and simple patterned language.
-- Sentence shape: short, clear sentences, usually 5-10 words, with occasional repetition.
-- Vocabulary: familiar everyday words plus a few simple storybook words such as cosy, twinkle, whisper, surprise, or sparkle when concrete.
-- Dialogue: short, direct lines that a young child can repeat.
-- Plot: one clear place, one simple problem, one helper, one solution path.
-- Emotion: happy, worried, scared, proud, kind, brave. Show through simple actions.
-- Humour: obvious visual silliness, animal behaviour, wrong hats, funny sounds, or simple misunderstandings.
-- New words: one or two only, supported by the sentence around them.
-"""
-        elif child_age <= 6:
-            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 5-6:
-- Reading/listening stage: early independent-reader clarity with richer read-aloud adventure.
-- Sentence shape: mostly 6-12 words, with occasional longer sentences when very clear.
-- Vocabulary: familiar action words plus gentle story vocabulary such as curious, discovered, puzzled, patient, invitation, bridge, promise, clue.
-- Dialogue: regular but simple; dialogue should reveal what someone needs, notices, or misunderstands.
-- Plot: one main goal, one main helper, one obstacle, one first idea that may partly fail.
-- Emotion: worried, shy, disappointed, brave, proud, patient. Show through choices and behaviour.
-- Humour: visual mishaps and simple misunderstandings that affect the plot.
-- New words: a small number per page, always clear from context.
-"""
-        elif child_age <= 8:
-            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 7-8:
-- Reading/listening stage: confident early chapter-book feel while remaining bedtime clear.
-- Sentence shape: varied but readable, usually 10-18 words.
-- Vocabulary: richer but still child-friendly words such as pattern, narrow, secret, festival, invention, nervous, proud, practice, promise, clue.
-- Dialogue: more frequent and characterful; characters may disagree gently, ask questions, or reveal motives.
-- Plot: connected scenes, 2-3 clues or steps, a clear midpoint complication, and a child-led decision.
-- Emotion: confused, jealous, nervous, determined, left out, responsible, relieved. Show through dialogue and choices.
-- Humour: character habits, literal misunderstandings, over-serious helpers, or repeated funny behaviour with payoff.
-- New words: welcome when useful, but action must stay easy to follow.
-"""
-        elif child_age <= 10:
-            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 9-10:
-- Reading/listening stage: richer middle-grade-style bedtime story with controlled complexity.
-- Sentence shape: varied sentences, often 12-22 words, but never dense or adult.
-- Vocabulary: allow more precise words such as investigate, tradition, responsibility, generous, cautious, suspicious, determined, solution.
-- Dialogue: should reveal motives, pressure, uncertainty, or changing trust.
-- Plot: one main thread with a small subplot or deeper choice when useful.
-- Emotion: loyalty, guilt, fairness, pressure, confidence, regret, responsibility. Keep it hopeful and bedtime-safe.
-- Humour: smarter situational humour, over-complicated plans, rules misunderstood, or formal traditions going wrong.
-- New words: acceptable if they support story richness and do not slow comprehension.
-"""
-        else:
-            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 11-12:
-- Reading/listening stage: upper-child storytelling with nuance, but still warm bedtime fiction.
-- Sentence shape: fluent and varied, with longer sentences allowed when natural and clear.
-- Vocabulary: richer words such as uncertainty, consequence, reluctant, contradiction, evidence, independence, forgiveness, thoughtful.
-- Dialogue: more layered; characters can imply feelings without explaining everything.
-- Plot: nuanced motives, a stronger mystery or choice, and clear consequences, but no grim or teen-focused themes.
-- Emotion: uncertainty, responsibility, independence, loyalty, forgiveness, self-doubt, confidence.
-- Humour: gentle wit, irony of rules, over-formality, or clever misunderstanding, never sarcasm or meanness.
-- New words: richer vocabulary is allowed, but the story must still read aloud smoothly.
-"""
-
-        return profile + """
-GENERAL OXFORD-INSPIRED CALIBRATION RULE:
-- Use these profiles only as developmental guidance for language complexity.
-- Do not copy or imitate Oxford Reading Tree stories, characters, wording, plots, or branded style.
-- The story must remain original PillowTales bedtime fiction.
-- Age should change more than vocabulary: it should change sentence rhythm, dialogue, plot load, emotional depth, humour, and how much the child must infer.
-"""
-
     def _age_band_key(self, age: Any) -> str:
         child_age = self._safe_child_age(age)
         if child_age <= 2:
@@ -2042,7 +1957,6 @@ STORY REQUIREMENTS:
 - End peacefully and softly
 
 {self._storycraft_rules()}
-{self._oxford_inspired_age_profile_block(request.age)}
 {self._story_clarity_rules()}
 {self._character_memory_rules()}
 {self._emotional_cohesion_rules()}
@@ -2220,10 +2134,6 @@ STORY CONTEXT:
 - Calm level: {request.calmLevel}
 
 {age_rules}
-
-OXFORD-INSPIRED PAGE 1 CALIBRATION:
-- Match this opening to the child's developmental reading/listening level: age should affect sentence length, vocabulary, dialogue, humour, emotional simplicity, and plot load.
-- This is only guidance; do not copy Oxford Reading Tree content, characters, style, or wording.
 
 PAGE 1 JOB:
 - Show where the child is, what the child is already doing there, what unusual thing happens, and why the child must join in.
@@ -2500,7 +2410,6 @@ STORY FACTS:
 
 AGE / STYLE LOCK:
 {age_rules}
-{self._oxford_inspired_age_profile_block(request.age)}
 - Humour guidance: {humour_rule}
 
 CONTINUATION JOB:
