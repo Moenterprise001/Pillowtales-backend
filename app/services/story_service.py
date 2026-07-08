@@ -838,50 +838,12 @@ FIRST_PAGE_TIMEOUT_SECONDS = 30
 # User-facing consistency target: if Gemini has not produced page 1
 # quickly enough, return a deterministic page-1 fallback so Reader can open.
 # The full story still completes in the normal background Gemini path.
-FIRST_PAGE_SOFT_LIMIT_SECONDS = 22
+FIRST_PAGE_SOFT_LIMIT_SECONDS = 18
 
 # Background continuation is generated in small batches so pages 2+ can
 # become available to the reader sooner. This preserves Page-1-first playback
 # while avoiding one long Gemini call blocking all remaining pages.
 BACKGROUND_PAGE_BATCH_SIZE = 3
-
-# Keep Page 1 generation small and fast. This only affects the initial
-# Gemini Page 1 call; background continuation keeps its normal generation.
-# 768 gives enough headroom for valid JSON wrapper + title + 500-650 chars
-# while still keeping Page 1 small for the Page-1-first performance rule.
-FIRST_PAGE_MAX_OUTPUT_TOKENS = 768
-
-# Per-call Gemini configs. Keep these local and explicit because PillowTales
-# uses Gemini for different jobs: Page 1 speed, continuation creativity, full
-# fallback generation, and deterministic metadata extraction. Do not configure
-# the model globally with one setting for every task.
-FIRST_PAGE_GENERATION_CONFIG = {
-    "temperature": 0.85,
-    "top_p": 0.95,
-    "max_output_tokens": FIRST_PAGE_MAX_OUTPUT_TOKENS,
-    "response_mime_type": "application/json",
-}
-
-REMAINING_PAGES_GENERATION_CONFIG = {
-    "temperature": 0.95,
-    "top_p": 0.95,
-    "max_output_tokens": 4096,
-    "response_mime_type": "application/json",
-}
-
-FULL_STORY_GENERATION_CONFIG = {
-    "temperature": 0.95,
-    "top_p": 0.95,
-    "max_output_tokens": 8192,
-    "response_mime_type": "application/json",
-}
-
-METADATA_GENERATION_CONFIG = {
-    "temperature": 0.1,
-    "top_p": 0.8,
-    "max_output_tokens": 768,
-    "response_mime_type": "application/json",
-}
 
 
 class StoryService:
@@ -890,35 +852,6 @@ class StoryService:
         if settings.gemini_api_key:
             genai.configure(api_key=settings.gemini_api_key)
         self.model = genai.GenerativeModel(settings.gemini_model) if settings.gemini_api_key else None
-
-    def _log_gemini_response_metadata(self, label: str, response: Any) -> None:
-        """Log lightweight Gemini metadata without exposing full story text.
-
-        This is diagnostic only. It helps identify MAX_TOKENS, SAFETY, empty
-        candidates, or SDK response issues when JSON parsing fails. It does not
-        change prompts, narration, chunking, polling, storage, or reader flow.
-        """
-        try:
-            candidates = getattr(response, 'candidates', None) or []
-            candidate_count = len(candidates) if hasattr(candidates, '__len__') else 0
-            prompt_feedback = getattr(response, 'prompt_feedback', None)
-            usage_metadata = getattr(response, 'usage_metadata', None)
-            text_value = getattr(response, 'text', '') or ''
-            print(
-                f"[DEBUG] Gemini metadata label={label} "
-                f"candidates={candidate_count} response_chars={len(text_value)} "
-                f"prompt_feedback={prompt_feedback} usage={usage_metadata}"
-            )
-
-            for idx, candidate in enumerate(candidates[:2]):
-                finish_reason = getattr(candidate, 'finish_reason', None)
-                safety_ratings = getattr(candidate, 'safety_ratings', None)
-                print(
-                    f"[DEBUG] Gemini candidate label={label} index={idx} "
-                    f"finish_reason={finish_reason} safety_ratings={safety_ratings}"
-                )
-        except Exception as metadata_exc:
-            print(f"[DEBUG] Gemini metadata log skipped label={label}: {metadata_exc}")
 
     def _select_companion(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Optional[dict]:
         # V1 production focus: do not randomly introduce companions.
@@ -1792,9 +1725,10 @@ GENTLE HUMOUR RULES:
 
     def _opening_transition_rule(self, opening_family: str) -> str:
         return (
-            f"Use the '{opening_family}' place-entry idea as the story doorway. "
-            "Stay grounded in that place and move into one clear first action. "
-            "Make the magical trigger feel caused by something the child is already doing there."
+            f"The first sentence uses the '{opening_family}' place-entry opening. "
+            "After that exact sentence, keep the story grounded in that place and move into the first gentle action. "
+            "Do not drift into another abstract moon/window/glowing-light setup. "
+            "Make the place feel like the doorway into the story."
         )
 
     def _localized_opening_sentence(self, request: GenerateStoryRequest) -> str:
@@ -1850,24 +1784,6 @@ ENGLISH STORY STYLE:
 - Use warm, premium British bedtime storytelling with soft rhythm, clear emotion, and child-friendly magic.
 - Keep the story gentle, imaginative, cosy, and easy to read aloud.
 """
-
-    def _first_page_language_style_block(self, language_code: Optional[str]) -> str:
-        """Compact language guidance for the speed-critical Page 1 call.
-
-        The full language style block is intentionally not used here because
-        Page 1 must return quickly. Richer language rules remain in the
-        background continuation prompts.
-        """
-        language_code = (language_code or "en").lower()[:2]
-        if language_code == "es":
-            return "Write natural Spanish from Spain (castellano), warm, simple, and read-aloud friendly. Avoid Latin-American or stiff translated phrasing."
-        if language_code == "fr":
-            return "Write natural French bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff translation or overly literary phrasing."
-        if language_code == "it":
-            return "Write natural Italian bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff or literal phrasing."
-        if language_code == "de":
-            return "Write natural German bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff or academic phrasing."
-        return "Write warm, clear, read-aloud English bedtime prose. Keep sentences direct and child-friendly."
 
     def _build_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
@@ -2125,8 +2041,7 @@ OUTPUT QUALITY RULES:
 IMPORTANT LANGUAGE RULE:
 - Write ONLY in {blocks['language_name']}.
 - Do NOT mix languages.
-{self._first_page_language_style_block(request.storyLanguageCode)}
-
+{self._language_style_block(request.storyLanguageCode)}
 STORY CONTEXT:
 - Child: {request.childName}, age {request.age}
 - Theme: {blocks['effective_theme']}
@@ -2136,33 +2051,25 @@ STORY CONTEXT:
 {age_rules}
 
 PAGE 1 JOB:
-- Show where the child is, what the child is already doing there, what unusual thing happens, and why the child must join in.
-- The adventure must grow naturally from the place or activity, not feel like the child is suddenly dropped into a magical setting.
-- Use one clear trigger/discovery and one clear story promise.
-- Include one reusable detail for later: object, phrase, habit, helper detail, promise, or simple world rule.
-- The child must actively notice, ask, choose, follow, help, or begin solving.
-- Do not resolve the story yet. No danger, villains, appearance details, or heavy world-building.
-- Prefer curiosity/action/dialogue over explanation.
-
-NATURAL OPENING CONTRACT:
-- Do NOT begin with "Suddenly", "One day", "One night", "One evening", or "There once was".
-- Before the magic appears, make the ordinary reason clear: the child is playing, helping, visiting, building, reading, drawing, walking, tidying, waiting, or exploring.
-- The first magical event should be connected to that ordinary action.
-- Avoid teleport-style openings where the child simply finds themselves somewhere new.
-- Keep the setup quick, but make it understandable to a tired parent.
-
-ANTI-AI LANGUAGE RULES:
-- Avoid overused filler adverbs and reactions: carefully, excitedly, happily, suddenly, softly, gently, smiled, laughed, gasped, nodded.
-- Use specific actions instead: tucked, tilted, peered, balanced, whispered, offered, shuffled, patted, lifted, traced, listened, shared.
-- Do not use a chain of similar adjectives such as "soft, gentle, glowing, sparkling". Choose one concrete image.
-- Add one short line of natural dialogue if it helps the opening feel alive.
+- Start the story quickly and clearly.
+- Show where the child is, what changes, and why the child is involved.
+- Use one ordinary or understandable starting place.
+- Introduce one trigger or discovery.
+- Give one clear story promise before the page ends.
+- Include one simple memory seed that can return later: an object, phrase, promise, habit, preference, helper detail, or world rule.
+- The child should notice, choose, ask, help, follow, or begin solving something.
+- Do not resolve the story yet.
+- Do not introduce danger, fear, villains, or fast pacing.
+- Do not add clothing or appearance details unless the parent provided them.
+- Keep clarity above decorative writing.
 
 OPENING IDEA:
 "{opening}"
 
 OPENING RULES:
-- Rewrite the opening in fresh words and continue immediately from it.
-- Keep the same setting/magical idea; do not switch to a different setup.
+- Rewrite the opening in fresh words.
+- Keep the same setting and magical idea.
+- Continue immediately from it.
 - {opening_transition_rule}
 
 PAGE LENGTH:
@@ -2425,8 +2332,6 @@ CONTINUATION JOB:
 
 STORY QUALITY RULES:
 - Show, do not explain. Avoid “learned”, “realised”, “remembered the lesson”, “explained that”, or moral lectures.
-- Continue from Page 1's ordinary reason and magical trigger. Do not make the child feel randomly transported into a new story.
-- Each important helper should have a simple reason for helping, worrying, hiding, making a mistake, or needing help. Show the reason through behaviour or dialogue, not explanation.
 - Reveal world rules through discovery: questions, dialogue, mistakes, signs, objects behaving strangely, or characters demonstrating the rule.
 - Use “explained” at most once in the whole continuation. Prefer short dialogue or visible action.
 - The child must drive the outcome: notice a clue, ask a useful question, test an idea, make a mistake, adjust, and solve the key problem.
@@ -2443,10 +2348,8 @@ STORY QUALITY RULES:
 - At least one Page 1 detail should return on the final page as a visual or emotional callback.
 - Give the magical place one simple rule or custom that affects both the problem and solution.
 - Avoid generic object quests unless Page 1 clearly requires one.
-- Avoid overusing these words: tiny, little, soft, gentle, golden, silver, shimmering, glowing, sparkling, moonlit, sleepy, carefully, excitedly, happily, smiled, laughed, gasped, nodded.
+- Avoid overusing these words: tiny, little, soft, gentle, golden, silver, shimmering, glowing, sparkling, moonlit, sleepy.
 - Prefer concrete actions and memorable images over decorative adjectives.
-- Use dialogue to reveal motives, worries, misunderstandings, and choices. At least two continuation pages should include natural child-friendly dialogue.
-- Vary sentence openings. Do not start consecutive paragraphs with the child's name or the same character name.
 - Keep the ending peaceful, specific, and emotionally earned.
 
 PAGE LENGTH:
@@ -2488,114 +2391,69 @@ Return ONLY valid JSON:
                 'generation_status': 'partial',
             }
 
-        prompt = self._build_first_page_prompt(request, companion)
-        print(f"[PERF] first_page prompt chars={len(prompt)}")
+        try:
+            prompt = self._build_first_page_prompt(request, companion)
+            print(f"[PERF] first_page prompt chars={len(prompt)}")
+            t_gemini = time.time()
+            try:
+                # Consistency guard: do not let a slow Gemini first-page call hold
+                # the user on the generation screen. If page 1 is not back within
+                # the soft limit, return a polished deterministic page 1 and let
+                # the remaining story continue through the normal background path.
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(self.model.generate_content, prompt),
+                    timeout=FIRST_PAGE_SOFT_LIMIT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                elapsed = time.time() - t_gemini
+                print(
+                    f"[PERF] first_page Gemini soft limit hit after {elapsed:.2f}s; "
+                    "using fast fallback page 1"
+                )
+                fallback = self._build_first_page_fallback(request, companion)
+                fallback_page = (fallback.get('pages') or [''])[0]
+                print(f"[PERF] first_page_size fallback words={len(fallback_page.split())} chars={len(fallback_page)}")
+                print(f"[PERF] generate_story_first_page DONE fallback total={time.time() - start_total:.2f}s")
+                print("[PERF] ========================================")
+                return fallback
 
-        async def _generate_first_page_once(attempt_label: str) -> Dict[str, Any]:
-            """Generate and validate Page 1 once.
-
-            This helper is intentionally local to the Page-1 path. It does not
-            change narration, chunking, polling, page count, storage, or the
-            reader flow. It only lets us retry malformed Gemini JSON once
-            before using the fast fallback.
-            """
-            t_attempt = time.time()
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self.model.generate_content,
-                    prompt,
-                    generation_config=FIRST_PAGE_GENERATION_CONFIG,
-                ),
-                timeout=FIRST_PAGE_SOFT_LIMIT_SECONDS,
-            )
-            elapsed = time.time() - t_attempt
-            print(f"[PERF] first_page Gemini {attempt_label} took {elapsed:.2f}s")
-            self._log_gemini_response_metadata(f"first_page_{attempt_label}", response)
+            elapsed = time.time() - t_gemini
+            print(f"[PERF] first_page Gemini took {elapsed:.2f}s")
 
             response_text = getattr(response, 'text', None)
             if not response_text or not isinstance(response_text, str):
-                raise ValueError(f'Failed to generate first page on {attempt_label}')
+                raise ValueError('Failed to generate first page')
 
-            try:
-                story_data = self._clean_json_response(response_text)
-            except Exception as parse_exc:
-                raw_preview = str(response_text or '')[:3000]
-                print(f"[DEBUG] first_page raw Gemini response parse_failed attempt={attempt_label} error={parse_exc}")
-                print(f"[DEBUG] first_page raw Gemini response preview attempt={attempt_label} value={raw_preview!r}")
-                raise ValueError(f'first_page_json_parse_failed:{attempt_label}: {parse_exc}') from parse_exc
-
+            story_data = self._clean_json_response(response_text)
             if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
-                raise ValueError(f'Invalid first-page story format returned by AI on {attempt_label}')
+                raise ValueError('Invalid first-page story format returned by AI')
 
             pages = postprocess_story_pages(story_data.get('pages', []))[:1]
             if not pages:
-                raise ValueError(f'First-page story returned no pages on {attempt_label}')
+                raise ValueError('First-page story returned no pages')
 
             page_one_words = len(pages[0].split())
             page_one_chars = len(pages[0])
-            print(f"[PERF] first_page_size words={page_one_words} chars={page_one_chars} source={attempt_label}")
-            print(f"[PERF] first_page_ready_for_response pages=1 expected_pages={expected_pages} source={attempt_label}")
+            print(f"[PERF] first_page_size words={page_one_words} chars={page_one_chars}")
+            print(f"[PERF] first_page_ready_for_response pages=1 expected_pages={expected_pages}")
+            print(f"[PERF] generate_story_first_page DONE total={time.time() - start_total:.2f}s")
+            print("[PERF] ========================================")
             return {
                 'title': story_data['title'],
                 'pages': pages,
                 'companion': companion,
                 'expected_pages': expected_pages,
                 'generation_status': 'partial',
-                'first_page_generation_source': attempt_label,
             }
-
-        try:
-            story_data = await _generate_first_page_once('gemini_primary')
-            print(f"[PERF] generate_story_first_page DONE total={time.time() - start_total:.2f}s source=gemini_primary")
-            print("[PERF] ========================================")
-            return story_data
-        except asyncio.TimeoutError:
-            # Do not retry timeout. Retrying a slow first-page call would risk
-            # breaking the Page-1-first speed rule. Use the instant fallback.
-            print(
-                f"[PERF] first_page Gemini soft limit hit after {time.time() - start_total:.2f}s; "
-                "using fast fallback page 1"
-            )
+        except Exception as exc:
+            # Never fall back to full story generation inside the initial
+            # Page-1 request. That can block the frontend until the 90s
+            # timeout and breaks the Page-1-first architecture. Return the
+            # deterministic Page 1 fallback instead; pages 2+ can still be
+            # generated by the normal background continuation path.
+            print(f"[PERF] first_page failed, using deterministic page 1 fallback: {exc}")
             fallback = self._build_first_page_fallback(request, companion)
-            fallback['generation_fallback_reason'] = 'first_page_timeout'
-            fallback['first_page_generation_source'] = 'fallback_timeout'
-            fallback_page = (fallback.get('pages') or [''])[0]
-            print(f"[PERF] first_page_size fallback words={len(fallback_page.split())} chars={len(fallback_page)} source=fallback_timeout")
-            print(f"[PERF] generate_story_first_page DONE fallback total={time.time() - start_total:.2f}s reason=timeout")
-            print("[PERF] ========================================")
-            return fallback
-        except Exception as first_exc:
-            # Retry only malformed/invalid Gemini output once. This reduces
-            # repeated deterministic fallback stories while preserving speed for
-            # the normal successful path and avoiding retries on timeouts.
-            print(f"[PERF] first_page primary failed; retrying once before fallback: {first_exc}")
-            try:
-                story_data = await _generate_first_page_once('gemini_retry')
-                print(f"[PERF] generate_story_first_page DONE total={time.time() - start_total:.2f}s source=gemini_retry")
-                print("[PERF] ========================================")
-                return story_data
-            except asyncio.TimeoutError:
-                print(
-                    f"[PERF] first_page retry soft limit hit after {time.time() - start_total:.2f}s; "
-                    "using fast fallback page 1"
-                )
-                fallback_reason = 'first_page_retry_timeout'
-                fallback_source = 'fallback_retry_timeout'
-                fallback_exception = 'retry_timeout'
-            except Exception as retry_exc:
-                print(f"[PERF] first_page retry failed, using deterministic page 1 fallback: {retry_exc}")
-                fallback_reason = 'first_page_retry_exception'
-                fallback_source = 'fallback_retry_exception'
-                fallback_exception = str(retry_exc)
-
-            fallback = self._build_first_page_fallback(request, companion)
-            fallback['generation_fallback_reason'] = fallback_reason
-            fallback['first_page_generation_source'] = fallback_source
-            fallback['first_page_fallback_detail'] = fallback_exception[:300]
-            fallback_page = (fallback.get('pages') or [''])[0]
-            print(f"[PERF] first_page_size fallback words={len(fallback_page.split())} chars={len(fallback_page)} source={fallback_source}")
-            print(f"[PERF] generate_story_first_page DONE fallback total={time.time() - start_total:.2f}s reason={fallback_reason}")
-            print("[PERF] ========================================")
+            fallback['generation_fallback_reason'] = 'first_page_exception'
             return fallback
 
     async def complete_story_background(
@@ -2648,18 +2506,10 @@ Return ONLY valid JSON:
                         f"next_page={next_page_number} count={batch_count}"
                     )
                     t_gemini = time.time()
-                    response = await asyncio.to_thread(
-                        self.model.generate_content,
-                        prompt,
-                        generation_config=REMAINING_PAGES_GENERATION_CONFIG,
-                    )
+                    response = await asyncio.to_thread(self.model.generate_content, prompt)
                     print(
                         f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
                         f"next_page={next_page_number} count={batch_count}"
-                    )
-                    self._log_gemini_response_metadata(
-                        f"remaining_pages_next_{next_page_number}_count_{batch_count}",
-                        response,
                     )
 
                     response_text = getattr(response, 'text', None)
@@ -2771,12 +2621,8 @@ Return ONLY valid JSON:
         print(f"[PERF] prompt built in {time.time() - t_prompt:.2f}s chars={len(prompt)}")
 
         t_gemini = time.time()
-        response = self.model.generate_content(
-            prompt,
-            generation_config=FULL_STORY_GENERATION_CONFIG,
-        )
+        response = self.model.generate_content(prompt)
         print(f"[PERF] Gemini generate_content took {time.time() - t_gemini:.2f}s")
-        self._log_gemini_response_metadata("full_story", response)
 
         response_text = getattr(response, 'text', None)
         if not response_text or not isinstance(response_text, str):
@@ -2834,13 +2680,8 @@ Return ONLY valid JSON:
         )
         try:
             t_gemini = time.time()
-            response = await asyncio.to_thread(
-                self.model.generate_content,
-                prompt,
-                generation_config=METADATA_GENERATION_CONFIG,
-            )
+            response = await asyncio.to_thread(self.model.generate_content, prompt)
             print(f"[PERF] extract_metadata Gemini took {time.time() - t_gemini:.2f}s")
-            self._log_gemini_response_metadata("metadata", response)
             text = getattr(response, 'text', '')
             start = text.find('{')
             end = text.rfind('}')
