@@ -10,7 +10,6 @@ from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 import google.generativeai as genai
 
-from google.genai import types
 from fastapi import HTTPException
 
 # Load local .env before reading settings. This is safe on Render too:
