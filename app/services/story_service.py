@@ -6,10 +6,10 @@ import os
 import random
 import re
 import time
-from datetime import datetime, timedelta, timezone
-from typing import Any, Dict, Optional
 import google.generativeai as genai
 
+from datetime import datetime, timedelta, timezone
+from typing import Any, Dict, Optional
 from fastapi import HTTPException
 
 # Load local .env before reading settings. This is safe on Render too:
@@ -871,11 +871,15 @@ class StoryService:
         gemini_api_key = (getattr(settings, "gemini_api_key", "") or os.getenv("GEMINI_API_KEY", "")).strip()
         gemini_model = (getattr(settings, "gemini_model", "") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
 
-        self.client = genai.Client(api_key=gemini_api_key) if gemini_api_key else None
-        self.model_name = gemini_model if gemini_api_key else None
-        # Backward-compatible truthiness guard used throughout this service.
-        # In the new google.genai SDK, generation happens through self.client.models.
-        self.model = self.model_name
+        if gemini_api_key:
+            genai.configure(api_key=gemini_api_key)
+            self.client = genai
+            self.model_name = gemini_model
+            self.model = genai.GenerativeModel(gemini_model)
+        else:
+            self.client = None
+            self.model_name = None
+            self.model = None
 
         print(
             "[CONFIG] Gemini status: "
@@ -889,12 +893,12 @@ class StoryService:
         self,
         response_schema: Optional[dict] = None,
         max_output_tokens: Optional[int] = None,
-    ) -> types.GenerateContentConfig:
-        """Create a Gemini JSON-mode config for the google.genai SDK.
+    ) -> Dict[str, Any]:
+        """Create a Gemini JSON-mode config for the legacy google.generativeai SDK.
 
-        response_mime_type keeps output biased toward JSON. response_json_schema
-        is used where practical, but calls can fall back without schema if the
-        model/API rejects a schema. max_output_tokens is set per call so the
+        response_mime_type keeps output biased toward JSON. response_schema is
+        used where supported, but calls can fall back without schema if the
+        model/API rejects it. max_output_tokens is set per call so the
         speed-critical Page 1 path has enough room to return valid JSON without
         changing background generation or reader flow.
         """
@@ -902,8 +906,8 @@ class StoryService:
         if max_output_tokens:
             kwargs["max_output_tokens"] = max_output_tokens
         if response_schema:
-            kwargs["response_json_schema"] = response_schema
-        return types.GenerateContentConfig(**kwargs)
+            kwargs["response_schema"] = response_schema
+        return kwargs
 
     def _story_response_schema(self, page_count: int, include_title: bool = False) -> dict:
         properties: Dict[str, Any] = {
@@ -972,10 +976,10 @@ class StoryService:
         response_schema: Optional[dict] = None,
         max_output_tokens: Optional[int] = None,
     ):
-        return self.client.models.generate_content(
-            model=model_name,
-            contents=prompt,
-            config=self._json_generation_config(response_schema, max_output_tokens=max_output_tokens),
+        model = genai.GenerativeModel(model_name)
+        return model.generate_content(
+            prompt,
+            generation_config=self._json_generation_config(response_schema, max_output_tokens=max_output_tokens),
         )
 
     def _generate_content_sync(
@@ -984,7 +988,7 @@ class StoryService:
         response_schema: Optional[dict] = None,
         max_output_tokens: Optional[int] = None,
     ):
-        """Generate content using google.genai, preferring structured JSON output.
+        """Generate content using google.generativeai, preferring structured JSON output.
 
         Falls back once without response_schema if the schema/config is rejected.
         If the configured model endpoint returns NOT_FOUND/404, try safe model
@@ -2707,7 +2711,7 @@ Return ONLY valid JSON:
 """
 
     def _log_gemini_response_metadata(self, label: str, response: Any) -> None:
-        """Best-effort diagnostics for google.genai responses.
+        """Best-effort diagnostics for Gemini responses.
 
         This is logging only. It does not change story generation, parsing,
         narration, polling, subscriptions, Parent Voice, or reader behaviour.
@@ -2846,7 +2850,7 @@ Return ONLY valid JSON:
             try:
                 # Consistency guard: do not let slow or malformed Gemini Page 1
                 # output hold the user on the generation screen. Page 1 gets
-                # enough JSON output headroom for the new google.genai structured
+                # enough JSON output headroom for the JSON structured
                 # output path, plus one fast retry if parsing fails. The whole
                 # operation remains bounded by FIRST_PAGE_SOFT_LIMIT_SECONDS.
                 story_data = await self._generate_first_page_response_with_retry(
