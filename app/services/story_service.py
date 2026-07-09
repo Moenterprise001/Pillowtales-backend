@@ -8,8 +8,8 @@ import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
+import google.generativeai as genai
 
-from google import genai
 from google.genai import types
 from fastapi import HTTPException
 
