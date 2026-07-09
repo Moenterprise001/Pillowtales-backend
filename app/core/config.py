@@ -14,7 +14,7 @@ load_dotenv()
 class Settings:
     app_name: str = 'PillowTales API'
     api_prefix: str = '/api'
-    gemini_model: str = os.getenv('GEMINI_MODEL', 'gemini-3-flash-preview')
+    gemini_model: str = os.getenv('GEMINI_MODEL=gemini-2.5-flash')
     gemini_api_key: str = os.getenv('GEMINI_API_KEY', '')
     supabase_url: str = os.getenv('SUPABASE_URL', '')
     supabase_service_role_key: str = os.getenv('SUPABASE_SERVICE_ROLE_KEY', '')

@@ -2,13 +2,28 @@ from __future__ import annotations
 
 import asyncio
 import json
+import os
 import random
+import re
 import time
 from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, Optional
 
-import google.generativeai as genai
+from google import genai
+from google.genai import types
 from fastapi import HTTPException
+
+# Load local .env before reading settings. This is safe on Render too:
+# Render environment variables already exist, and load_dotenv will not override them.
+try:
+    from dotenv import load_dotenv
+
+    load_dotenv()
+except Exception:
+    # python-dotenv is optional in production. If it is not installed, the
+    # direct os.getenv fallback in StoryService.__init__ still works for
+    # already-exported environment variables.
+    pass
 
 from app.core.config import settings
 from app.domain.constants import STORY_COMPANIONS, SUBSCRIPTION_TIERS, SUPPORTED_LANGUAGES
@@ -840,18 +855,180 @@ FIRST_PAGE_TIMEOUT_SECONDS = 30
 # The full story still completes in the normal background Gemini path.
 FIRST_PAGE_SOFT_LIMIT_SECONDS = 18
 
-# Background continuation is generated in small batches so pages 2+ can
-# become available to the reader sooner. This preserves Page-1-first playback
-# while avoiding one long Gemini call blocking all remaining pages.
-BACKGROUND_PAGE_BATCH_SIZE = 3
+# Background continuation is generated one page at a time so Reader polling
+# receives each next page as soon as it is ready. This avoids the page-4
+# stall where a later multi-page batch can fail and leave the story paused
+# after pages 1-3, while preserving Page-1-first playback.
+BACKGROUND_PAGE_BATCH_SIZE = 1
 
 
 class StoryService:
     def __init__(self, story_repo: StoryRepository):
         self.story_repo = story_repo
-        if settings.gemini_api_key:
-            genai.configure(api_key=settings.gemini_api_key)
-        self.model = genai.GenerativeModel(settings.gemini_model) if settings.gemini_api_key else None
+
+        # Prefer config.py settings, but fall back directly to environment
+        # variables so local .env loading issues do not silently disable Gemini.
+        # Never print the API key itself.
+        gemini_api_key = (getattr(settings, "gemini_api_key", "") or os.getenv("GEMINI_API_KEY", "")).strip()
+        gemini_model = (getattr(settings, "gemini_model", "") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
+
+        self.client = genai.Client(api_key=gemini_api_key) if gemini_api_key else None
+        self.model_name = gemini_model if gemini_api_key else None
+        # Backward-compatible truthiness guard used throughout this service.
+        # In the new google.genai SDK, generation happens through self.client.models.
+        self.model = self.model_name
+
+        print(
+            "[CONFIG] Gemini status: "
+            f"api_key_loaded={bool(gemini_api_key)} "
+            f"model={self.model_name or 'not_configured'} "
+            f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
+            f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
+        )
+
+    def _json_generation_config(
+        self,
+        response_schema: Optional[dict] = None,
+        max_output_tokens: Optional[int] = None,
+    ) -> types.GenerateContentConfig:
+        """Create a Gemini JSON-mode config for the google.genai SDK.
+
+        response_mime_type keeps output biased toward JSON. response_json_schema
+        is used where practical, but calls can fall back without schema if the
+        model/API rejects a schema. max_output_tokens is set per call so the
+        speed-critical Page 1 path has enough room to return valid JSON without
+        changing background generation or reader flow.
+        """
+        kwargs: Dict[str, Any] = {"response_mime_type": "application/json"}
+        if max_output_tokens:
+            kwargs["max_output_tokens"] = max_output_tokens
+        if response_schema:
+            kwargs["response_json_schema"] = response_schema
+        return types.GenerateContentConfig(**kwargs)
+
+    def _story_response_schema(self, page_count: int, include_title: bool = False) -> dict:
+        properties: Dict[str, Any] = {
+            "pages": {
+                "type": "array",
+                "items": {"type": "string"},
+                "minItems": page_count,
+                "maxItems": page_count,
+            }
+        }
+        required = ["pages"]
+        if include_title:
+            properties = {"title": {"type": "string"}, **properties}
+            required.insert(0, "title")
+        return {
+            "type": "object",
+            "properties": properties,
+            "required": required,
+        }
+
+    def _metadata_response_schema(self) -> dict:
+        return {
+            "type": "object",
+            "properties": {
+                "summary": {"type": "string"},
+                "characters": {
+                    "type": "array",
+                    "items": {
+                        "type": "object",
+                        "properties": {
+                            "name": {"type": "string"},
+                            "description": {"type": "string"},
+                            "role": {"type": "string"},
+                        },
+                        "required": ["name", "description", "role"],
+                    },
+                },
+                "setting": {"type": "string"},
+            },
+            "required": ["summary", "characters", "setting"],
+        }
+
+    def _model_candidates(self) -> list[str]:
+        """Return configured Gemini model plus safe fallbacks for transient deprecation/routing errors.
+
+        This is only used when a model endpoint returns NOT_FOUND/404. The
+        configured model remains first choice, so Render/local env settings
+        still control normal production behaviour.
+        """
+        configured = (self.model_name or "").strip()
+        candidates: list[str] = []
+        for model in (
+            configured,
+            os.getenv("GEMINI_FALLBACK_MODEL", "").strip(),
+            "gemini-3.5-flash",
+            "gemini-2.5-flash-lite",
+        ):
+            if model and model not in candidates:
+                candidates.append(model)
+        return candidates
+
+    def _generate_content_once_sync(
+        self,
+        model_name: str,
+        prompt: str,
+        response_schema: Optional[dict] = None,
+        max_output_tokens: Optional[int] = None,
+    ):
+        return self.client.models.generate_content(
+            model=model_name,
+            contents=prompt,
+            config=self._json_generation_config(response_schema, max_output_tokens=max_output_tokens),
+        )
+
+    def _generate_content_sync(
+        self,
+        prompt: str,
+        response_schema: Optional[dict] = None,
+        max_output_tokens: Optional[int] = None,
+    ):
+        """Generate content using google.genai, preferring structured JSON output.
+
+        Falls back once without response_schema if the schema/config is rejected.
+        If the configured model endpoint returns NOT_FOUND/404, try safe model
+        fallbacks instead of leaving the story permanently partial.
+        """
+        if not self.client or not self.model_name:
+            raise ValueError("Gemini client is not configured")
+
+        last_exc: Optional[Exception] = None
+        for model_name in self._model_candidates():
+            try:
+                if model_name != self.model_name:
+                    print(f"[PERF] genai_model_fallback_try model={model_name}")
+                return self._generate_content_once_sync(
+                    model_name,
+                    prompt,
+                    response_schema,
+                    max_output_tokens,
+                )
+            except Exception as exc:
+                last_exc = exc
+                err = str(exc)
+                is_not_found = "404" in err or "NOT_FOUND" in err or "not found" in err.lower() or "no longer available" in err.lower()
+
+                # If the schema/config was rejected, keep the existing one-shot
+                # retry without schema. Do not waste the no-schema retry on a
+                # missing model; try the next model candidate instead.
+                if response_schema and not is_not_found:
+                    print(f"[PERF] genai_schema_call_failed retrying_without_schema error={err[:200]}")
+                    return self._generate_content_once_sync(
+                        model_name,
+                        prompt,
+                        None,
+                        max_output_tokens,
+                    )
+
+                if is_not_found:
+                    print(f"[PERF] genai_model_not_found model={model_name} trying_next error={err[:200]}")
+                    continue
+
+                raise
+
+        raise last_exc or ValueError("Gemini generation failed for all model candidates")
 
     def _select_companion(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Optional[dict]:
         # V1 production focus: do not randomly introduce companions.
@@ -1071,6 +1248,95 @@ SHOW DON'T TELL RULES:
             parsed = 6
         return max(0, min(parsed, 12))
 
+    def _oxford_inspired_age_profile_block(self, age: Any) -> str:
+        """Internal age calibration inspired by Oxford Owl reading progression.
+
+        This does not copy Oxford Reading Tree content or style. It is only a
+        developmental guide for sentence length, vocabulary load, dialogue,
+        plot complexity, emotional range, and humour. Prompt-only: no narration,
+        chunking, polling, storage, subscriptions, or reader behaviour changes.
+        """
+        child_age = self._safe_child_age(age)
+
+        if child_age <= 2:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 0-2:
+- Reading/listening stage: earliest shared read-aloud and nursery-rhythm level.
+- Sentence shape: very short, one idea per sentence, mostly 3-8 words.
+- Vocabulary: almost entirely familiar concrete words, sounds, colours, animals, body actions, bedtime objects, and family words.
+- Dialogue: minimal; short phrases only.
+- Plot: one place, one tiny event, one comfort action.
+- Emotion: happy, sad, sleepy, surprised, cosy. Show through cuddles, looking, reaching, hiding, or sounds.
+- Humour: one visual or sound-based smile moment.
+- New words: almost none; any new word must be obvious from context.
+"""
+        elif child_age <= 4:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 3-4:
+- Reading/listening stage: early picture-book comprehension and simple patterned language.
+- Sentence shape: short, clear sentences, usually 5-10 words, with occasional repetition.
+- Vocabulary: familiar everyday words plus a few simple storybook words such as cosy, twinkle, whisper, surprise, or sparkle when concrete.
+- Dialogue: short, direct lines that a young child can repeat.
+- Plot: one clear place, one simple problem, one helper, one solution path.
+- Emotion: happy, worried, scared, proud, kind, brave. Show through simple actions.
+- Humour: obvious visual silliness, animal behaviour, wrong hats, funny sounds, or simple misunderstandings.
+- New words: one or two only, supported by the sentence around them.
+"""
+        elif child_age <= 6:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 5-6:
+- Reading/listening stage: Oxford Reading Tree Stage 5-7 inspired clarity, not a children's novel.
+- The child should understand almost every sentence the first time they hear it.
+- If story quality and reading level conflict, ALWAYS choose the lower reading level.
+- Sentence shape: mostly 5-10 words. Use one clear idea per sentence.
+- Vocabulary: everyday spoken words first. Prefer simple verbs: looked, saw, got, went, made, took, put, asked, tried, helped, shared, fixed.
+- Use only a few richer story words in the whole story, not every page. Good examples: clue, promise, bridge, brave, patient, puzzled.
+- Avoid poetic narration, literary adjectives, symbolic language, and abstract emotional phrases.
+- Dialogue: short and plain. It should sound like real words a six-year-old can follow.
+- Plot: one main goal, one main helper, one obstacle, and one simple first idea that may not work.
+- Emotion: worried, shy, sad, brave, proud, patient. Show through small actions and simple dialogue.
+- Humour: clear visual mishaps and simple misunderstandings that affect the plot.
+- Parents should think: "This sounds simple and clear," not "This sounds beautifully written."
+"""
+        elif child_age <= 8:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 7-8:
+- Reading/listening stage: confident early chapter-book feel while remaining bedtime clear.
+- Sentence shape: varied but readable, usually 10-18 words.
+- Vocabulary: richer but still child-friendly words such as pattern, narrow, secret, festival, invention, nervous, proud, practice, promise, clue.
+- Dialogue: more frequent and characterful; characters may disagree gently, ask questions, or reveal motives.
+- Plot: connected scenes, 2-3 clues or steps, a clear midpoint complication, and a child-led decision.
+- Emotion: confused, jealous, nervous, determined, left out, responsible, relieved. Show through dialogue and choices.
+- Humour: character habits, literal misunderstandings, over-serious helpers, or repeated funny behaviour with payoff.
+- New words: welcome when useful, but action must stay easy to follow.
+"""
+        elif child_age <= 10:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 9-10:
+- Reading/listening stage: richer middle-grade-style bedtime story with controlled complexity.
+- Sentence shape: varied sentences, often 12-22 words, but never dense or adult.
+- Vocabulary: allow more precise words such as investigate, tradition, responsibility, generous, cautious, suspicious, determined, solution.
+- Dialogue: should reveal motives, pressure, uncertainty, or changing trust.
+- Plot: one main thread with a small subplot or deeper choice when useful.
+- Emotion: loyalty, guilt, fairness, pressure, confidence, regret, responsibility. Keep it hopeful and bedtime-safe.
+- Humour: smarter situational humour, over-complicated plans, rules misunderstood, or formal traditions going wrong.
+- New words: acceptable if they support story richness and do not slow comprehension.
+"""
+        else:
+            profile = """OXFORD-INSPIRED AGE PROFILE — AGE 11-12:
+- Reading/listening stage: upper-child storytelling with nuance, but still warm bedtime fiction.
+- Sentence shape: fluent and varied, with longer sentences allowed when natural and clear.
+- Vocabulary: richer words such as uncertainty, consequence, reluctant, contradiction, evidence, independence, forgiveness, thoughtful.
+- Dialogue: more layered; characters can imply feelings without explaining everything.
+- Plot: nuanced motives, a stronger mystery or choice, and clear consequences, but no grim or teen-focused themes.
+- Emotion: uncertainty, responsibility, independence, loyalty, forgiveness, self-doubt, confidence.
+- Humour: gentle wit, irony of rules, over-formality, or clever misunderstanding, never sarcasm or meanness.
+- New words: richer vocabulary is allowed, but the story must still read aloud smoothly.
+"""
+
+        return profile + """
+GENERAL OXFORD-INSPIRED CALIBRATION RULE:
+- Use these profiles only as developmental guidance for language complexity.
+- Do not copy or imitate Oxford Reading Tree stories, characters, wording, plots, or branded style.
+- The story must remain original PillowTales bedtime fiction.
+- Age should change more than vocabulary: it should change sentence rhythm, dialogue, plot load, emotional depth, humour, and how much the child must infer.
+"""
+
     def _age_band_key(self, age: Any) -> str:
         child_age = self._safe_child_age(age)
         if child_age <= 2:
@@ -1151,14 +1417,17 @@ AGE READABILITY ENGINE — AGE 3-4:
         elif child_age <= 6:
             profile = """
 AGE READABILITY ENGINE — AGE 5-6:
-- Use simple adventure language that a tired young child can follow.
-- Most sentences should be 6-12 words, with only occasional longer sentences when very clear.
-- Use familiar vocabulary. Allow only one or two richer storybook words per page, and make their meaning obvious.
+- Use simple early-reader adventure language that a tired six-year-old can follow.
+- Most sentences should be 5-10 words. A longer sentence is allowed only if it is still very easy.
+- One sentence should usually contain one action or one idea.
+- Use familiar vocabulary first. Richer story words are allowed rarely, and only when meaning is obvious.
 - Use one clear goal, one main helper, and one main obstacle.
 - Use no more than 3 important characters.
 - Funny moments should be visual and easy to understand.
 - Do not introduce several new characters, places, objects, and problems on the same page.
-- Avoid advanced, poetic, or abstract phrases such as "silent circus of clouds", "silver acrobats", "balanced on moonbeams", or "belonged to the great Star Ringmaster" for this age unless the meaning is immediately concrete.
+- Avoid advanced, poetic, or abstract phrases such as "silent circus of clouds", "silver acrobats", "balanced on moonbeams", "belonged to the great Star Ringmaster", "the village had lost hope", or "the courage inside her heart".
+- Avoid story language that sounds like age 8-10 fiction. This age needs clear, simple, concrete wording.
+- If a sentence sounds beautiful but hard, rewrite it in plain words.
 """
         elif child_age <= 8:
             profile = """
@@ -1232,13 +1501,16 @@ AGE VOCABULARY ENGINE — AGE 3-4:
         elif child_age <= 6:
             profile = """
 AGE VOCABULARY ENGINE — AGE 5-6:
-- Use vocabulary that matches early independent reading and read-aloud comprehension: careful, clever, brave, kind, hidden, lost, found, bright, dark, near, far, bridge, river, forest, castle, dragon, friend, idea, plan, try, choose, fix, share, promise.
-- Allow one or two richer words per page when the meaning is clear from context: curious, wondered, discovered, shimmered, puzzled, patient, festival, invitation.
-- Prefer clear concrete verbs over adult or abstract verbs: looked, noticed, asked, tried, carried, opened, helped.
-- Avoid frequent use of older vocabulary such as investigate, responsibility, extraordinary, magnificent, peculiar, complicated, astonished, remarkable, consequence, tradition, official.
-- Do not use adult abstract phrases like “the village had lost hope”, “the courage inside her heart”, or “a symbol of belonging”.
-- Word budget: about 90% familiar words, 10% gentle new vocabulary.
-- Sentence rhythm: mostly short sentences with one clear action; occasional longer sentence only when easy to read aloud.
+- Use vocabulary that feels like early independent reading and easy read-aloud comprehension.
+- Prefer common concrete words: look, see, find, help, make, take, give, open, close, hold, carry, try, ask, say, go, come, stop, wait, share, fix, friend, door, path, bridge, river, tree, room, garden, castle, dragon.
+- Allow only a few gentle story words in the whole story: clue, promise, puzzled, patient, brave, hidden.
+- Avoid using richer words on every page. One simple new word is enough.
+- Prefer clear concrete verbs over adult or abstract verbs: looked, saw, asked, tried, carried, opened, helped.
+- Avoid older vocabulary such as investigate, responsibility, extraordinary, magnificent, peculiar, complicated, astonished, remarkable, consequence, tradition, official, cautious, suspicious, determined, solution, festival, invitation.
+- Avoid poetic or abstract phrases like “the village had lost hope”, “the courage inside her heart”, “a symbol of belonging”, “the silence folded around her”, or “hope rose in the room”.
+- Avoid figurative language unless a six-year-old can picture it immediately.
+- Word budget: about 95% familiar words, 5% gentle new vocabulary.
+- Sentence rhythm: short, plain sentences with one clear action.
 """
         elif child_age <= 8:
             profile = """
@@ -1492,231 +1764,121 @@ ABSTRACT CONCEPT GUARD:
 """
 
     def _storycraft_rules(self) -> str:
-        return """STORYCRAFT QUALITY RULES:
-- Write like a skilled children's author rather than a poet. Use clear, warm sentences and avoid over-describing ordinary things.
-- Write in simple, natural language that is easy to read aloud to young children. Most sentences should be direct and uncomplicated, saving richer descriptions for occasional special moments.
-- Make the story feel like a premium illustrated children's fantasy tale: imaginative, emotionally warm, cinematic, and magical, while remaining original and bedtime-safe.
-- Use a classic storybook arc: wonder-filled opening, gentle discovery, small emotional challenge, magical or meaningful helper moment, moral learned through action, and a satisfying peaceful resolution.
-- Stories should use a wide variety of story problems.
-- Do NOT make most stories about finding, recovering, unlocking, repairing, or returning a magical object.
-- The central problem should usually involve people, emotions, relationships, choices, or helping someone rather than recovering or transporting an object.
-- At least half of all stories should contain no magical object quest at all.
-- The emotional journey should be more important than any magical object.
-- If a magical item exists, it should support the story rather than be the main goal.
-- No more than 30% of stories should involve magical objects, maps, stones, keys, crystals, or enchanted items.
-- Avoid repeatedly using these words unless explicitly requested: silver, moon, moonlit, star, lantern, crystal, glowing, magical key, ancient map.
-- The ending should primarily resolve an emotional need rather than simply returning an object.
-- Good story themes include friendship, courage, kindness, celebration, misunderstandings, teamwork, learning patience, helping family, discovering talents, and making new friends.
-- The story setting should feel vivid, memorable, and specific, like a real storybook world the child can picture immediately.
-- The adventure may begin anywhere that suits the theme, not only near a home, bedroom, window, blanket, or bedtime object.
-- Use a wide variety of bedtime-safe locations when appropriate: rainforests, river boats, deserts, castles, islands, mountains, oceans, cloud cities, ancient observatories, magical markets, treehouses, hidden valleys, peaceful pirate harbours, underwater palaces, and faraway lands.
-- Establish the setting naturally and give the child a simple, believable reason for being there. Avoid stories where the child simply appears in a magical place without context or purpose.
-- Every adventure should begin with an Adventure Entry sequence: ordinary world → trigger → transition → reason for the adventure.
-- Page 1 should answer three questions before introducing the magical setting: Where was the child? What happened? How did the adventure begin?
-- The child should never suddenly appear in a magical forest, floating island, crystal cave, underwater kingdom, or other fantasy location without explanation.
-- Begin in an ordinary or understandable place whenever possible: a bedroom, garden, beach, kitchen, campsite, grandparents' house, school, library, or another believable setting.
-- Introduce a trigger such as a strange noise, a letter, an animal, a wish, a telescope, footprints, or a hidden path.
-- Show a clear transition into the adventure, such as a hidden door, dream, rainbow, tunnel, tree hollow, or secret gate.
-- Establish why the adventure matters before the end of page 1: someone needs help, a mystery needs solving, a celebration is beginning, an invitation has arrived, or something important has gone missing.
-- Make the setting important to the story rather than background scenery. Distinctive places such as cafés, bakeries, schools, workshops, theatres, trains, and gardens should influence the problem and its solution.
-- If the child has a role or identity (princess, pirate, explorer, baker, inventor, astronaut), that role should meaningfully influence the story's events.
-- Do not invent unnecessary physical descriptions of the child such as hair colour, eye colour, skin colour, height, clothing, or appearance unless explicitly provided.
-- Focus on the child's role, personality, choices, actions, and connection to the setting instead.
-- Let the child make choices, notice details, and grow through meaningful scenes. Every page should move the story forward through discovery, decision, challenge, helper, transformation, reflection, or peaceful closure.
-- Classic openings such as "Once upon a time..." are allowed when they suit the theme, especially fairytale, princess, castle, dragon, unicorn, or kingdom stories.
-- Do not overuse the same opening across stories. Vary openings naturally between classic storybook openings, place-based openings, child-in-role openings, small mysteries, visitors, questions, celebrations, unusual events, and gentle problems.
-- Avoid repetitive openings such as "One evening...", "One night...", or "There lived..." when they appear too frequently.
-- By the end of page 1, the reader should understand why the child matters in this story, either because they already have a role in the world or because the event, question, discovery, or responsibility now belongs to them.
-- Avoid poetic or overly lyrical descriptions and avoid writing every sentence to sound magical. Simple, concrete descriptions are often more memorable than decorative language.
-- Avoid repeatedly relying on magical objects as the main story trigger. Sometimes begin with a problem, visitor, animal, mystery, missing item, wish, celebration, question, or natural event instead.
-- Avoid sentences where the child already understands the story's lesson before the adventure begins.
-- Strongly avoid the words: "gentle", "tiny", "little", "golden", "shimmering", "glowing", "sparkling", "moonlit", "softly", "slowly", and "sleepy". Use them only when absolutely essential to the plot. Never use more than one of these words on a single page.
-- Avoid titles containing the words: sleepy, moonlit, little, tiny, golden, sparkling, glowing, or gentle unless they are essential to the story's central idea.
-- Avoid giving ordinary objects or scenery human emotions unless it creates a genuinely memorable magical detail. Do not routinely write that flowers wait, trees hope, stars watch, or gardens breathe.
-- Do not describe every magical object as shimmering, glowing, sparkling, or golden. Find fresh, specific ways to describe magic and wonder.
-- Prefer specific, memorable descriptions over generic magical adjectives. Instead of "glowing pearl", "golden light", or "sparkling fountain", describe what makes the object unusual or memorable.
-- Limit repeated use of moon imagery. Avoid filling stories with moonlight, moonbeams, moon-dust, silver leaves, or sleepy night scenes unless the moon is genuinely important to the plot.
-- Prefer memorable nouns, actions, and sensory details over decorative adjectives and adverbs. Show magic through what characters see, hear, touch, smell, and do.
-- Avoid repeatedly using adverbs ending in "-ly", especially: bossily, excitedly, happily, carefully, suddenly, quickly, and softly. Show emotions and personality through actions and dialogue instead.
-- Prefer one memorable detail over many adjectives. A beetle carrying a dew drop is more memorable than a tiny, gentle, shimmering beetle.
-- Prefer strong nouns and actions over extra adjectives. If a sentence remains clear and magical after removing an adjective or adverb, remove it.
-- Avoid descriptive formulas such as "little + gentle + soft + shimmering + quiet". Vary imagery and vocabulary from story to story.
-- At least half of the magical details in a story should come from ordinary things behaving in unexpected ways, such as a teacup collecting raindrops, a staircase made of books, a snail carrying a lantern, a tree that grows bells, or a puddle that remembers songs.
-- Include at least one concrete, memorable object or image on each page that a child could easily draw or talk about the next day.
+        return """PILLOWTALES STORY VOICE:
+- You are one of the world's finest bedtime story authors for children.
+- Write stories children ask to hear again tomorrow night.
+- Parents should enjoy reading them aloud because they feel warm, playful, natural, and calming.
+- The goal is not to sound clever. The goal is smiles, wonder, comfort, and one story idea the child remembers tomorrow.
+- PillowTales stories should feel authored by a relaxed, funny, loving storyteller, not generated by a machine.
 
+CORE STORY PROMISE:
+- Tell a simple, warm, funny bedtime story that a child can understand and remember tomorrow.
+- Every story needs one clear main idea that can be said in one sentence.
+- Prefer memorable characters over complicated plots.
+- Prefer a funny wish, mistake, job, fear, habit, or misunderstanding over epic danger.
+- Good story energy: a taxi-driver lion who wants to drive a bus; a pigeon who wants to be an eagle; a sparrow who thinks it can lead the winter flight; a dragon who sneezes bubbles; a pirate whose map always finds cake.
+- Harmless silliness is welcome. The story can be a bit stupid in a child-friendly way if it makes the child smile.
+- Do not try to impress adults. Do not write cinematic, epic, literary, poetic, grand, or fantasy-novel prose.
 
+SIGNATURE PILLOWTALES MAGIC:
+- Include at least one memorable magical detail that belongs only to this story.
+- The magical detail should be simple enough for a child to repeat the next day.
+- Examples of the kind of detail wanted, not to copy: clouds that smell of pancakes, a dragon scared of butterflies, a moon that forgot bedtime, a squirrel post office, a bus full of penguins.
+- The magical detail must affect the story, create a clue, solve a problem, cause a laugh, or return at the end.
+- Use one clear magical idea per scene. Do not stack lots of magical objects, rules, titles, maps, and ancient secrets.
 
-WONDER & ENDINGS ENGINE RULES:
-- Endings should avoid relying too often on simple physical rewards such as a marble, crystal, seed, coin, or ordinary keepsake.
-- The final reward should preferably be one of:
-  • a new friendship,
-  • an invitation to return,
-  • a promise kept,
-  • a small mystery that remains,
-  • a magical object with a specific purpose,
-  • a helper continuing their work somewhere far away,
-  • a relationship repaired,
-  • or a quiet sign that another adventure may come.
+AGE-FIRST LANGUAGE RULES:
+- Age-appropriate language is the highest priority. If a sentence sounds beautiful but too grown-up, simplify it.
+- For ages 6 and under, use plain everyday words, short sentences, and concrete actions.
+- For ages 6 and under, most sentences should be 5-10 words.
+- For ages 6 and under, avoid abstract emotions, symbolic lessons, complex lore, and grown-up vocabulary.
+- For ages 7-8, allow a little more detail, but keep the story clear and read-aloud friendly.
+- For ages 9+, richer language is allowed, but never adult literary prose.
+- Do not use older-child words just to sound polished.
+- Prefer: said, asked, looked, saw, went, got, made, took, put, tried, helped, shared, fixed.
+- Avoid unless truly needed: magnificent, extraordinary, mysterious, ancient, remarkable, consequence, responsibility, cautious, suspicious, determined, investigate.
 
-- If the story gives the child a magical object, make it distinctive and story-specific, not generic.
-  Good examples:
-  • a compass that points toward kindness,
-  • a feather that remembers songs,
-  • a bottle containing a tiny sunrise,
-  • a key made of moonlight,
-  • a bell that rings only when someone needs help,
-  • a lantern that stores happy memories,
-  • a paper star that follows the child home,
-  • a map that redraws itself at bedtime.
+STORY SHAPE RULES:
+- Begin with who the story is about, where they are, and what makes today different.
+- Keep one clear problem, wish, dream, misunderstanding, or task visible from page to page.
+- Every page should move the story forward.
+- Avoid pages that only search, wait, look around, or explain. Something should change on each page.
+- Avoid crowded pages with several new characters, places, objects, and rules at once.
+- Use short dialogue and action instead of narrator explanation.
+- The child should help solve the problem through noticing, asking, choosing, trying, sharing, waiting, or being brave.
+- Helpers may be funny, confused, or useful, but they must not solve everything.
 
-- The final paragraph should include one last image of wonder:
-  • a light blinking once,
-  • a faraway helper still awake,
-  • a map changing slightly,
-  • a feather moving by itself,
-  • a tiny door appearing,
-  • a second letter arriving,
-  • a star following the child home,
-  • or a magical place still quietly existing after the child returns.
+HUMOUR AND WONDER RULES:
+- Include gentle child-friendly humour when natural: funny misunderstandings, odd jobs, silly wishes, wrong hats, talking objects, or surprising but harmless behaviour.
+- Humour should feel warm, not sarcastic, noisy, mean, embarrassing, or toilet-based.
+- At least one funny or surprising moment should change what happens next.
+- A parent should smile at least once while reading the story aloud.
 
-- Some stories may end with a small unanswered wonder, as long as the main emotional arc is complete and the child feels safe.
-- Avoid overusing endings where someone simply gives the child a marble, crystal, seed, or glowing stone.
-- Do not wrap every story up too neatly. A tiny remaining mystery can make the story more memorable while still feeling calm and complete.
-- Strengthen magical locations so they feel genuinely fantastical rather than ordinary places with magical adjectives.
-  Possible location textures include:
-  • floating libraries,
-  • upside-down islands,
-  • forests of lantern trees,
-  • rivers of moonlight,
-  • valleys where clouds sleep,
-  • bridges woven from stars,
-  • gardens inside comets,
-  • islands carried by giant turtles,
-  • markets that open only when the moon is full,
-  • observatories carved into sleeping mountains.
+MORAL RULES:
+- Let kindness, bravery, sharing, patience, confidence, or friendship emerge naturally through what characters do.
+- Never explain the moral as a lesson.
+- Avoid lines such as "Emily learned that...", "the lesson was...", or "everyone understood that...".
+- Let the child feel the moral through the ending.
 
-STORY ARCHETYPE RULES:
-- Every story must contain a small problem, mystery, challenge, or goal that cannot be solved immediately. The middle of the story should involve at least one meaningful obstacle, choice, or discovery before the resolution.
-- The chosen theme must actively drive the plot, not merely decorate the setting. If the theme is dragons, the dragons should shape the adventure through flying, nests, treasure, fire puffs, dragon games, dragon customs, secret caves, sky races, smoke signals, scales, wings, eggs, hoards, or other dragon-specific behaviour.
-- For every theme, include at least two theme-specific actions, places, objects, or customs. A pirate story should involve maps, ships, islands, codes, tides, treasure, or crews. A space story should involve planets, telescopes, comets, rockets, constellations, moon stations, or star maps. A princess/kingdom story should involve courts, gardens, castles, royal duties, festivals, crowns, bridges, or quests.
-- Avoid slice-of-life stories where characters simply walk, eat, tidy, water plants, and talk unless those actions directly solve the story's central problem.
-- Food, chores, gardens, cafés, bakeries, and cosy routines may appear, but they must support the adventure rather than replace it.
-- Children should actively solve, discover, repair, rescue, deliver, protect, choose, test, translate, guide, or uncover something during the adventure.
-- The story should contain one clear turning point around the middle pages where the child’s action changes the outcome.
-- Keep the stakes bedtime-safe but meaningful: a lost friend needs help, a special place needs fixing, a promise must be kept, a celebration might be missed, a shy creature needs courage, a map is incomplete, or a small magical task must be finished before nightfall.
-- Around the middle of the story, include one genuine obstacle, complication, or unexpected problem that briefly makes success uncertain. The obstacle should require the child to make a choice, solve something, or help someone in a new way.
-- Around the middle of the story, include an obstacle that cannot be solved immediately. The child's first idea may fail, reveal new information, or create a new challenge. Success should briefly feel uncertain before the child discovers another way forward.
+LANGUAGE CLEANUP RULES:
+- Strongly avoid repeated AI-style words: gentle, tiny, little, small, golden, shimmering, glowing, sparkling, moonlit, softly, slowly, sleepy, magical, ancient, mysterious, magnificent, extraordinary.
+- Use these words only when they are genuinely needed and age-appropriate.
+- Avoid adverb-heavy writing, especially excitedly, carefully, suddenly, quickly, happily, softly.
+- Prefer simple nouns, verbs, and dialogue.
+- Do not describe the main child as little, small, tiny, young, brave little child, little girl, little boy, small hands, little feet, or young explorer.
+- Refer to the child by name or pronouns. Treat the child as the capable hero.
+- Do not invent physical descriptions of the child such as size, hair, eyes, clothes, or skin unless provided.
 
-- At least one obstacle should involve a meaningful choice, such as choosing between two paths, deciding who to help first, giving something up, solving a puzzle, trusting someone unexpected, or trying a second idea after the first one does not work.
-- Whenever possible, let the child's first solution fail or only partly succeed, revealing new information and requiring a different approach before the resolution.
-- Whenever possible, include a moment where the child must make a choice, such as choosing between two paths, deciding who to help first, giving up an important object, solving a riddle, trusting an unfamiliar creature, or using creativity instead of strength.
-- Avoid using the same story structure repeatedly. Not every story should involve finding a creature, receiving a gift, or returning home immediately after the adventure.
-- Different stories may involve solving a mystery, completing a delivery, following clues, discovering a hidden place, preparing for a celebration, helping two characters reconcile, searching for a missing object, repairing something magical, escaping a changing environment, or uncovering a secret.
-- Vary how stories begin. Some stories may start with a strange sound, an unusual visitor, a mysterious object, an invitation, an unexpected event, a problem already in progress, or a surprising discovery.
-- Strongly avoid repetitive AI phrases and wording such as: "rhythmic humming", "steady humming", "safe, happy, and warm", "closed its eyes", "floated peacefully", "softly humming", "shivering alone", "calm heart", "long breath", "everything was quiet and safe", and "ready for sleep". Also avoid repeatedly ending with generic marbles, crystals, glowing stones, seeds, or coins. Use fresh language and concrete actions instead.
+ENDING RULES:
+- End warmly and specifically.
+- Bring back one earlier funny detail, phrase, promise, object, or character habit.
+- The final page should solve the main problem and then slow down.
+- Use one concrete final image that feels safe and cosy.
+- Do not end with a generic line like everyone smiled happily or ready for sleep.
+- Let the final lines become calmer, like a bedtime hug.
+- Do not write The end.
 
-STORY MEMORY RULES:
-PICTURE-BOOK MOMENT RULE:
-- Every story MUST contain one unforgettable picture-book illustration moment.
-- Include one scene that a child could easily draw or describe tomorrow.
-
-Examples:
-• a dragon wearing oven gloves
-• a whale carrying lanterns
-• a staircase made of books
-• a fox painting stars
-• a tree growing bells
-• a teacup floating on a cloud
-• a pirate ship made of pillows
-• a pony wearing a flower crown
-- Every story MUST include at least one supporting character who:
-  • has a job,
-  • has a funny habit,
-  • says something unusual,
-  • or owns an unusual object.
-- Supporting characters should feel specific and memorable rather than generic helpers.
-- Every story must include one memorable object that a child could draw, describe, or ask about tomorrow. The object should matter to the story, not just appear as decoration.
-- Every story must include one memorable place that feels different from an ordinary setting and shapes what happens there.
-- Every story must include one moment of kindness, humour, surprise, courage, patience, or reassurance that changes what happens next.
-- At least one scene MUST feel like the front cover of a premium children's picture book.
-- The image should be concrete, visual, and easy to remember.
-- The hero should feel like a real child with habits and preferences.
-- Give the hero one memorable quirk and one comfort habit.
-- Include at least TWO gentle giggle moments in every story.
-- At least one giggle moment must directly change the plot.
-- One should come from a character's behaviour or habit.
-- One should come from dialogue or a misunderstanding.
-- Humour should come from behaviour, habits, misunderstandings, or personality rather than jokes.
-- The humour should feel warm, character-driven, and memorable, in the tradition of classic bedtime picture books.
-- Important side characters should have distinctive habits, jobs, sayings, or behaviours.
-
-GENTLE HUMOUR RULES:
-- Include 1-2 genuine giggle moments.
-- Supporting characters may:
-  • misunderstand instructions
-  • take things too literally
-  • collect unusual objects
-  • say unexpected things
-  • become distracted by something silly
-- Humour should never be noisy, mean, or embarrassing.
-- Avoid modern jokes, sarcasm, memes, or punchlines.
-- Funny moments must move the story forward and create consequences.
-- At least one personality trait or quirk should help solve the story problem.
-- Avoid describing characters only with adjectives.
-- Show personality through actions and repeated behaviours.
-- Give important side characters small personalities or jobs, such as a dragon who collects teacups, a fox who paints stars, a snail who delivers letters, a rabbit who draws maps, a bear who bakes midnight pies, or a pirate who sorts buttons.
-- Extra supporting character examples: a dragon who alphabetises biscuits, a rabbit who wears three scarves, a pirate who is scared of seagulls, a bear who keeps forgetting where he put his hat, or a fox who paints vegetables instead of pictures.
-- After introducing an important character, avoid repeating their name in every paragraph.
-- Vary references naturally using descriptions, species, titles, occupations, or relationships.
-  Examples: Barnaby -> the badger, the Burrow Warden, her new friend; Princess Elara -> the young princess, the gardener's daughter; Captain Moss -> the old sailor, the map keeper.
-- Do not begin consecutive paragraphs with the same character's name. Vary sentence openings naturally.
-- Generate a wide variety of character names. Avoid repeatedly using common storybook names such as Barnaby, Hazel, Pip, Fern, Willow, Bramble, Luna, Oliver, Poppy, Archie, Daisy, or Jasper unless the name is genuinely fresh in context.
-- Prefer fresh, memorable, and varied names that fit the setting.
-- Do not rely on generic labels such as guardian, keeper, magical creature, mysterious animal, wise helper, or friendly guide unless the character also has a specific personality, relationship, or job.
-- Strengthen the story promise beyond simply finding a clue. Examples of stronger bedtime-safe promises: deliver the last moon biscuit, repair the rainbow bridge, find the missing laugh, return a borrowed song, wake tomorrow's sunrise, rescue a lost recipe, or help a shy dragon practise a tiny roar.
-- Make at least one story detail something a child might say again the next day, such as “the teacup dragon”, “the bell tree”, “the map rabbit”, “the biscuit moon”, or “the boat made from folded maps”.
-- The final page should contain an emotional callback to an earlier object, place, promise, or supporting character.
-- The final paragraph should remind the reader of something encountered earlier.
-- End with one final magical image and avoid generic sleep endings.
-- The ending should feel emotionally earned and memorable.
-- The ending should feel emotionally earned and memorable, as if a child might ask for this particular story again tomorrow.
-- Never directly state a character's thoughts, wishes, intentions, realizations, or feelings. Do not write: "she wanted...", "he hoped...", "she realised...", "he knew...", "she felt...", "he understood...", or "she decided...". Instead, show these through:
-  - actions
-  - dialogue
-  - expressions
-  - choices
-  - consequences
-- Trust the reader to infer emotions and lessons. Do not explain what the child should feel.
-- Never explain the story's moral before the child discovers it through events. Avoid phrases such as "learned that", "needed to teach", "realized that", "the magic of sharing", or similar explanations of the lesson.
-- Avoid repeatedly relying on titled magical helpers such as keepers, guardians, tenders, weavers, or shepherds. Use them only when they feel genuinely original and important to the story.
-- Important characters should feel specific and memorable, with their own personalities, relationships, or jobs, rather than generic fantasy roles.
-- Let readers discover the moral through actions and consequences rather than narration.
-- Write each story as though it were written by a different storyteller. Vary settings, magical details, sentence rhythms, imagery, helpers, and vocabulary so that stories do not feel generated from the same formula.
-- Avoid repeatedly using "steady", "calm heart", "long breath", "waited", "inch by inch", "slowly", "quiet and safe", or "rhythm of breathing". Choose fresh expressions and actions instead.
-- Most of the story should focus on wonder, discovery, character action, and gentle adventure. Let the final third gradually become calmer and more reflective instead of making every page feel sleepy.
-- Make magical worlds internally consistent. If a character has a title or role, give it simple context and give important characters clear relationships or purposes rather than labels alone.
-- Avoid flat summaries. Write immersive scenes that feel read-aloud, memorable, and emotionally rewarding.
-- Keep the mood safe for bedtime: no danger, no frightening villains, no peril, and no sadness-heavy ending.
-- Do not copy or imitate any existing franchise, character, studio, film, song, or copyrighted story world.
-- The child should face a meaningful but gentle problem that is resolved through the chosen moral, shown through actions and consequences rather than explanation.
-- The story should still work even if the word for the moral never appears.
-- Vary the moral lessons across stories. Avoid repeating sharing, kindness, helping, or teamwork as the default moral.
-- If the chosen moral is broad, make it specific through the story situation.
-- Avoid turning the moral into a lecture. The child should understand it because the story outcome feels emotionally true.
-- Keep the moral age-appropriate, hopeful, and reassuring for bedtime.
-- Give each story one memorable image, object, sound, or moment that a child might mention again tomorrow.
-- Let the ending gently return the child toward safety, comfort, and sleep."""
+FINAL QUALITY CHECK:
+- Before returning the story, silently ask: would a child understand it, smile at least once, and remember the main idea tomorrow?
+- Check that every page moves the story forward and no page feels like filler.
+- Check that the title is a real story title, never a placeholder such as Short title.
+- If the story feels flat, add one useful funny moment or one memorable magical detail.
+- If the language feels grown-up, simplify it."""
 
     def _select_opening_seed(self, request: GenerateStoryRequest) -> dict:
-        """Select a place-first opening locally before Gemini is called.
+        """Select an age-safe and theme-aligned opening seed.
 
-        This is intentionally instant: no extra AI call, no database lookup, and
-        no narration/playback impact. The opening gives the child a clear place
-        to enter before the magical event begins.
+        This remains local and instant. It prevents mismatches such as a space
+        story opening in a dinosaur kindergarten while preserving Page-1-first
+        speed and architecture.
         """
         child = request.childName or "the child"
         language_code = (request.storyLanguageCode or "en").lower()[:2]
-        seed = random.choice(self._seed_pool_for_age(request.age))
+        theme_key = str(request.theme or request.customTheme or "").lower().replace("-", "_").replace(" ", "_")
+
+        theme_seed_allowlist = {
+            "space": {"ancient_observatory", "star_painter_cottage", "river_of_stars", "moon_bakery", "pillow_harbour"},
+            "dragons": {"dragon_market", "dragon_post_office", "sleepy_castle_hall"},
+            "dragon": {"dragon_market", "dragon_post_office", "sleepy_castle_hall"},
+            "princess": {"glass_slipper_cafe", "sleepy_castle_hall", "hidden_garden_gate"},
+            "animals": {"forest_school", "honeybee_palace", "little_lighthouse_cafe", "sleepy_forest_path"},
+            "animal": {"forest_school", "honeybee_palace", "little_lighthouse_cafe", "sleepy_forest_path"},
+            "forest": {"sleepy_forest_path", "forest_school", "hidden_garden_gate", "rainbow_garden"},
+            "dinosaurs": {"dinosaur_kindergarten", "hidden_dinosaur_valley"},
+            "dinosaur": {"dinosaur_kindergarten", "hidden_dinosaur_valley"},
+            "underwater": {"underwater_palace", "mermaid_library", "whale_island", "seaside_cave"},
+            "adventure": {"pillow_harbour", "glowing_attic", "hidden_garden_gate", "toymaker_workshop", "little_lighthouse_cafe"},
+            "magic": {"moonlit_library", "toymaker_workshop", "rainbow_garden", "hidden_garden_gate"},
+        }
+
+        age_pool = self._seed_pool_for_age(request.age)
+        allowed_for_theme = theme_seed_allowlist.get(theme_key)
+        if allowed_for_theme:
+            themed_pool = [seed for seed in age_pool if seed.get("family") in allowed_for_theme]
+            if themed_pool:
+                age_pool = themed_pool
+
+        seed = random.choice(age_pool)
         template = seed.get(language_code) or seed["en"]
         return {
             "family": seed.get("family", "place_entry"),
@@ -1781,9 +1943,27 @@ GERMAN STORY STYLE:
 """
         return """
 ENGLISH STORY STYLE:
-- Use warm, premium British bedtime storytelling with soft rhythm, clear emotion, and child-friendly magic.
+- Use warm British bedtime storytelling with clear emotion, simple wonder, and child-friendly magic.
 - Keep the story gentle, imaginative, cosy, and easy to read aloud.
 """
+
+    def _first_page_language_style_block(self, language_code: Optional[str]) -> str:
+        """Compact language guidance for the speed-critical Page 1 call.
+
+        The full language style block is intentionally not used here because
+        Page 1 must return quickly. Richer language rules remain in the
+        background continuation prompts.
+        """
+        language_code = (language_code or "en").lower()[:2]
+        if language_code == "es":
+            return "Write natural Spanish from Spain (castellano), warm, simple, and read-aloud friendly. Avoid Latin-American or stiff translated phrasing."
+        if language_code == "fr":
+            return "Write natural French bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff translation or overly literary phrasing."
+        if language_code == "it":
+            return "Write natural Italian bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff or literal phrasing."
+        if language_code == "de":
+            return "Write natural German bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff or academic phrasing."
+        return "Write warm, clear, read-aloud English bedtime prose. Keep sentences direct and child-friendly."
 
     def _build_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
@@ -1794,13 +1974,6 @@ ENGLISH STORY STYLE:
             else self._localized_theme_label(request.theme, language_code)
         )
         localized_companion = self._localized_companion(companion, language_code)
-        archetype = self._select_story_archetype()
-        archetype_block = self._story_archetype_block(archetype)
-        emotional_theme = self._select_emotional_story_type()
-        emotional_block = self._emotional_story_block(emotional_theme)
-        character_trait = self._select_character_trait()
-        funny_quirk = self._select_age_funny_quirk(request.age)
-        personality_humour_block = self._personality_humour_block(character_trait, funny_quirk, request.age)
 
         companion_line = self._no_companion_required_text(language_code)
         if localized_companion:
@@ -1818,87 +1991,45 @@ ENGLISH STORY STYLE:
                 character_lines.append(f"- {character.name} ({relationship})")
             characters_block = '\n'.join(character_lines)
             character_instruction = (
-                "Include these family members, friends, or pets naturally in the story if possible. "
-                "Make sure each named character appears clearly at least once without overwhelming the bedtime tone. "
-                "For pets, use ONLY the pet name and animal type provided. Do not invent colour, breed, markings, size, collar, eye colour, or other physical details. "
-                "If a pet is named Luna (cat), write about Luna the cat, not a fluffy/black/orange/striped cat unless the parent explicitly provided that detail.\n"
+                "Include these family members, friends, or pets naturally if they fit the story. "
+                "Do not overload the story with extra people. "
+                "For pets, use ONLY the pet name and animal type provided; do not invent colour, breed, markings, size, collar, eye colour, or other physical details.\n"
                 f"{characters_block}"
             )
         else:
             character_instruction = self._no_extra_characters_required_text(language_code)
 
-        # Standard bedtime narration target:
-        # The product now uses one optimal story length. Age controls complexity;
-        # duration is kept as an internal compatibility field only.
-        target_pages = "7"
-        paragraphs_per_page = "2"
-        sentence_range = "5-7"
-        target_words = "950-1100"
-        min_words_per_page = "125"
-        ideal_words_per_page = "135-155"
-        max_words_per_page = "170"
-        pacing_note = (
-            "Create a substantial but calm bedtime story suitable for an approximately eight-minute bedtime experience. "
-            "Do not compress the plot into a short summary; let each page include a gentle, memorable story moment. "
-            "Keep page lengths balanced so the reader does not feel that some pages are rushed while others are overloaded."
-        )
-
         language_style_block = self._language_style_block(request.storyLanguageCode)
 
-        return f"""You are a premium children's bedtime storyteller.
+        return f"""You are writing a PillowTales bedtime story.
 
-IMPORTANT LANGUAGE RULE:
-- The ENTIRE story MUST be written ONLY in {language_name}.
-- Do NOT use English unless the language is English.
-- Do NOT mix languages.
-- All narration, title, and dialogue MUST be in {language_name}.
+LANGUAGE:
+- Write ONLY in {language_name}.
+- Do not mix languages.
 - Write naturally for native-speaking children in {language_name}.
-- The story must feel like it was originally written in {language_name}, not translated from English.
-- Use warm, magical, emotionally comforting bedtime storytelling.
-- Avoid overly formal, academic, rigid, or literal phrasing.
-- Use natural rhythm and gentle emotional pacing suitable for read-aloud bedtime stories.
 {language_style_block}
 
-STORY REQUIREMENTS:
+STORY FACTS:
 - Child name: {request.childName}
 - Age: {request.age}
 - Theme: {effective_theme}
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
-- Tone: warm, magical, calming, bedtime-safe
-- Use simple, natural language suitable for reading aloud
-- No scary content
-- No rushed ending
-- Do NOT write "The end"
-- End peacefully and softly
 
 {self._storycraft_rules()}
-{self._story_clarity_rules()}
-{self._character_memory_rules()}
-{self._emotional_cohesion_rules()}
-{self._world_logic_rules()}
 {self._age_readability_block(request.age)}
 {self._age_vocabulary_block(request.age)}
 {self._age_quality_control_block(request.age)}
 
-{archetype_block}
-{emotional_block}
-{personality_humour_block}
-LENGTH AND STRUCTURE REQUIREMENTS (STRICT PERFORMANCE RULES):
-- EXACTLY {target_pages} pages. Do not return more or fewer pages.
-- EACH page should contain exactly {paragraphs_per_page} gentle paragraphs.
-- EACH page should contain approximately {sentence_range} bedtime-friendly sentences in total.
-- TOTAL story length MUST be approximately {target_words} words.
-- PAGE BALANCE IS STRICT: each page should normally be {ideal_words_per_page} words.
-- No page should be under {min_words_per_page} words unless it is the final page and the emotional ending is already complete.
-- No page may exceed {max_words_per_page} words.
-- Do not create one very long page followed by a very short page. Distribute story beats evenly across all 7 pages.
-- Use simple, natural sentences suitable for spoken bedtime narration.
-- Do not make pages too short. Avoid summarising scenes in only one or two sentences.
-- Every page must move the story forward gently and include one memorable story beat.
-- The moral should be discovered through the child's actions, not explained like a lesson.
-- The final page must end peacefully and softly, with a clear callback to an object, place, helper, or promise from earlier in the story.
-- {pacing_note}
+PRODUCTION STORY CONTRACT:
+- Create exactly 7 pages.
+- Each page should have exactly 2 short paragraphs.
+- Each page should contain about 5-7 read-aloud sentences.
+- Each page should normally be 115-155 words.
+- Use a clear beginning, middle, and ending.
+- Keep one main story idea visible from start to finish.
+- Do not create one strong Page 1 followed by thin summary pages.
+- The moral must be shown through what the child does, not explained.
 
 COMPANION:
 - {companion_line}
@@ -1906,31 +2037,272 @@ COMPANION:
 CHARACTERS:
 - {character_instruction}
 
-OUTPUT FORMAT (STRICT):
+OUTPUT FORMAT STRICT:
 Return ONLY valid JSON:
-{{"title": "...", "pages": ["page 1 text", "page 2 text", "page 3 text"]}}
+{{"title":"...","pages":["page 1 text","page 2 text","page 3 text","page 4 text","page 5 text","page 6 text","page 7 text"]}}
 
-OUTPUT QUALITY RULES:
-- Return a complete bedtime story, not an outline
-- Before returning JSON, silently check that all 7 pages are similar in length and each page contains a complete story beat.
-- Do not include notes, markdown, or explanations outside the JSON
-- Keep the story calm and readable, but do not make it too short.
-- If unsure, prioritise balanced page length and the requested narration length while staying bedtime-safe.
-- The JSON pages array must contain exactly {target_pages} strings."""
-
+OUTPUT RULES:
+- The pages array must contain exactly 7 strings.
+- No markdown, notes, explanations, or extra keys.
+- Do not write The end."""
 
     def _intended_page_count(self, request: GenerateStoryRequest) -> int:
         return 7
 
+    def _strip_json_fences(self, response_text: str) -> str:
+        """Remove common markdown/code-fence wrapping without changing content."""
+        cleaned = (response_text or "").strip()
+        if cleaned.startswith("```json"):
+            cleaned = cleaned[7:].strip()
+        elif cleaned.startswith("```"):
+            cleaned = cleaned[3:].strip()
+        if cleaned.endswith("```"):
+            cleaned = cleaned[:-3].strip()
+        return cleaned
+
+    def _extract_json_object_text(self, response_text: str) -> str:
+        """Return the most likely JSON object substring.
+
+        Gemini sometimes returns whitespace, markdown fences, or a short note
+        around JSON. This keeps normal valid JSON fast while tolerating harmless
+        wrapper text. It does not invent missing story content.
+        """
+        cleaned = self._strip_json_fences(response_text)
+        if not cleaned:
+            raise ValueError("Empty Gemini response")
+
+        if cleaned.startswith("{"):
+            return cleaned
+
+        start = cleaned.find("{")
+        end = cleaned.rfind("}")
+        if start == -1 or end == -1 or end <= start:
+            raise ValueError("No complete JSON object found in Gemini response")
+        return cleaned[start:end + 1].strip()
+
     def _clean_json_response(self, response_text: str) -> Dict[str, Any]:
-        cleaned = response_text.strip()
-        if cleaned.startswith('```json'):
-            cleaned = cleaned[7:]
-        if cleaned.startswith('```'):
-            cleaned = cleaned[3:]
-        if cleaned.endswith('```'):
-            cleaned = cleaned[:-3]
-        return json.loads(cleaned.strip())
+        """Parse Gemini JSON with light wrapper cleanup only.
+
+        This function intentionally avoids guessing missing closing strings or
+        fabricating pages. Truncated responses are handled separately by retry
+        and safe page salvage in the background continuation path.
+        """
+        json_text = self._extract_json_object_text(response_text)
+        try:
+            parsed = json.loads(json_text)
+        except json.JSONDecodeError as exc:
+            print(
+                f"[PERF] json_parse_failed chars={len(response_text or '')} "
+                f"error={str(exc)[:200]}"
+            )
+            raise
+
+        if not isinstance(parsed, dict):
+            raise ValueError("Gemini JSON root was not an object")
+        return parsed
+
+    def _extract_complete_strings_from_array_text(self, array_text: str) -> list[str]:
+        """Extract only fully closed JSON strings from an array body.
+
+        This is used for safe salvage when Gemini truncates after returning one
+        or more complete page strings. A half-written final page is ignored.
+        """
+        decoder = json.JSONDecoder()
+        values: list[str] = []
+        idx = 0
+        length = len(array_text or "")
+
+        while idx < length:
+            while idx < length and array_text[idx] in " \r\n\t,":
+                idx += 1
+            if idx >= length or array_text[idx] == "]":
+                break
+            if array_text[idx] != '"':
+                break
+
+            try:
+                value, next_idx = decoder.raw_decode(array_text, idx)
+            except json.JSONDecodeError:
+                break
+
+            if isinstance(value, str):
+                stripped = value.strip()
+                if stripped:
+                    values.append(stripped)
+            idx = next_idx
+
+        return values
+
+    def _salvage_pages_from_response_text(self, response_text: str, max_pages: int) -> list[str]:
+        """Safely recover complete page strings from malformed Gemini JSON.
+
+        Safe means:
+        - only reads strings that were fully closed JSON strings;
+        - does not use incomplete trailing text;
+        - postprocesses the same way as normal pages;
+        - returns at most the requested batch size.
+        """
+        cleaned = self._strip_json_fences(response_text)
+        pages_key = '"pages"'
+        key_idx = cleaned.find(pages_key)
+        if key_idx == -1:
+            key_idx = cleaned.find("'pages'")
+        if key_idx == -1:
+            return []
+
+        array_start = cleaned.find("[", key_idx)
+        if array_start == -1:
+            return []
+
+        array_end = cleaned.find("]", array_start)
+        if array_end == -1:
+            array_body = cleaned[array_start + 1:]
+        else:
+            array_body = cleaned[array_start + 1:array_end]
+
+        salvaged = self._extract_complete_strings_from_array_text(array_body)
+        if not salvaged:
+            return []
+
+        pages = postprocess_story_pages(salvaged)[:max_pages]
+        print(
+            f"[PERF] salvaged_pages_from_malformed_json count={len(pages)} "
+            f"requested={max_pages} response_chars={len(response_text or '')}"
+        )
+        return pages
+
+    def _count_story_sentences(self, text: str) -> int:
+        """Best-effort sentence count for story-quality validation.
+
+        This is deliberately lightweight and local. It does not change the
+        Page-1-first architecture, narration, polling, subscriptions, Parent
+        Voice, or reader behaviour.
+        """
+        return len([part for part in re.split(r'[.!?]+(?:\s+|$)', text or '') if part.strip()])
+
+    def _valid_generated_pages(self, pages: Any, expected_count: int) -> list[str]:
+        """Normalize and validate a generated continuation page batch.
+
+        Phase 11 quality guard: pages 2+ must be real story pages, not
+        one-sentence captions. If Gemini returns thin pages, reject the batch so
+        the existing retry path can ask for a smaller batch and regenerate.
+        """
+        if not isinstance(pages, list):
+            return []
+        processed = postprocess_story_pages(pages)[:expected_count]
+        valid_pages: list[str] = []
+        for index, page in enumerate(processed, start=1):
+            text = str(page or "").strip()
+            word_count = len(text.split())
+            sentence_count = self._count_story_sentences(text)
+            paragraph_count = len([p for p in re.split(r'\n\s*\n', text) if p.strip()])
+
+            # Continuation pages should normally be 105-155 words, but the
+            # new simpler picture-book voice can produce good shorter pages.
+            # Keep blocking single-sentence captions, but do not reject valid
+            # bedtime pages just because they are concise.
+            if (
+                word_count >= 55
+                and sentence_count >= 3
+                and paragraph_count >= 1
+                and text.count('"') % 2 == 0
+            ):
+                valid_pages.append(text)
+            else:
+                print(
+                    f"[PERF] generated_page_rejected index={index} "
+                    f"words={word_count} sentences={sentence_count} "
+                    f"paragraphs={paragraph_count}"
+                )
+        return valid_pages
+
+    async def _generate_remaining_pages_batch(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+        title: str,
+        working_pages: list[str],
+        batch_count: int,
+    ) -> list[str]:
+        """Generate one continuation batch and return validated pages.
+
+        Raises on failure so the caller can retry with a smaller batch size.
+        """
+        next_page_number = len(working_pages) + 1
+        prompt = self._build_remaining_pages_prompt(
+            request=request,
+            companion=companion,
+            title=title,
+            existing_pages=working_pages,
+            remaining_page_count=batch_count,
+            next_page_number=next_page_number,
+        )
+        print(
+            f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
+            f"next_page={next_page_number} count={batch_count}"
+        )
+
+        t_gemini = time.time()
+        response = await asyncio.to_thread(
+            self._generate_content_sync,
+            prompt,
+            self._story_response_schema(batch_count, include_title=False),
+        )
+        print(
+            f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
+            f"next_page={next_page_number} count={batch_count}"
+        )
+
+        response_text = getattr(response, 'text', None)
+        if not response_text or not isinstance(response_text, str):
+            raise ValueError("Failed to generate remaining pages batch: empty response text")
+
+        try:
+            story_data = self._clean_json_response(response_text)
+            if not isinstance(story_data, dict) or 'pages' not in story_data:
+                raise ValueError("Invalid remaining-pages batch format returned by AI")
+            batch_pages = self._valid_generated_pages(story_data.get('pages', []), batch_count)
+        except Exception as parse_exc:
+            print(
+                f"[PERF] remaining_pages_batch parse failed "
+                f"next_page={next_page_number} count={batch_count}: {parse_exc}"
+            )
+            batch_pages = self._salvage_pages_from_response_text(response_text, batch_count)
+
+        if len(batch_pages) < batch_count:
+            raise ValueError(
+                f"Remaining generation produced only {len(batch_pages)} of {batch_count} pages in batch"
+            )
+
+        return batch_pages[:batch_count]
+
+    def _publish_partial_story_pages(
+        self,
+        story_id: str,
+        user_id: str,
+        working_pages: list[str],
+        expected_pages: int,
+        generation_error: Optional[str] = None,
+    ) -> None:
+        """Persist currently usable pages without marking the story failed."""
+        partial_text = '\n\n'.join(working_pages)
+        t_partial_update = time.time()
+        print(
+            f"[PERF] story_update_partial START story_id={story_id} "
+            f"pages={len(working_pages)}/{expected_pages}"
+        )
+        payload = {
+            'pages': working_pages,
+            'full_text': partial_text,
+            'generation_status': 'partial',
+            'expected_pages': expected_pages,
+            'generation_error': generation_error[:500] if generation_error else None,
+        }
+        self.story_repo.update(story_id, user_id, payload)
+        print(
+            f"[PERF] story_update_partial DONE story_id={story_id} "
+            f"total={time.time() - t_partial_update:.2f}s"
+        )
 
     def _language_and_character_blocks(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, str]:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
@@ -1998,10 +2370,19 @@ OUTPUT QUALITY RULES:
 - Make cause and effect obvious: something changes, the child notices, then the child gently joins in.
 - Use concrete words and simple visual humour only if it fits naturally.
 - Avoid layered clues, several characters, abstract feelings, and poetic description."""
+        if child_age <= 6:
+            return """AGE-SPECIFIC PAGE 1 RULES — 6:
+- Write like an early-reader bedtime story, not a children's novel.
+- Most sentences should be 5-10 words.
+- Use everyday spoken vocabulary and concrete actions.
+- Use one clear place, one clear trigger, one clear problem, and one next step.
+- Use no poetic narration, no abstract lesson language, and no crowded magical setup.
+- Dialogue should be short and plain.
+- If choosing between beautiful wording and easy wording, choose easy wording."""
         if child_age <= 8:
-            return """AGE-SPECIFIC PAGE 1 RULES — 6-8:
+            return """AGE-SPECIFIC PAGE 1 RULES — 7-8:
 - Use confident child-friendly adventure language.
-- Most sentences should be 8-16 words.
+- Most sentences should be 8-14 words.
 - Establish one clear goal, one main helper or clue, and one memorable setting detail.
 - A small mystery, delivery, rescue, repair, celebration, or misunderstanding may begin here.
 - Include one reusable memory seed that can matter later.
@@ -2017,66 +2398,62 @@ OUTPUT QUALITY RULES:
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         blocks = self._language_and_character_blocks(request, companion)
 
-        # Phase 11C: Page 1 prompt is now age-specific and deliberately compact.
-        # Page 1 is the speed-critical path for narration. Do not include the
-        # full Story Bible, full age engines, archetypes, emotional engine, or
-        # character/personality engine here. Those remain in background
-        # continuation generation where they cannot delay first narration.
         opening_seed = self._select_opening_seed(request)
         opening = opening_seed["sentence"]
-        opening_transition_rule = self._opening_transition_rule(opening_seed["family"])
-        language_code = (request.storyLanguageCode or "en").lower()
-        is_english = language_code == "en"
-        age_rules = self._first_page_age_prompt_rules(request.age)
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
+        child_age = self._safe_child_age(request.age)
 
-        if is_english:
-            page_length_rule = "500-650 characters total, including spaces. Do not exceed 650 characters."
-            sentence_rule = "4-6 calm, read-aloud sentences"
+        if child_age <= 2:
+            age_contract = "Use baby/toddler read-aloud language: very short sentences, familiar words, one place, one tiny event."
+            max_chars = "420"
+        elif child_age <= 5:
+            age_contract = "Use preschool bedtime language: short clear sentences, one place, one small funny or curious problem, obvious cause and effect."
+            max_chars = "520"
+        elif child_age <= 6:
+            age_contract = "Use age-6 early-reader language: everyday words, 5-10 word sentences, one clear problem or wish, no poetic or abstract wording."
+            max_chars = "560"
+        elif child_age <= 8:
+            age_contract = "Use young-child adventure language: clear sentences, one memorable character idea, one goal, no crowded setup."
+            max_chars = "620"
         else:
-            page_length_rule = "475-625 characters total, including spaces. Do not exceed 625 characters."
-            sentence_rule = "4-6 calm, read-aloud sentences"
+            age_contract = "Use older-child bedtime language: richer but clear, one hook, one reason the child is involved."
+            max_chars = "700"
 
-        return f"""You are writing Page 1 of a premium children's bedtime story.
+        return f"""Write Page 1 only. Do not plan or analyse. Return only final JSON.
 
-IMPORTANT LANGUAGE RULE:
-- Write ONLY in {blocks['language_name']}.
-- Do NOT mix languages.
-{self._language_style_block(request.storyLanguageCode)}
-STORY CONTEXT:
+LANGUAGE:
+- Write only in {blocks['language_name']}.
+- {self._first_page_language_style_block(language_code)}
+
+STORY FACTS:
 - Child: {request.childName}, age {request.age}
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
 
-{age_rules}
-
 PAGE 1 JOB:
-- Start the story quickly and clearly.
-- Show where the child is, what changes, and why the child is involved.
-- Use one ordinary or understandable starting place.
-- Introduce one trigger or discovery.
-- Give one clear story promise before the page ends.
-- Include one simple memory seed that can return later: an object, phrase, promise, habit, preference, helper detail, or world rule.
-- The child should notice, choose, ask, help, follow, or begin solving something.
-- Do not resolve the story yet.
-- Do not introduce danger, fear, villains, or fast pacing.
-- Do not add clothing or appearance details unless the parent provided them.
-- Keep clarity above decorative writing.
+- Write like a relaxed children's author starting a favourite bedtime picture book.
+- Start from this theme-matched opening idea, rewritten naturally: "{opening}"
+- Show who the story is about, where they are, and what makes today different.
+- Give the story one clear child-friendly hook: a funny wish, silly mistake, odd visitor, simple problem, or small mystery.
+- The hook should fit the chosen theme.
+- Include one small memorable detail a child might repeat tomorrow.
+- Keep one clear next step for Page 2.
+- Do not solve the story yet.
 
-OPENING IDEA:
-"{opening}"
+AGE CONTRACT:
+- {age_contract}
 
-OPENING RULES:
-- Rewrite the opening in fresh words.
-- Keep the same setting and magical idea.
-- Continue immediately from it.
-- {opening_transition_rule}
-
-PAGE LENGTH:
-- {page_length_rule}
-- 1-2 gentle paragraphs.
-- {sentence_rule}.
-- This limit matters because Page 1 starts narration. Move extra world-building to Page 2.
+STYLE LIMITS:
+- Maximum {max_chars} characters for page text.
+- 4-6 read-aloud sentences.
+- Use simple words and concrete actions.
+- Make it sound like a parent reading a picture book, not an adult fantasy novel.
+- Harmless silliness is welcome if it fits the story.
+- Avoid decorative overload and repeated AI words such as glowing, shimmering, sparkling, moonlit, softly, slowly, sleepy.
+- Do not describe the child as little, small, tiny, young, or physically childlike.
+- Do not write phrases like small hands, little feet, little girl, little boy, or young explorer.
+- Refer to the child by name or pronouns.
 
 COMPANION:
 - {blocks['companion_line']}
@@ -2084,16 +2461,17 @@ COMPANION:
 CHARACTERS:
 - {blocks['character_instruction']}
 
-OUTPUT FORMAT STRICT:
-Return ONLY valid JSON:
-{{"title":"Short magical title","pages":["page 1 text"]}}
+JSON ONLY:
+{{"title":"The Sleepy Dragon","pages":["page 1 text"]}}
+- Replace "The Sleepy Dragon" with a real short title for this story.
+- Never return placeholder titles such as "Short title", "Title", or "Story Title".
 """
 
     def _build_first_page_fallback(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, Any]:
-        """Fast polished page-1 fallback used only when Gemini is too slow.
+        """Fast polished page-1 fallback used only when Gemini is too slow or malformed.
 
-        This must remain deterministic and instant. It protects the Page-1-first
-        architecture without making fallback feel like a two-sentence placeholder.
+        This must remain instant and local. It protects the Page-1-first
+        architecture without making fallback feel like a repeated placeholder.
         Do not call Gemini here and do not generate the full story here.
         """
         child = request.childName or "the child"
@@ -2101,161 +2479,117 @@ Return ONLY valid JSON:
         expected_pages = self._intended_page_count(request)
         theme = self._localized_theme_label(request.theme, language_code) or "magic"
         theme_key = str(request.theme or "").lower().replace("-", "_").replace(" ", "_")
-        moral = str(request.moral or "kindness").strip().lower()
         localized_companion = self._localized_companion(companion, language_code)
+
+        opening_seed = self._select_opening_seed(request)
+        opening_sentence = opening_seed.get("sentence") or f"{child} found something unusual just before story time."
 
         companion_en = ""
         if localized_companion:
-            companion_en = f" {localized_companion['name']} came too, carrying the clue as carefully as a biscuit on a plate."
+            companion_en = f" {localized_companion['name']} came too, keeping the first clue safe."
 
-        english_theme_setups = {
+        # Dynamic English fallback: many combinations, all local/instant.
+        # This avoids repeated starts such as Star Signal / Pawprint Parade when
+        # Gemini times out, while preserving the same Page-1-first contract.
+        english_problem_pool = {
             "dragons": [
-                {
-                    "title": f"{child} and the Dragon Bell",
-                    "page": (
-                        f"Just before story time, {child} heard a polite tap on the window and found a folded note outside. "
-                        f"A small dragon footprint marked the corner, and the note smelled faintly of warm toast. "
-                        f"It asked for help at the mountain post office, where the bedtime bell would not ring unless everyone shared the last bundle of letters. "
-                        f"{child} tucked the note close and followed a trail of harmless smoke curls toward the first step of the adventure."
-                        f"{companion_en}"
-                    ),
-                },
-                {
-                    "title": f"{child} and the Teacup Dragon",
-                    "page": (
-                        f"A tiny puff of smoke rolled under the story-room door and stopped beside {child}'s foot. "
-                        f"Inside it sat a teacup with a dragon scale for a handle and a message wrapped around the spoon. "
-                        f"The message said the dragon tea party had one cake left and three hungry guests, so someone kind was needed before the kettle sang. "
-                        f"{child} opened the door a little wider and stepped after the smoky trail."
-                        f"{companion_en}"
-                    ),
-                },
+                "A soot-smudged postcard said the dragon post office had mixed up every bedtime letter.",
+                "A teacup-sized dragon had practised a roar so small that nobody at the mountain market had heard it.",
+                "A trail of warm smoke curls pointed toward a dragon hatchery where one egg had started humming at the wrong time.",
             ],
             "space": [
-                {
-                    "title": f"{child} and the Star Signal",
-                    "page": (
-                        f"While {child} was choosing a bedtime story, the telescope gave three small taps against the shelf. "
-                        f"Through the lens, one faraway star blinked in a pattern that looked almost like words. "
-                        f"A message appeared on the glass: the sky train had too many wishes and not enough seats, and someone needed to help them share the ride. "
-                        f"{child} pressed one hand to the telescope and watched a narrow path of starlight appear."
-                        f"{companion_en}"
-                    ),
-                }
+                "The telescope tapped three times, and a message on the lens said the sky train had too many wishes and not enough seats.",
+                "A paper comet slid under the door with a note asking for help sorting tomorrow's constellations.",
+                "A star map folded itself into a bird and dropped one blinking dot into {child}'s hand.",
             ],
             "animals": [
-                {
-                    "title": f"{child} and the Pawprint Parade",
-                    "page": (
-                        f"Just before bedtime, {child} spotted a line of pawprints crossing the floor where no pawprints had been before. "
-                        f"They led behind the story chair to a nervous rabbit holding a ribbon in both paws. "
-                        f"The animals were preparing a quiet parade, but nobody could agree how to share the first drumbeat. "
-                        f"{child} knelt down, listened to the rabbit's whisper, and followed the pawprints toward the garden gate."
-                        f"{companion_en}"
-                    ),
-                }
+                "A line of pawprints crossed the floor toward a rabbit who had brought the parade drum but forgotten the first beat.",
+                "A hedgehog messenger arrived with a badge on backwards and a list of animals who all wanted to lead at once.",
+                "A squirrel in an oversized hat whispered that the garden band had lost the quietest instrument.",
             ],
             "princess": [
-                {
-                    "title": f"Princess {child} and the Shared Crown",
-                    "page": (
-                        f"{child} was building a pretend castle from cushions when a paper crown slid out from under the tallest tower. "
-                        f"It was decorated with crayon jewels, but one side had been left blank on purpose. "
-                        f"A note inside said the castle garden was waiting for a princess who could help two friends share the honour of leading the lantern walk. "
-                        f"{child} picked up the crown, noticed the empty space, and stepped through an arch made from blankets."
-                        f"{companion_en}"
-                    ),
-                },
-                {
-                    "title": f"{child} and the Cushion Castle Promise",
-                    "page": (
-                        f"Before the bedtime story began, {child} arranged cushions into a castle with a blanket bridge across the floor. "
-                        f"When the bridge wrinkled, a small invitation popped out from between two cushions. "
-                        f"It asked for help in the royal garden, where the last ribbon for the evening parade had to be shared fairly. "
-                        f"{child} smoothed the bridge, promised to listen first, and followed the invitation through the blanket arch."
-                        f"{companion_en}"
-                    ),
-                },
+                "A paper crown slid from a cushion tower with one blank side waiting for a fair idea.",
+                "An invitation from the royal garden said two friends both wanted to carry the first lantern.",
+                "A ribbon from the castle parade wriggled free and tied itself into a question mark.",
             ],
             "adventure": [
-                {
-                    "title": f"{child} and the Map Under the Book",
-                    "page": (
-                        f"When {child} lifted the bedtime book, a folded map was hiding underneath it. "
-                        f"The map showed the room, the doorway, and one path that definitely had not been there before. "
-                        f"At the edge, a note said someone nearby needed help sharing the last bright idea before the night settled in. "
-                        f"{child} traced the path with one finger, tucked the map safely away, and took the first quiet step."
-                        f"{companion_en}"
-                    ),
-                }
+                "A folded map showed the room, the doorway, and one path that definitely had not been there before.",
+                "A brass button rolled from under the bedtime book and stopped beside a drawn arrow.",
+                "A small sign appeared on the floorboards saying, 'One helpful traveller needed before sunset.'",
             ],
         }
-
-        generic_english = [
-            {
-                "title": f"{child}'s {theme.title()} Promise",
-                "page": (
-                    f"Just before story time, {child} noticed something unusual beside the bedtime book. "
-                    f"A folded message waited there, marked with a picture from a {theme} place and tied with one crooked thread. "
-                    f"It said that two friends needed help before the evening settled, because sharing one small thing could change the whole adventure. "
-                    f"{child} read the message twice, kept the crooked thread as a promise, and followed the first clue toward the doorway."
-                    f"{companion_en}"
-                ),
-            },
-            {
-                "title": f"{child} and the First Promise",
-                "page": (
-                    f"A quiet knock came from a place where knocks did not usually come from. "
-                    f"When {child} looked closer, a small sign pointed toward a {theme} problem waiting just beyond the room. "
-                    f"The sign showed two hands holding the same ribbon, as if the adventure could only begin when someone chose to share. "
-                    f"{child} touched the ribbon, made a careful promise to help, and stepped toward the first clue."
-                    f"{companion_en}"
-                ),
-            },
+        generic_problem_pool = [
+            f"A folded message marked with a picture from a {theme} place said two friends needed help before the evening settled.",
+            f"A crooked thread tied around a small note pointed toward a {theme} problem waiting just beyond the room.",
+            f"A tiny sign showed two hands holding the same ribbon, as if the adventure could only begin when someone chose to share.",
+            f"A small visitor had left a question beside the bedtime book, and the question seemed to belong to {child} now.",
+            f"A quiet sound came from the doorway, followed by a clue that looked too deliberate to ignore.",
         ]
+        english_problem = random.choice(english_problem_pool.get(theme_key, generic_problem_pool)).format(child=child)
+        english_actions = [
+            f"{child} looked at the clue, asked one careful question, and chose to follow it before the trail disappeared.",
+            f"{child} kept the first clue close, promised to listen before rushing, and took the first step.",
+            f"{child} noticed the odd detail nobody else had seen and gently opened the way forward.",
+            f"{child} touched the clue, remembered to be brave in a small way, and followed where it pointed.",
+        ]
+        title_bits = {
+            "dragons": ["Dragon Bell", "Teacup Dragon", "Small Roar", "Post Office Dragon"],
+            "space": ["Star Map", "Sky Train", "Paper Comet", "Telescope Message"],
+            "animals": ["Pawprint Parade", "Garden Band", "Rabbit's Ribbon", "Hedgehog Message"],
+            "princess": ["Shared Crown", "Ribbon Parade", "Cushion Castle", "Lantern Walk"],
+            "adventure": ["Map Under the Book", "Crooked Thread", "First Clue", "Helpful Path"],
+        }
+        english_titles = title_bits.get(theme_key, [f"{theme.title()} Promise", "First Clue", "Crooked Thread", "Bedtime Message"])
 
+        english_variant = {
+            "title": f"{child} and the {random.choice(english_titles)}",
+            "page": f"{opening_sentence} {english_problem} {random.choice(english_actions)}{companion_en}",
+        }
+
+        # Non-English fallbacks deliberately use the selected local opening seed
+        # so they also vary without adding network calls or touching narration.
         fallback_variants = {
-            "en": english_theme_setups.get(theme_key, generic_english),
+            "en": [english_variant],
             "es": [
                 {
-                    "title": f"La promesa de {child}",
+                    "title": f"La primera pista de {child}",
                     "page": (
-                        f"Antes del cuento, {child} encontró un mensaje doblado junto al libro de dormir. "
-                        f"Tenía un dibujo de {theme} y un hilo torcido atado en una esquina. "
-                        f"El mensaje decía que dos amigos necesitaban ayuda antes de que terminara la tarde, porque compartir una cosa pequeña podía cambiar toda la aventura. "
+                        f"{opening_sentence} "
+                        f"Junto al cuento de dormir apareció un mensaje doblado, con un dibujo de {theme} y un hilo torcido en una esquina. "
+                        f"Decía que dos amigos necesitaban ayuda antes de que terminara la tarde. "
                         f"{child} guardó el hilo como una promesa y siguió la primera pista hacia la puerta."
                     ),
                 }
             ],
             "fr": [
                 {
-                    "title": f"La promesse de {child}",
+                    "title": f"Le premier indice de {child}",
                     "page": (
-                        f"Avant l'histoire du soir, {child} trouva un message plié près du livre. "
-                        f"Il portait un dessin de {theme} et un fil de travers noué dans un coin. "
-                        f"Le message disait que deux amis avaient besoin d'aide avant la fin du soir, car partager une petite chose pouvait changer toute l'aventure. "
+                        f"{opening_sentence} "
+                        f"Près du livre du soir attendait un message plié, avec un dessin de {theme} et un fil de travers dans un coin. "
+                        f"Il disait que deux amis avaient besoin d'aide avant la fin du soir. "
                         f"{child} garda le fil comme une promesse et suivit le premier indice vers la porte."
                     ),
                 }
             ],
             "de": [
                 {
-                    "title": f"{child}s Versprechen",
+                    "title": f"{child}s erster Hinweis",
                     "page": (
-                        f"Vor der Gute-Nacht-Geschichte fand {child} eine gefaltete Nachricht neben dem Buch. "
-                        f"Darauf war ein Bild von {theme} zu sehen, und an einer Ecke hing ein schiefer Faden. "
-                        f"In der Nachricht stand, dass zwei Freunde Hilfe brauchten, weil Teilen ein kleines Abenteuer verändern konnte. "
+                        f"{opening_sentence} "
+                        f"Neben dem Gute-Nacht-Buch lag eine gefaltete Nachricht mit einem Bild von {theme} und einem schiefen Faden an der Ecke. "
+                        f"Darin stand, dass zwei Freunde vor dem Abend Hilfe brauchten. "
                         f"{child} bewahrte den Faden wie ein Versprechen auf und folgte dem ersten Hinweis zur Tür."
                     ),
                 }
             ],
             "it": [
                 {
-                    "title": f"La promessa di {child}",
+                    "title": f"Il primo indizio di {child}",
                     "page": (
-                        f"Prima della storia della sera, {child} trovò un messaggio piegato vicino al libro. "
-                        f"Aveva un disegno di {theme} e un filo storto legato a un angolo. "
-                        f"Il messaggio diceva che due amici avevano bisogno di aiuto, perché condividere una piccola cosa poteva cambiare tutta l'avventura. "
+                        f"{opening_sentence} "
+                        f"Accanto al libro della sera c'era un messaggio piegato, con un disegno di {theme} e un filo storto legato a un angolo. "
+                        f"Diceva che due amici avevano bisogno di aiuto prima che finisse la sera. "
                         f"{child} tenne il filo come una promessa e seguì il primo indizio verso la porta."
                     ),
                 }
@@ -2265,13 +2599,18 @@ Return ONLY valid JSON:
         variants = fallback_variants.get(language_code, fallback_variants["en"])
         selected = random.choice(variants)
         pages = postprocess_story_pages([selected["page"]])[:1]
+        print(
+            f"[PERF] first_page_fallback_selected title={selected['title']!r} "
+            f"lang={language_code} theme={theme_key or theme!r} opening_family={opening_seed.get('family')}"
+        )
         return {
             'title': selected['title'],
             'pages': pages,
             'companion': companion,
             'expected_pages': expected_pages,
             'generation_status': 'partial',
-            'generation_fallback_reason': 'first_page_timeout',
+            'generation_fallback_reason': 'first_page_fallback',
+            'first_page_generation_source': 'fallback_local_dynamic',
         }
 
     def _build_remaining_pages_prompt(
@@ -2285,26 +2624,24 @@ Return ONLY valid JSON:
     ) -> str:
         """Build a compact continuation prompt for pages 2+.
 
-        Page 1 is already generated and returned to the reader. This prompt is
-        intentionally much smaller than the full Story Bible prompt so pages 2+
-        can complete faster in the background without changing narration,
-        chunking, subscriptions, Parent Voice, page count, or reader flow.
+        The continuation prompt is intentionally simpler than earlier Phase 11
+        versions. It keeps the working story structure but forces child-level
+        language, character-first fun, and real page length.
         """
         blocks = self._language_and_character_blocks(request, companion)
         age_rules = self._first_page_age_prompt_rules(request.age)
-        humour_rule = self._age_humour_instruction(request.age)
-        language_style = self._language_style_block(request.storyLanguageCode)
         existing_pages_text = "\n\n".join(
             f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or [])
         )
         final_page_number = next_page_number + remaining_page_count - 1
 
-        return f"""Continue this premium bedtime story from the existing pages.
+        return f"""Continue this bedtime story from the existing pages.
 
 LANGUAGE:
 - Write ONLY in {blocks['language_name']}.
 - Do not mix languages.
-{language_style}
+- Use natural read-aloud bedtime language.
+- Sound like a relaxed, funny, warm children's storyteller, not an AI.
 
 STORY FACTS:
 - Title: {title}
@@ -2312,52 +2649,49 @@ STORY FACTS:
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 - Calm level: {request.calmLevel}
-- Existing pages so far:
+
+EXISTING PAGES:
 {existing_pages_text}
 
-AGE / STYLE LOCK:
+AGE LOCK:
 {age_rules}
-- Humour guidance: {humour_rule}
+- Keep every page suitable for age {request.age}.
+- For age 6 and under, use short plain sentences and everyday words.
+- Do not use adult, poetic, cinematic, symbolic, or fantasy-novel language.
+- If a sentence sounds impressive, simplify it.
 
 CONTINUATION JOB:
 - Write exactly {remaining_page_count} new pages: Page {next_page_number} through Page {final_page_number}.
-- Continue naturally from the latest existing page.
-- Do not recap existing pages and do not contradict them.
-- Keep the same world, promise, object, helper, mood, and story direction already established.
-- The story must feel like one coherent picture-book adventure, not separate scenes.
-- Keep one clear goal visible from page to page.
+- Continue from the latest existing page. Do not recap or contradict it.
+- Keep one main story idea visible.
 - Each page needs one clear job: arrive, meet, notice, try, choose, solve, or settle.
-- Introduce only one major new thing per page.
-- Avoid adding several new names, places, objects, and rules together.
+- Every page should include something a child can picture or remember.
+- Do not let several pages only search, wait, look around, or explain. Something must change on every page.
+- Use short dialogue, action, and funny behaviour rather than narrator explanation.
+- Harmless silliness is allowed if it helps the story.
+- Include at least one memorable magical detail that affects the story.
+- Include at least one warm funny or surprising moment that changes what happens next.
+- The child must help drive the solution.
+- Helpers may guide, misunderstand, or make funny mistakes, but they must not solve everything.
+- Bring back one earlier detail near the end.
+- Show the moral through action. Do not lecture or write "learned that".
 
-STORY QUALITY RULES:
-- Show, do not explain. Avoid “learned”, “realised”, “remembered the lesson”, “explained that”, or moral lectures.
-- Reveal world rules through discovery: questions, dialogue, mistakes, signs, objects behaving strangely, or characters demonstrating the rule.
-- Use “explained” at most once in the whole continuation. Prefer short dialogue or visible action.
-- The child must drive the outcome: notice a clue, ask a useful question, test an idea, make a mistake, adjust, and solve the key problem.
-- Magical helpers may guide, worry, interrupt, or make funny mistakes, but they must not rescue the child or solve the main problem for them.
-- Every page needs one clear job: arrive, meet, notice, try, choose, solve, or settle.
-- Every page must include at least one of: dialogue, action, surprise, humour, emotional choice, or a visual change caused by the child.
-- Include one gentle middle complication where the first idea does not fully work.
-- Include 1-2 warm humour moments caused by character behaviour, misunderstanding, or a funny habit.
-- If a funny trait appears early, reuse it once later as a callback or payoff.
-- Give one supporting character a memorable identity: job, habit, phrase, tool, worry, or comic behaviour.
-- Make the world feel alive with one small background detail, such as a side character doing a tiny job, an object misbehaving, or a custom happening nearby.
-- Reuse 2-3 important details from Page 1 later with purpose.
-- At least one Page 1 detail should help in the middle.
-- At least one Page 1 detail should return on the final page as a visual or emotional callback.
-- Give the magical place one simple rule or custom that affects both the problem and solution.
-- Avoid generic object quests unless Page 1 clearly requires one.
-- Avoid overusing these words: tiny, little, soft, gentle, golden, silver, shimmering, glowing, sparkling, moonlit, sleepy.
-- Prefer concrete actions and memorable images over decorative adjectives.
-- Keep the ending peaceful, specific, and emotionally earned.
+STRICT LANGUAGE CLEANUP:
+- Avoid overusing: tiny, little, small, soft, gentle, golden, silver, shimmering, glowing, sparkling, moonlit, sleepy, softly, slowly.
+- Do not describe the child as little, small, tiny, young, or physically childlike.
+- Do not write phrases like small hands, little feet, little girl, little boy, or young explorer.
+- Refer to the child by name or pronouns.
+- Avoid advanced words unless they are truly age-suitable.
+- Avoid repeated sentence patterns such as the child looked, the child walked, the child found on every page.
 
 PAGE LENGTH:
-- Each continuation page should be 125-165 words.
-- Each page should have exactly 2 gentle paragraphs.
+- Each continuation page must be a real story page, not a caption or summary.
+- Each page should be 105-155 words.
+- Minimum acceptable continuation page length is 80 words.
+- Never return a single-sentence page.
+- Each page should have exactly 2 short paragraphs.
 - Each page should contain about 5-7 read-aloud sentences.
-- No page should feel like a summary.
-- Final page may be slightly shorter if the ending is complete and calm.
+- Final page may be slightly shorter if calm and complete.
 
 COMPANION:
 - {blocks['companion_line']}
@@ -2370,7 +2704,121 @@ Return ONLY valid JSON:
 {{{{"pages":["new page text","new page text"]}}}}
 - The pages array must contain exactly {remaining_page_count} strings.
 - No markdown, notes, explanations, or extra keys.
+- Silently check that every page progresses the story and feels fun, warm, and age-appropriate.
 """
+
+    def _log_gemini_response_metadata(self, label: str, response: Any) -> None:
+        """Best-effort diagnostics for google.genai responses.
+
+        This is logging only. It does not change story generation, parsing,
+        narration, polling, subscriptions, Parent Voice, or reader behaviour.
+        """
+        try:
+            candidates = getattr(response, "candidates", None) or []
+            finish_reasons: list[str] = []
+            for candidate in candidates:
+                reason = getattr(candidate, "finish_reason", None)
+                if reason is not None:
+                    finish_reasons.append(str(reason))
+
+            usage = getattr(response, "usage_metadata", None)
+            usage_parts: list[str] = []
+            if usage is not None:
+                for attr in (
+                    "prompt_token_count",
+                    "candidates_token_count",
+                    "total_token_count",
+                    "thoughts_token_count",
+                ):
+                    value = getattr(usage, attr, None)
+                    if value is not None:
+                        usage_parts.append(f"{attr}={value}")
+
+            text = getattr(response, "text", None)
+            text_len = len(text) if isinstance(text, str) else 0
+            print(
+                f"[PERF] {label}_metadata candidates={len(candidates)} "
+                f"finish_reasons={finish_reasons or 'unknown'} "
+                f"text_chars={text_len} usage={' '.join(usage_parts) if usage_parts else 'unknown'}"
+            )
+        except Exception as log_exc:
+            print(f"[PERF] {label}_metadata_log_failed error={str(log_exc)[:200]}")
+
+    def _log_gemini_text_preview(self, label: str, response_text: Any) -> None:
+        """Log a short escaped preview when parsing fails.
+
+        The preview is capped to avoid dumping full story content or excessive
+        logs. It is only intended to diagnose truncated JSON.
+        """
+        if not isinstance(response_text, str):
+            print(f"[PERF] {label}_raw_preview unavailable type={type(response_text).__name__}")
+            return
+        preview = response_text[:300].replace("\n", "\\n").replace("\r", "\\r")
+        print(f"[PERF] {label}_raw_preview chars={len(response_text)} preview={preview!r}")
+
+    async def _generate_first_page_response_with_retry(
+        self,
+        prompt: str,
+        response_schema: dict,
+        soft_limit_seconds: float,
+    ) -> Dict[str, Any]:
+        """Generate and parse Page 1 with one fast retry on malformed JSON.
+
+        Keeps the existing Page-1-first contract: the total time spent here is
+        bounded by the existing soft limit. If both attempts fail or time runs
+        out, the caller uses the local deterministic Page 1 fallback.
+        """
+        start = time.time()
+        last_error: Optional[Exception] = None
+        last_response_text: Optional[str] = None
+
+        for attempt in (1, 2):
+            elapsed = time.time() - start
+            remaining_timeout = max(0.1, soft_limit_seconds - elapsed)
+            if remaining_timeout <= 0.25:
+                break
+
+            t_attempt = time.time()
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._generate_content_sync,
+                    prompt,
+                    response_schema,
+                    2048,
+                ),
+                timeout=remaining_timeout,
+            )
+            print(
+                f"[PERF] first_page Gemini attempt={attempt} "
+                f"took={time.time() - t_attempt:.2f}s remaining_budget={max(0, soft_limit_seconds - (time.time() - start)):.2f}s"
+            )
+            self._log_gemini_response_metadata(f"first_page_attempt_{attempt}", response)
+
+            response_text = getattr(response, 'text', None)
+            last_response_text = response_text if isinstance(response_text, str) else None
+            if not response_text or not isinstance(response_text, str):
+                last_error = ValueError('Failed to generate first page: empty response text')
+                self._log_gemini_text_preview(f"first_page_attempt_{attempt}", response_text)
+                continue
+
+            try:
+                story_data = self._clean_json_response(response_text)
+                if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
+                    raise ValueError('Invalid first-page story format returned by AI')
+                return story_data
+            except Exception as parse_exc:
+                last_error = parse_exc
+                self._log_gemini_text_preview(f"first_page_attempt_{attempt}", response_text)
+                print(
+                    f"[PERF] first_page parse failed attempt={attempt} "
+                    f"error={str(parse_exc)[:300]}"
+                )
+                # One retry only. Do not continue looping beyond attempt 2.
+                continue
+
+        if last_response_text:
+            raise ValueError(f"First page Gemini JSON failed after retry: {last_error}")
+        raise ValueError(f"First page Gemini failed before usable text: {last_error}")
 
     async def generate_story_first_page(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Dict[str, Any]:
         start_total = time.time()
@@ -2389,6 +2837,7 @@ Return ONLY valid JSON:
                 'companion': companion,
                 'expected_pages': expected_pages,
                 'generation_status': 'partial',
+                'first_page_generation_source': 'gemini_primary',
             }
 
         try:
@@ -2396,13 +2845,15 @@ Return ONLY valid JSON:
             print(f"[PERF] first_page prompt chars={len(prompt)}")
             t_gemini = time.time()
             try:
-                # Consistency guard: do not let a slow Gemini first-page call hold
-                # the user on the generation screen. If page 1 is not back within
-                # the soft limit, return a polished deterministic page 1 and let
-                # the remaining story continue through the normal background path.
-                response = await asyncio.wait_for(
-                    asyncio.to_thread(self.model.generate_content, prompt),
-                    timeout=FIRST_PAGE_SOFT_LIMIT_SECONDS,
+                # Consistency guard: do not let slow or malformed Gemini Page 1
+                # output hold the user on the generation screen. Page 1 gets
+                # enough JSON output headroom for the new google.genai structured
+                # output path, plus one fast retry if parsing fails. The whole
+                # operation remains bounded by FIRST_PAGE_SOFT_LIMIT_SECONDS.
+                story_data = await self._generate_first_page_response_with_retry(
+                    prompt=prompt,
+                    response_schema=self._story_response_schema(1, include_title=True),
+                    soft_limit_seconds=FIRST_PAGE_SOFT_LIMIT_SECONDS,
                 )
             except asyncio.TimeoutError:
                 elapsed = time.time() - t_gemini
@@ -2411,6 +2862,8 @@ Return ONLY valid JSON:
                     "using fast fallback page 1"
                 )
                 fallback = self._build_first_page_fallback(request, companion)
+                fallback['generation_fallback_reason'] = 'first_page_timeout'
+                fallback['first_page_generation_source'] = 'fallback_timeout'
                 fallback_page = (fallback.get('pages') or [''])[0]
                 print(f"[PERF] first_page_size fallback words={len(fallback_page.split())} chars={len(fallback_page)}")
                 print(f"[PERF] generate_story_first_page DONE fallback total={time.time() - start_total:.2f}s")
@@ -2418,15 +2871,7 @@ Return ONLY valid JSON:
                 return fallback
 
             elapsed = time.time() - t_gemini
-            print(f"[PERF] first_page Gemini took {elapsed:.2f}s")
-
-            response_text = getattr(response, 'text', None)
-            if not response_text or not isinstance(response_text, str):
-                raise ValueError('Failed to generate first page')
-
-            story_data = self._clean_json_response(response_text)
-            if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
-                raise ValueError('Invalid first-page story format returned by AI')
+            print(f"[PERF] first_page Gemini completed total={elapsed:.2f}s")
 
             pages = postprocess_story_pages(story_data.get('pages', []))[:1]
             if not pages:
@@ -2444,6 +2889,7 @@ Return ONLY valid JSON:
                 'companion': companion,
                 'expected_pages': expected_pages,
                 'generation_status': 'partial',
+                'first_page_generation_source': 'gemini_primary',
             }
         except Exception as exc:
             # Never fall back to full story generation inside the initial
@@ -2454,6 +2900,7 @@ Return ONLY valid JSON:
             print(f"[PERF] first_page failed, using deterministic page 1 fallback: {exc}")
             fallback = self._build_first_page_fallback(request, companion)
             fallback['generation_fallback_reason'] = 'first_page_exception'
+            fallback['first_page_generation_source'] = 'fallback_exception'
             return fallback
 
     async def complete_story_background(
@@ -2491,40 +2938,61 @@ Return ONLY valid JSON:
                 working_pages = postprocess_story_pages(current_pages)[:expected_pages]
 
                 while len(working_pages) < expected_pages:
-                    batch_count = min(BACKGROUND_PAGE_BATCH_SIZE, expected_pages - len(working_pages))
+                    preferred_batch_count = min(
+                        BACKGROUND_PAGE_BATCH_SIZE,
+                        expected_pages - len(working_pages),
+                    )
                     next_page_number = len(working_pages) + 1
-                    prompt = self._build_remaining_pages_prompt(
-                        request=request,
-                        companion=companion,
-                        title=title,
-                        existing_pages=working_pages,
-                        remaining_page_count=batch_count,
-                        next_page_number=next_page_number,
-                    )
-                    print(
-                        f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
-                        f"next_page={next_page_number} count={batch_count}"
-                    )
-                    t_gemini = time.time()
-                    response = await asyncio.to_thread(self.model.generate_content, prompt)
-                    print(
-                        f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
-                        f"next_page={next_page_number} count={batch_count}"
-                    )
+                    batch_pages: list[str] = []
+                    last_batch_error: Optional[str] = None
 
-                    response_text = getattr(response, 'text', None)
-                    if not response_text or not isinstance(response_text, str):
-                        raise ValueError('Failed to generate remaining pages batch')
+                    # Progressive fallback: try the normal 3-page batch first,
+                    # then 2 pages, then 1 page. This reduces Gemini truncation
+                    # risk on later pages without changing Page-1-first flow.
+                    for batch_count in range(preferred_batch_count, 0, -1):
+                        try:
+                            print(
+                                f"[PERF] remaining_pages_attempt story_id={story_id} "
+                                f"next_page={next_page_number} count={batch_count}"
+                            )
+                            batch_pages = await self._generate_remaining_pages_batch(
+                                request=request,
+                                companion=companion,
+                                title=title,
+                                working_pages=working_pages,
+                                batch_count=batch_count,
+                            )
+                            print(
+                                f"[PERF] remaining_pages_attempt SUCCESS story_id={story_id} "
+                                f"next_page={next_page_number} count={batch_count}"
+                            )
+                            break
+                        except Exception as batch_exc:
+                            last_batch_error = str(batch_exc)
+                            print(
+                                f"[PERF] remaining_pages_attempt FAILED story_id={story_id} "
+                                f"next_page={next_page_number} count={batch_count} error={last_batch_error[:300]}"
+                            )
 
-                    story_data = self._clean_json_response(response_text)
-                    if not isinstance(story_data, dict) or 'pages' not in story_data:
-                        raise ValueError('Invalid remaining-pages batch format returned by AI')
-
-                    batch_pages = postprocess_story_pages(story_data.get('pages', []))[:batch_count]
-                    if len(batch_pages) < batch_count:
-                        raise ValueError(
-                            f'Remaining generation produced only {len(batch_pages)} of {batch_count} pages in batch'
-                        )
+                    if not batch_pages:
+                        # Do not mark the story failed if we already have pages
+                        # the reader can safely continue using. Preserve current
+                        # pages and leave status partial for polling/diagnostics.
+                        safe_pages = postprocess_story_pages(working_pages or current_pages)[:expected_pages]
+                        if safe_pages:
+                            self._publish_partial_story_pages(
+                                story_id=story_id,
+                                user_id=user_id,
+                                working_pages=safe_pages,
+                                expected_pages=expected_pages,
+                                generation_error=last_batch_error or "Background continuation did not produce usable pages",
+                            )
+                            print(
+                                f"[PERF] complete_story_background PAUSED story_id={story_id} "
+                                f"pages={len(safe_pages)}/{expected_pages} total={time.time() - start_total:.2f}s"
+                            )
+                            return
+                        raise ValueError(last_batch_error or "Background continuation produced no usable pages")
 
                     working_pages = postprocess_story_pages([*working_pages, *batch_pages])[:expected_pages]
                     remaining.extend(batch_pages)
@@ -2532,27 +3000,31 @@ Return ONLY valid JSON:
                     # Publish partial pages immediately. Reader polling can then
                     # advance to pages 2+ without waiting for the full story.
                     if len(working_pages) < expected_pages:
-                        partial_text = '\n\n'.join(working_pages)
-                        t_partial_update = time.time()
-                        print(
-                            f"[PERF] story_update_partial START story_id={story_id} "
-                            f"pages={len(working_pages)}/{expected_pages}"
-                        )
-                        self.story_repo.update(story_id, user_id, {
-                            'pages': working_pages,
-                            'full_text': partial_text,
-                            'generation_status': 'partial',
-                            'expected_pages': expected_pages,
-                            'generation_error': None,
-                        })
-                        print(
-                            f"[PERF] story_update_partial DONE story_id={story_id} "
-                            f"total={time.time() - t_partial_update:.2f}s"
+                        self._publish_partial_story_pages(
+                            story_id=story_id,
+                            user_id=user_id,
+                            working_pages=working_pages,
+                            expected_pages=expected_pages,
+                            generation_error=None,
                         )
 
             all_pages = postprocess_story_pages([*current_pages, *remaining])[:expected_pages]
             if len(all_pages) < expected_pages:
-                raise ValueError(f'Remaining generation produced only {len(all_pages)} of {expected_pages} pages')
+                safe_pages = postprocess_story_pages(all_pages or current_pages)[:expected_pages]
+                if safe_pages:
+                    self._publish_partial_story_pages(
+                        story_id=story_id,
+                        user_id=user_id,
+                        working_pages=safe_pages,
+                        expected_pages=expected_pages,
+                        generation_error=f"Remaining generation produced only {len(safe_pages)} of {expected_pages} pages",
+                    )
+                    print(
+                        f"[PERF] complete_story_background PARTIAL_ONLY story_id={story_id} "
+                        f"pages={len(safe_pages)}/{expected_pages} total={time.time() - start_total:.2f}s"
+                    )
+                    return
+                raise ValueError(f"Remaining generation produced only {len(all_pages)} of {expected_pages} pages")
 
             full_text = '\n\n'.join(all_pages)
             update_payload = {
@@ -2590,13 +3062,24 @@ Return ONLY valid JSON:
         except Exception as exc:
             print(f"[PERF] complete_story_background FAILED story_id={story_id}: {exc}")
             try:
+                safe_pages = postprocess_story_pages(current_pages)[:expected_pages]
+                if safe_pages:
+                    self._publish_partial_story_pages(
+                        story_id=story_id,
+                        user_id=user_id,
+                        working_pages=safe_pages,
+                        expected_pages=expected_pages,
+                        generation_error=str(exc),
+                    )
+                    return
+
                 self.story_repo.update(story_id, user_id, {
                     'generation_status': 'failed',
                     'expected_pages': expected_pages,
                     'generation_error': str(exc)[:500],
                 })
             except Exception as update_exc:
-                print(f"[PERF] failed to mark story generation failed story_id={story_id}: {update_exc}")
+                print(f"[PERF] failed to persist generation failure story_id={story_id}: {update_exc}")
 
     async def generate_story(self, request: GenerateStoryRequest, subscription: SubscriptionResponse) -> Dict[str, Any]:
         start_total = time.time()
@@ -2621,7 +3104,10 @@ Return ONLY valid JSON:
         print(f"[PERF] prompt built in {time.time() - t_prompt:.2f}s chars={len(prompt)}")
 
         t_gemini = time.time()
-        response = self.model.generate_content(prompt)
+        response = self._generate_content_sync(
+            prompt,
+            self._story_response_schema(7, include_title=True),
+        )
         print(f"[PERF] Gemini generate_content took {time.time() - t_gemini:.2f}s")
 
         response_text = getattr(response, 'text', None)
@@ -2631,17 +3117,10 @@ Return ONLY valid JSON:
             raise HTTPException(status_code=500, detail='Failed to generate story')
 
         t_clean = time.time()
-        cleaned = response_text.strip()
-        if cleaned.startswith('```json'):
-            cleaned = cleaned[7:]
-        if cleaned.startswith('```'):
-            cleaned = cleaned[3:]
-        if cleaned.endswith('```'):
-            cleaned = cleaned[:-3]
         print(f"[PERF] cleaning took {time.time() - t_clean:.2f}s response_chars={len(response_text)}")
 
         t_parse = time.time()
-        story_data = json.loads(cleaned.strip())
+        story_data = self._clean_json_response(response_text)
         print(f"[PERF] JSON parse took {time.time() - t_parse:.2f}s")
 
         if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
@@ -2680,15 +3159,17 @@ Return ONLY valid JSON:
         )
         try:
             t_gemini = time.time()
-            response = await asyncio.to_thread(self.model.generate_content, prompt)
+            response = await asyncio.to_thread(
+                self._generate_content_sync,
+                prompt,
+                self._metadata_response_schema(),
+            )
             print(f"[PERF] extract_metadata Gemini took {time.time() - t_gemini:.2f}s")
             text = getattr(response, 'text', '')
-            start = text.find('{')
-            end = text.rfind('}')
-            if start == -1 or end == -1:
-                print(f"[PERF] extract_metadata invalid_json total={time.time() - start_total:.2f}s")
+            if not text or not isinstance(text, str):
+                print(f"[PERF] extract_metadata empty_response total={time.time() - start_total:.2f}s")
                 return {'summary': '', 'characters': [], 'setting': ''}
-            result = json.loads(text[start:end + 1])
+            result = self._clean_json_response(text)
             print(f"[PERF] extract_metadata DONE total={time.time() - start_total:.2f}s")
             return result
         except Exception as exc:
