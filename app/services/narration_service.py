@@ -1539,14 +1539,19 @@ class NarrationService:
             if not narration_access["allowed"]:
                 raise HTTPException(status_code=403, detail=narration_access)
 
-            voice_access = self.subscription_service.feature_allowed(subscription, "narrator", requested_voice)
-            if not voice_access["allowed"]:
-                detail = {
-                    "error": "premium_narrator",
-                    "message": "This narrator is part of PillowTales Premium.",
-                    "upgrade_required": True,
-                }
-                raise HTTPException(status_code=403, detail=detail)
+            # Parent Voice is an add-on/credit feature, not a standard premium narrator.
+            # Do not run it through the generic narrator entitlement gate here.
+            # The dedicated Parent Voice block below owns setup, intro/credit,
+            # language-lock, security, and charging rules.
+            if requested_voice != "parent_voice":
+                voice_access = self.subscription_service.feature_allowed(subscription, "narrator", requested_voice)
+                if not voice_access["allowed"]:
+                    detail = {
+                        "error": "premium_narrator",
+                        "message": "This narrator is part of PillowTales Premium.",
+                        "upgrade_required": True,
+                    }
+                    raise HTTPException(status_code=403, detail=detail)
 
         if requested_voice == "parent_voice":
             parent_status = profile.get("parent_voice_status", "none")

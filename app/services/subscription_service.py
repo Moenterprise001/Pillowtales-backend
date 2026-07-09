@@ -153,6 +153,7 @@ class SubscriptionService:
             allowed = (
                 subscription.parent_voice_bypass
                 or subscription.parent_voice_credits > 0
+                or subscription.parent_voice_intro_available
             )
 
             return {

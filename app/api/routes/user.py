@@ -246,8 +246,13 @@ async def redeem_parent_voice_credits(payload: ParentVoiceCreditsRedeemRequest, 
     if source == 'parent_voice_intro_offer':
         if intro_used:
             raise HTTPException(status_code=409, detail={'error': 'intro_offer_already_used', 'message': 'The free Parent Voice intro offer has already been used.'})
+
+        # The intro button is a pre-authorisation step used by the frontend
+        # before requesting Parent Voice narration. Mark the intro as used and
+        # grant one usable Parent Voice credit so narration can consume it via
+        # the existing single charging path.
         intro_used = True
-        credits = max(credits, 0)
+        credits = credits + 1
         saved = user_repo.save_parent_voice_wallet(user_id, credits=credits, intro_used=intro_used)
         message = 'Free Parent Voice story unlocked.'
     elif source == 'revenuecat_client':
