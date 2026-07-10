@@ -80,87 +80,52 @@ def prepare_narration_text(text: str) -> str:
 
 
 def prepare_parent_voice_text(text: str, language_code: str) -> str:
-    """Parent Voice text preparation for ElevenLabs with global bedtime pauses.
+    """Prepare Parent Voice text for natural ElevenLabs delivery.
 
-    Parent Voice uses ElevenLabs, and testing now shows the rushed/no-pause
-    behaviour is not limited to Spanish. English, Spanish, French, and likely
-    every Parent Voice language need stronger sentence and paragraph pacing.
+    Parent Voice should rely on the cloned speaker's natural rhythm rather than
+    injected SSML-style break tags. Some cloned voices vocalise values from
+    tags such as <break time="0.18s" /> (for example, as "eighteens"), which
+    adds words that are absent from the story and breaks narration sync.
 
-    Important guardrails:
-    - Parent Voice only.
-    - Do not touch credits, cache ownership, replay logic, chunking, reader
-      playback, page transitions, or stored story text.
-    - Use explicit ElevenLabs break tags for full stops and paragraph changes.
-    - Avoid break tags on every comma because too many tags can make cloned
-      voices unstable, noisy, or unexpectedly fast.
+    This remains a Parent Voice-only text cleanup. It does not change credits,
+    cache ownership, chunk generation, polling, playback, sync, or stored text.
     """
     if not text:
         return text
-
-    # These timings are intentionally universal now. The issue has been heard
-    # across multiple Parent Voice languages, so do not special-case only Spanish
-    # or other non-English languages.
-    # Revised after device testing:
-    # - Previous paragraph pause was too long.
-    # - Parent Voice itself was still speaking too quickly.
-    # Keep punctuation pauses moderate and control pace with ElevenLabs speed.
-    sentence_pause = "0.85s"
-    paragraph_pause = "1.15s"
-    medium_pause = "0.55s"
 
     cleaned = str(text).strip()
     if not cleaned:
         return cleaned
 
-    # Preserve paragraph boundaries before normal whitespace cleanup. The older
-    # prepare_narration_text() path collapsed new paragraphs into spaces, which
-    # meant ElevenLabs never received a clear paragraph pause signal.
     cleaned = cleaned.replace("\r\n", "\n").replace("\r", "\n")
     cleaned = cleaned.replace("...", "…")
+
+    # Defensive cleanup in case break markup arrives from another text layer.
+    # ElevenLabs receives plain story text only.
+    cleaned = re.sub(
+        r'<break\\b[^>]*?/?>',
+        ' ',
+        cleaned,
+        flags=re.IGNORECASE,
+    )
+
+    # Preserve genuine paragraph boundaries so the voice can pause naturally.
+    cleaned = re.sub(r"\n[ \t]*\n+", "\n\n", cleaned)
+    cleaned = re.sub(r"(?<!\n)\n(?!\n)", " ", cleaned)
+
+    # Clean spacing without inserting anything that could be spoken aloud.
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
     cleaned = re.sub(r"\s+([,.!?;:…])", r"\1", cleaned)
+    cleaned = re.sub(r"([,.!?;:…])(?=[^\s\n])", r"\1 ", cleaned)
 
-    # Paragraphs / line breaks should feel like a real bedtime page turn within
-    # the same audio chunk, not like sentences running together.
-    cleaned = re.sub(
-        r"\n+",
-        f' <break time="{paragraph_pause}" /> ',
-        cleaned,
-    )
+    # Keep normal sentence flow. Only genuine story paragraph boundaries should
+    # become paragraph pauses; turning every sentence into a paragraph makes
+    # delivery clipped and is interpreted inconsistently across page requests.
+    cleaned = re.sub(r",\s+", ", ", cleaned)
+    cleaned = re.sub(r" *\n\n *", "\n\n", cleaned)
+    cleaned = re.sub(r"\n{3,}", "\n\n", cleaned)
 
-    # Normalize remaining horizontal whitespace after paragraph markers are in.
-    cleaned = re.sub(r"[ \t]+", " ", cleaned).strip()
-
-    # Medium phrase boundaries.
-    cleaned = re.sub(
-        r"([;:])\s+(?=[\"“”'¿¡A-Za-zÁÉÍÓÚÜÑÀÂÇÈÉÊËÎÏÔÙÛÄÖÜáéíóúüñàâçèéêëîïôùûäö])",
-        rf'\1 <break time="{medium_pause}" /> ',
-        cleaned,
-    )
-
-    # Full sentence boundaries. The lookahead avoids consuming the next word and
-    # avoids adding a second pause before an existing paragraph break tag.
-    cleaned = re.sub(
-        r"([.!?…])\s+(?=[\"“”'¿¡A-Za-zÁÉÍÓÚÜÑÀÂÇÈÉÊËÎÏÔÙÛÄÖÜáéíóúüñàâçèéêëîïôùûäö])",
-        rf'\1 <break time="{sentence_pause}" /> ',
-        cleaned,
-    )
-
-    # If the upstream cleaner removed the space between sentences, still add a
-    # pause between sentence-ending punctuation and the next capital/Spanish mark.
-    cleaned = re.sub(
-        r"([.!?…])(?=[\"“”'¿¡A-ZÁÉÍÓÚÜÑÀÂÇÈÉÊËÎÏÔÙÛÄÖÜ])",
-        rf'\1 <break time="{sentence_pause}" /> ',
-        cleaned,
-    )
-
-    # Keep commas natural rather than forcing a tag on every comma. The comma is
-    # still preserved for ElevenLabs' own phrasing model.
-    cleaned = re.sub(r",\s*", ", ", cleaned)
-
-    # Tidy repeated spaces without altering the break tag syntax.
-    cleaned = re.sub(r"[ \t]{2,}", " ", cleaned)
     return cleaned.strip()
-
 
 def add_soft_chunk_leadin(text: str) -> str:
     """Normalize later page starts without adding spoken punctuation.
@@ -884,14 +849,14 @@ class NarrationService:
                     "model_id": "eleven_multilingual_v2",
                     "language_code": base_language_code(language_code),
                     "voice_settings": {
-                        "stability": 0.75,
-                        "similarity_boost": 0.5,
+                        # Keep the cloned parent's identity while allowing enough
+                        # natural variation for conversational bedtime rhythm.
+                        "stability": 0.55,
+                        "similarity_boost": 0.75,
                         "style": 0.0,
-                        # Parent Voice bedtime narration was testing too fast across
-                        # languages. ElevenLabs supports speed values below 1.0 to
-                        # slow delivery without touching playback or audio duration
-                        # logic in the reader.
-                        "speed": 0.82,
+                        # Slightly slower than natural speech, while still preserving a flowing
+                        # parent-like bedtime rhythm.
+                        "speed": 0.89,
                         "use_speaker_boost": True,
                     },
                     "output_format": "mp3_44100_128",
