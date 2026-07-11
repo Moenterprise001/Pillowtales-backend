@@ -1776,6 +1776,63 @@ ABSTRACT CONCEPT GUARD:
 - Prefer one memorable world rule over many magical decorations.
 """
 
+    def _literary_polish_rules(self) -> str:
+        return """PILLOWTALES LITERARY POLISH — STRUCTURAL, NOT DECORATIVE:
+- Keep the existing clear plot. Do not add complexity merely to sound polished.
+- Show important feelings through a visible action, body response, choice, or short line of dialogue.
+- Avoid repeatedly naming emotions with lines such as "felt brave", "felt proud", "felt happy", or "was very worried".
+- For younger children, use simple physical signs: a tummy fluttered, knees wobbled, a smile would not go away, hands held tight, feet began to skip.
+- Give the story one unforgettable child-friendly moment: a visual mishap, funny misunderstanding, odd habit, or magical detail that affects what happens next.
+- Give one important side character a recognisable behaviour that appears at least twice and influences the plot.
+- Vary sentence openings. Do not begin several consecutive sentences with the child's name or the same pronoun.
+- Let dialogue breathe. A short spoken line may stand alone before the next action.
+- Use sensory detail sparingly and concretely: one sound, texture, smell, taste, or movement when it helps the scene.
+- Bring back one early detail later as a useful or emotional callback.
+- The moral must remain inside the action. Do not explain it.
+- The last page must not introduce a new named friend, helper, creature, location, object, or secret.
+- End on a concrete image, action, sound, or callback from this story rather than a summary of how the child felt.
+- A strong final story sentence lets the listener picture or hear something already established: a wave, chirp, ribbon, crown, lantern, blanket, laugh, pawprint, feather, star, or other story-specific detail.
+- Do not end the story with generic achievement wording such as "felt like the bravest...", "was very proud", "was ready for anything", or "had learned an important lesson".
+"""
+
+    def _ending_engine_rules(self) -> str:
+        return """PHASE 12 ENDING ENGINE — NON-NEGOTIABLE:
+- You are not starting a new scene. You are finishing the exact story already written.
+- Everything on the final page must follow directly from the existing goal, problem, characters, setting, promises, jokes, and objects.
+- Do not change direction or replace the story with a generic bedtime ending.
+- Resolve the main external problem using actions, choices, relationships, clues, or rules already established.
+- Then show the emotional payoff through what the child or supporting character says or does.
+- Reuse one meaningful earlier detail: a promise, object, phrase, joke, comfort habit, helper behaviour, relationship moment, or world rule.
+- The callback must feel earned. It should solve, comfort, repair, reward, or quietly show change.
+- Let the characters briefly enjoy the result. This afterglow should be part of this story, not a generic celebration.
+- Bring the child to a clearly safe and settled place already established or naturally connected to the story.
+- After the resolution, slow the pace with simple actions and fewer details.
+- Use one fitting bedtime image only when it belongs naturally in this story.
+- Do not explain the moral. Never write that the child learned, realised, understood, or remembered the lesson.
+- Do not introduce a new character, location, task, conflict, clue, magical object, mystery, or promise.
+- Never finish with another adventure waiting, a door opening, a clue appearing, a sound in the distance, a character promising to return, or any invitation to continue.
+- The final story sentence must be specific to this story, easy to read aloud, emotionally complete, and impossible to mistake for a mid-story sentence.
+- End on a concrete image, action, sound, or callback involving something already established in the story.
+- Do not end on a summary of the child's emotion or achievement.
+- Never use a final sentence such as "felt like the bravest...", "was very proud", "was ready for anything", or another generic self-description.
+- After that final story sentence, write exactly: The End.
+
+FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
+- the original main problem is resolved
+- the resolution grows from earlier events
+- emotional reward is shown
+- one earlier detail returns naturally
+- no new plot thread appears
+- the child and important characters are safe and settled
+- the pace slows after the resolution
+- the last story sentence is a concrete image, action, sound, or callback from this specific story
+- the last story sentence is not a generic feeling or achievement statement
+- no moral explanation
+- no sequel hook
+- no unanswered question
+- the page ends exactly with The End.
+"""
+
     def _storycraft_rules(self) -> str:
         return """PILLOWTALES STORY VOICE:
 - You are one of the world's finest bedtime story authors for children.
@@ -1817,8 +1874,8 @@ STORY SHAPE RULES:
 - Pages 1-2 should create curiosity and establish a goal children can get behind.
 - Pages 3-5 should contain real progress, one setback or surprise, and at least one choice made by the child.
 - Page 6 should resolve the main challenge through the moral in action.
-- Page 7 should complete the adventure, let the energy settle naturally, and leave a small sense that this world has more stories.
-- Do not use an unresolved cliffhanger. The current story must feel complete.
+- Page 7 should fully complete the adventure, resolve the emotional need, and let the energy settle into a safe bedtime landing.
+- Do not use an unresolved cliffhanger, sequel hook, invitation to continue, or unanswered question. The current story must feel complete.
 - Keep one clear problem, wish, dream, misunderstanding, or task visible from page to page.
 - Every page should move the story forward.
 - End Pages 1-5 with a small reason to keep listening: a new clue, choice, surprise, funny complication, or next step.
@@ -1851,15 +1908,18 @@ LANGUAGE CLEANUP RULES:
 - Do not invent physical descriptions of the child such as size, hair, eyes, clothes, or skin unless provided.
 
 ENDING RULES:
-- End warmly and specifically.
-- Bring back one earlier funny detail, phrase, promise, object, or character habit.
-- Fully solve the main problem. Do not stop on a cliffhanger.
-- Let the final page settle after the adventure without turning into a forced sleep instruction.
-- Use one concrete final image that feels safe, satisfying, and memorable.
-- Leave one light touch of future possibility: the world continues, another visit may happen, or tomorrow may bring a new adventure.
-- The future possibility must not create urgency or require another story immediately.
-- Do not end with a generic line like everyone smiled happily or ready for sleep.
-- Do not write The end.
+- End warmly, specifically, and completely.
+- Fully solve the main problem and close every important story question.
+- Give the child an emotional reward shown through action, dialogue, or a changed relationship. Do not explain the feeling.
+- Bring back one earlier funny detail, phrase, promise, object, helper habit, or world rule as an earned callback.
+- Return the child to safety, home, family, bed, camp, village, or another clearly settled place appropriate to the story.
+- Slow the rhythm on the final page. Use shorter, calmer actions after the resolution.
+- Use one concrete bedtime-ready image such as a blanket, warm light, quiet room, moon, stars, soft rain, closed curtains, or a familiar object resting safely. Use only what fits naturally.
+- End with one memorable final sentence that feels calm and complete.
+- Do not add a sequel hook, invitation to return, new mystery, unexplained sound, opening door, blinking clue, or promise of another adventure.
+- Do not explain the moral or use lines such as learned that, realised that, or understood that.
+- Do not end with a generic line like everyone smiled happily, ready for sleep, or another adventure waited.
+- The final page must end exactly with The End.
 
 FINAL QUALITY CHECK:
 - Before returning the story, silently ask: would a child understand it, want to hear the next page, smile at least once, and remember the main idea tomorrow?
@@ -2039,6 +2099,8 @@ STORY FACTS:
 - Moral: {request.moral}
 
 {self._storycraft_rules()}
+{self._literary_polish_rules()}
+{self._ending_engine_rules()}
 {self._age_readability_block(request.age)}
 {self._age_vocabulary_block(request.age)}
 {self._age_quality_control_block(request.age)}
@@ -2067,7 +2129,7 @@ Return ONLY valid JSON:
 OUTPUT RULES:
 - The pages array must contain exactly 7 strings.
 - No markdown, notes, explanations, or extra keys.
-- Do not write The end."""
+- The final page must end exactly with The End."""
 
     def _intended_page_count(self, request: GenerateStoryRequest) -> int:
         return 7
@@ -2291,6 +2353,92 @@ OUTPUT RULES:
                 )
         return valid_pages
 
+    def _ending_text_without_marker(self, text: str) -> str:
+        return re.sub(r"\s*The End\.\s*$", "", str(text or "").strip(), flags=re.IGNORECASE).strip()
+
+    def _ensure_the_end(self, text: str) -> str:
+        """Guarantee the final stored page ends with the exact closing marker."""
+        body = self._ending_text_without_marker(text)
+        if not body:
+            return "The End."
+        return f"{body}\n\nThe End."
+
+    def _sentence_fingerprints(self, text: str) -> set[str]:
+        fingerprints: set[str] = set()
+        for sentence in re.split(r'(?<=[.!?])\s+', str(text or "")):
+            normalized = re.sub(r"[^a-z0-9 ]+", "", sentence.lower())
+            normalized = re.sub(r"\s+", " ", normalized).strip()
+            if len(normalized.split()) >= 5:
+                fingerprints.add(normalized)
+        return fingerprints
+
+    def _validate_final_page(self, page: str, existing_pages: list[str]) -> tuple[bool, str]:
+        """Reject obvious mid-story, repeated, or open-ended final pages."""
+        body = self._ending_text_without_marker(page)
+        if len(body.split()) < 45:
+            return False, "final_page_too_short"
+        if self._count_story_sentences(body) < 3:
+            return False, "final_page_too_few_sentences"
+        if body.rstrip().endswith("?"):
+            return False, "final_page_ends_with_question"
+
+        lower = body.lower()
+
+        # Reject common AI-style emotional summaries so the focused final-page
+        # retry produces a concrete story-specific closing image or callback.
+        final_sentences = [
+            part.strip()
+            for part in re.split(r'(?<=[.!?])\s+', body)
+            if part.strip()
+        ]
+        final_sentence = final_sentences[-1].lower() if final_sentences else ""
+        generic_final_patterns = (
+            "felt like the bravest",
+            "felt very brave",
+            "felt so brave",
+            "felt very proud",
+            "felt so proud",
+            "was very proud",
+            "was the bravest",
+            "was ready for anything",
+            "could do anything",
+            "would never forget",
+            "had learned",
+            "realised that",
+            "realized that",
+            "understood that",
+        )
+        if any(pattern in final_sentence for pattern in generic_final_patterns):
+            return False, "final_sentence_is_generic_emotional_summary"
+
+        unfinished_patterns = (
+            "now for ",
+            "what would happen next",
+            "what happened next",
+            "to be continued",
+            "this was only the beginning",
+            "the adventure was just beginning",
+            "another adventure waited",
+            "another adventure was waiting",
+            "couldn't wait for the next",
+            "could not wait for the next",
+            "a new mystery",
+            "a new clue",
+        )
+        if any(pattern in lower[-260:] for pattern in unfinished_patterns):
+            return False, "final_page_contains_continuation_hook"
+
+        previous_fingerprints: set[str] = set()
+        for previous_page in existing_pages:
+            previous_fingerprints.update(self._sentence_fingerprints(previous_page))
+        final_fingerprints = self._sentence_fingerprints(body)
+        if final_fingerprints:
+            overlap = len(final_fingerprints & previous_fingerprints) / len(final_fingerprints)
+            if overlap >= 0.45:
+                return False, f"final_page_repeats_previous_content_{overlap:.2f}"
+
+        return True, "ok"
+
     async def _generate_remaining_pages_batch(
         self,
         request: GenerateStoryRequest,
@@ -2301,55 +2449,103 @@ OUTPUT RULES:
     ) -> list[str]:
         """Generate one continuation batch and return validated pages.
 
-        Raises on failure so the caller can retry with a smaller batch size.
+        Final Page 7 gets up to three focused attempts. It is accepted only
+        when it passes the ending guard, then the exact closing marker is added.
+        Earlier pages keep the existing one-call path.
         """
         next_page_number = len(working_pages) + 1
-        prompt = self._build_remaining_pages_prompt(
-            request=request,
-            companion=companion,
-            title=title,
-            existing_pages=working_pages,
-            remaining_page_count=batch_count,
-            next_page_number=next_page_number,
-        )
-        print(
-            f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
-            f"next_page={next_page_number} count={batch_count}"
-        )
+        intended_final_page = self._intended_page_count(request)
+        is_final_page_batch = batch_count == 1 and next_page_number == intended_final_page
+        max_attempts = 3 if is_final_page_batch else 1
+        last_error: Optional[str] = None
 
-        t_gemini = time.time()
-        response = await asyncio.to_thread(
-            self._generate_content_sync,
-            prompt,
-            self._story_response_schema(batch_count, include_title=False),
-        )
-        print(
-            f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
-            f"next_page={next_page_number} count={batch_count}"
-        )
+        for generation_attempt in range(1, max_attempts + 1):
+            prompt = self._build_remaining_pages_prompt(
+                request=request,
+                companion=companion,
+                title=title,
+                existing_pages=working_pages,
+                remaining_page_count=batch_count,
+                next_page_number=next_page_number,
+            )
+            if is_final_page_batch and generation_attempt > 1:
+                prompt += f"""
 
-        response_text = getattr(response, 'text', None)
-        if not response_text or not isinstance(response_text, str):
-            raise ValueError("Failed to generate remaining pages batch: empty response text")
+FINAL PAGE RETRY {generation_attempt}:
+- The previous ending was rejected because it looked unfinished, repeated, or open-ended.
+- Rewrite the final page from scratch.
+- Finish the same story already shown in Pages 1-6.
+- Do not repeat the previous scene.
+- Do not add any new action after the main problem is solved.
+- Do not add a new named character or friend on the final page.
+- End on a concrete image, action, sound, or callback already established in Pages 1-6.
+- Do not finish with a generic statement about feeling brave, proud, happy, or ready.
+- End with that story-specific closing sentence followed by exactly: The End.
+"""
 
-        try:
-            story_data = self._clean_json_response(response_text)
-            if not isinstance(story_data, dict) or 'pages' not in story_data:
-                raise ValueError("Invalid remaining-pages batch format returned by AI")
-            batch_pages = self._valid_generated_pages(story_data.get('pages', []), batch_count)
-        except Exception as parse_exc:
             print(
-                f"[PERF] remaining_pages_batch parse failed "
-                f"next_page={next_page_number} count={batch_count}: {parse_exc}"
-            )
-            batch_pages = self._salvage_pages_from_response_text(response_text, batch_count)
-
-        if len(batch_pages) < batch_count:
-            raise ValueError(
-                f"Remaining generation produced only {len(batch_pages)} of {batch_count} pages in batch"
+                f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
+                f"next_page={next_page_number} count={batch_count} attempt={generation_attempt}"
             )
 
-        return self._sanitize_generated_pages(batch_pages[:batch_count])
+            t_gemini = time.time()
+            response = await asyncio.to_thread(
+                self._generate_content_sync,
+                prompt,
+                self._story_response_schema(batch_count, include_title=False),
+            )
+            print(
+                f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
+                f"next_page={next_page_number} count={batch_count} attempt={generation_attempt}"
+            )
+
+            response_text = getattr(response, 'text', None)
+            if not response_text or not isinstance(response_text, str):
+                last_error = "empty response text"
+                continue
+
+            try:
+                story_data = self._clean_json_response(response_text)
+                if not isinstance(story_data, dict) or 'pages' not in story_data:
+                    raise ValueError("Invalid remaining-pages batch format returned by AI")
+                batch_pages = self._valid_generated_pages(story_data.get('pages', []), batch_count)
+            except Exception as parse_exc:
+                print(
+                    f"[PERF] remaining_pages_batch parse failed "
+                    f"next_page={next_page_number} count={batch_count} "
+                    f"attempt={generation_attempt}: {parse_exc}"
+                )
+                batch_pages = self._salvage_pages_from_response_text(response_text, batch_count)
+
+            if len(batch_pages) < batch_count:
+                last_error = (
+                    f"Remaining generation produced only {len(batch_pages)} "
+                    f"of {batch_count} pages in batch"
+                )
+                continue
+
+            sanitized = self._sanitize_generated_pages(batch_pages[:batch_count])
+            if is_final_page_batch:
+                valid, reason = self._validate_final_page(sanitized[0], working_pages)
+                if not valid:
+                    last_error = reason
+                    print(
+                        f"[PERF] final_page_rejected attempt={generation_attempt} "
+                        f"story_title={title!r} reason={reason}"
+                    )
+                    continue
+                sanitized[0] = self._ensure_the_end(sanitized[0])
+                print(
+                    f"[PERF] final_page_accepted attempt={generation_attempt} "
+                    f"story_title={title!r}"
+                )
+
+            return sanitized
+
+        raise ValueError(
+            f"Remaining generation failed after {max_attempts} attempt(s): "
+            f"{last_error or 'unknown error'}"
+        )
 
     def _publish_partial_story_pages(
         self,
@@ -2709,6 +2905,37 @@ JSON ONLY:
             f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or [])
         )
         final_page_number = next_page_number + remaining_page_count - 1
+        intended_final_page = self._intended_page_count(request)
+        includes_final_page = next_page_number <= intended_final_page <= final_page_number
+        if includes_final_page:
+            ending_job = f"""FINAL PAGE MODE — THIS STORY ENDS NOW:
+- You are writing ONLY the ending of the story shown above.
+- Do not continue the adventure as though another page follows.
+- Everything must stay in tune with this story's existing goal, characters, setting, humour, promises, and magical rules.
+- Resolve what Pages 1-6 actually set up. Do not replace it with a generic celebration or bedtime paragraph.
+- The final page should move through: resolution, brief story-specific afterglow, safe settling, final image.
+- Do not add a new character, named friend, place, task, object, clue, problem, secret, or surprise.
+- Do not summarise the ending with "felt brave", "felt proud", "felt like the bravest", or similar wording.
+- The final story sentence must be a concrete image, action, sound, or callback from Pages 1-6.
+- The page must feel complete even before the words The End.
+- Finish with exactly: The End.
+
+{self._literary_polish_rules()}
+{self._ending_engine_rules()}"""
+        elif next_page_number == intended_final_page - 1:
+            ending_job = """PENULTIMATE PAGE — PAGE 6:
+- This is the final challenge and only one page will remain.
+- Bring the main problem to its decisive moment and begin resolving it here.
+- Do not introduce a new character, location, subplot, mystery, magical rule, or second problem.
+- Do not stretch the same activity across Page 6 and Page 7.
+- Leave Page 7 to show the completed result, emotional payoff, callback, and safe closing.
+"""
+        else:
+            ending_job = """NOT THE FINAL PAGE:
+- Do not resolve the whole story yet.
+- Progress the main problem and leave one clear, bedtime-safe reason to continue.
+- Do not introduce a new subplot, unrelated mystery, or premature return-home ending.
+"""
 
         return f"""Continue this bedtime story from the existing pages.
 
@@ -2734,6 +2961,9 @@ AGE LOCK:
 - Do not use adult, poetic, cinematic, symbolic, or fantasy-novel language.
 - If a sentence sounds impressive, simplify it.
 
+LITERARY POLISH:
+{self._literary_polish_rules()}
+
 CONTINUATION JOB:
 - Write exactly {remaining_page_count} new pages: Page {next_page_number} through Page {final_page_number}.
 - Continue from the latest existing page. Do not recap or contradict it.
@@ -2749,9 +2979,11 @@ CONTINUATION JOB:
 - Include at least one warm funny or surprising moment that changes what happens next.
 - The child must help drive the solution.
 - Helpers may guide, misunderstand, or make funny mistakes, but they must not solve everything.
-- Bring back one earlier detail near the end.
-- Fully resolve the current adventure, then leave a gentle hint that the world may hold another adventure on another day.
+- Bring back one earlier detail when it becomes useful or emotionally meaningful.
 - Show the moral through action. Do not lecture or write "learned that".
+
+ENDING JOB FOR THIS BATCH:
+{ending_job}
 
 STRICT LANGUAGE CLEANUP:
 - Avoid overusing: tiny, little, small, soft, gentle, golden, silver, shimmering, glowing, sparkling, moonlit, sleepy, softly, slowly.
@@ -3214,6 +3446,8 @@ Return ONLY valid JSON:
         # timing, and reader sync remain predictable.
         intended_page_count = 7
         story_data['pages'] = pages[:intended_page_count]
+        if len(story_data['pages']) == intended_page_count:
+            story_data['pages'][-1] = self._ensure_the_end(story_data['pages'][-1])
         story_data['companion'] = companion
 
         total_words = sum(len(str(page).split()) for page in story_data['pages'])
