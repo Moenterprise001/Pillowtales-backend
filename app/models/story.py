@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from typing import List, Optional
+from typing import List, Literal, Optional
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -69,6 +69,44 @@ class StoryResponse(BaseModel):
 
 class UpdateStoryRequest(BaseModel):
     isFavorite: Optional[bool] = None
+
+
+class StoryFeedbackRequest(BaseModel):
+    rating: Literal['loved_it', 'okay', 'didnt_enjoy']
+    feedback: List[str] = Field(default_factory=list, max_length=10)
+    wouldLikeSimilarStories: Optional[bool] = None
+    childFellAsleep: Optional[bool] = None
+    comment: Optional[str] = Field(default=None, max_length=1000)
+    narrator: Optional[str] = Field(default=None, max_length=100)
+    parentVoiceUsed: Optional[bool] = None
+
+    @field_validator('feedback')
+    @classmethod
+    def validate_feedback(cls, value: List[str]) -> List[str]:
+        cleaned: List[str] = []
+        seen = set()
+        for item in value:
+            normalised = str(item or '').strip().lower().replace(' ', '_')[:60]
+            if not normalised or normalised in seen:
+                continue
+            seen.add(normalised)
+            cleaned.append(normalised)
+            if len(cleaned) >= 10:
+                break
+        return cleaned
+
+    @field_validator('comment', 'narrator')
+    @classmethod
+    def clean_optional_text(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        cleaned = value.strip()
+        return cleaned or None
+
+
+class StoryFeedbackResponse(BaseModel):
+    message: str
+    feedback: dict
 
 
 class UserProfileResponse(BaseModel):

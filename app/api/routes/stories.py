@@ -7,7 +7,13 @@ from datetime import datetime, timezone
 from fastapi import APIRouter, Depends, HTTPException
 
 from app.api.deps import get_current_user, get_story_repo, get_story_service, get_subscription_service, get_user_repo
-from app.models.story import GenerateStoryRequest, StoryResponse, UpdateStoryRequest
+from app.models.story import (
+    GenerateStoryRequest,
+    StoryFeedbackRequest,
+    StoryFeedbackResponse,
+    StoryResponse,
+    UpdateStoryRequest,
+)
 from app.repositories.story_repository import StoryRepository
 from app.repositories.user_repository import UserRepository
 from app.services.story_service import StoryService
@@ -143,6 +149,69 @@ async def get_story(story_id: str, user_id: str = Depends(get_current_user), sto
     if not story:
         raise HTTPException(status_code=404, detail='Story not found')
     return story
+
+
+@router.post('/stories/{story_id}/feedback', response_model=StoryFeedbackResponse)
+async def submit_story_feedback(
+    story_id: str,
+    request: StoryFeedbackRequest,
+    user_id: str = Depends(get_current_user),
+    story_repo: StoryRepository = Depends(get_story_repo),
+) -> StoryFeedbackResponse:
+    story = story_repo.get(story_id, user_id)
+    if not story:
+        raise HTTPException(status_code=404, detail='Story not found')
+
+    pages = story.get('pages') or []
+    parent_voice_used = request.parentVoiceUsed
+    if parent_voice_used is None:
+        parent_voice_used = bool(
+            story.get('parent_voice_used')
+            or story.get('voice_recording_id')
+            or str(story.get('audio_provider') or '').lower() == 'elevenlabs'
+        )
+
+    narrator = request.narrator or story.get('narrator') or story.get('audio_voice') or story.get('voice_name')
+
+    feedback_record = {
+        'story_id': story_id,
+        'user_id': user_id,
+        'rating': request.rating,
+        'feedback': request.feedback,
+        'would_like_similar_stories': request.wouldLikeSimilarStories,
+        'child_fell_asleep': request.childFellAsleep,
+        'comment': request.comment,
+        'child_age': story.get('age'),
+        'theme': story.get('theme'),
+        'moral': story.get('moral'),
+        'story_language_code': story.get('story_language_code') or story.get('language'),
+        'narration_language_code': (
+            story.get('narration_language_code')
+            or story.get('audio_language_code')
+            or story.get('story_language_code')
+            or story.get('language')
+        ),
+        'narrator': narrator,
+        'parent_voice_used': parent_voice_used,
+        'duration_min': story.get('duration_min'),
+        'page_count': len(pages),
+        'generation_status': story.get('generation_status'),
+        'generation_time_seconds': story.get('generation_time_seconds'),
+        'is_continuation': bool(story.get('continue_from_story_id') or story.get('parent_story_id')),
+    }
+
+    saved_feedback = story_repo.submit_feedback(feedback_record)
+    logger.info(
+        '[STORY_FEEDBACK_SAVED] user_id=%s story_id=%s rating=%s feedback_count=%s',
+        user_id,
+        story_id,
+        request.rating,
+        len(request.feedback),
+    )
+    return StoryFeedbackResponse(
+        message='Story feedback saved successfully',
+        feedback=saved_feedback,
+    )
 
 
 @router.put('/stories/{story_id}')

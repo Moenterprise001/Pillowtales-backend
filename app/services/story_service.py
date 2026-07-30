@@ -957,6 +957,32 @@ class StoryService:
             "required": ["summary", "characters", "setting"],
         }
 
+    def _ending_review_response_schema(self) -> dict:
+        """Structured semantic review for the final page only."""
+        boolean_fields = {
+            "resolves_opening_promise": {"type": "boolean"},
+            "resolves_main_problem": {"type": "boolean"},
+            "moral_visible_through_action": {"type": "boolean"},
+            "emotional_payoff_complete": {"type": "boolean"},
+            "callback_earned": {"type": "boolean"},
+            "no_new_plot": {"type": "boolean"},
+            "ending_feels_earned": {"type": "boolean"},
+            "satisfying_ending": {"type": "boolean"},
+        }
+        return {
+            "type": "object",
+            "properties": {
+                **boolean_fields,
+                "reason": {"type": "string"},
+                "required_changes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 6,
+                },
+            },
+            "required": [*boolean_fields.keys(), "reason", "required_changes"],
+        }
+
     def _model_candidates(self) -> list[str]:
         """Return configured Gemini model plus safe fallbacks for transient deprecation/routing errors.
 
@@ -1702,7 +1728,7 @@ ABSTRACT CONCEPT GUARD:
 - By the end of Page 1, the reader must clearly know where the child started, what happened, and why the child is involved.
 - Page 1 must not introduce more than one main helper, one problem, and one magical setting idea.
 - Do not open with a crowded catalogue of poetic details.
-- Each page must have one clear job: arrive, meet, notice, try, choose, solve, or settle.
+- Each page must clearly move the story forward. It may arrive somewhere, reveal something, test an idea, force a choice, create a setback, solve part of the problem, or settle after the result. These are examples, not a fixed sequence.
 - Do not introduce a new character, a new place, a new object, and a new problem on the same page.
 - Use no more than {max_named} named supporting characters for this age.
 - If a page needs explanation to make sense, simplify the page rather than adding more explanation.
@@ -1833,6 +1859,159 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 - the page ends exactly with The End.
 """
 
+    def _story_spine_block(
+        self,
+        request: GenerateStoryRequest,
+        title: Optional[str] = None,
+        first_page: Optional[str] = None,
+    ) -> str:
+        """Create a stable story contract from the request and Page 1.
+
+        The continuation engine is page-by-page, so Page 1 is treated as the
+        permanent opening promise. This block is regenerated identically from
+        the same request and first page on every continuation call and requires
+        no database schema or API contract change.
+        """
+        title_line = title or "the story title created with Page 1"
+        opening_text = (first_page or "").strip()
+        opening_excerpt = opening_text[:1200] if opening_text else (
+            "Page 1 must establish one clear wish, problem, question, promise, or emotional need."
+        )
+        return f"""FIXED STORY SPINE — DO NOT DRIFT:
+- Story title: {title_line}
+- Requested moral: {request.moral}
+- Theme: {request.customTheme or request.theme}
+- Page 1 is the permanent opening promise of this story:
+  {opening_excerpt}
+- Identify the ONE central wish, problem, question, promise, or emotional need established there and keep it active from page to page.
+- Every major event must either deepen that same problem, test the requested moral through action, or move directly toward its resolution.
+- Do not replace the opening promise with a more convenient object-retrieval, repair, delivery, or celebration plot unless Page 1 clearly established that plot.
+- The requested moral must remain recognisable through the child's choices and consequences, but must never be lectured or repeatedly named.
+- At least one meaningful choice in the middle and the decisive action near the ending must demonstrate the moral.
+- Preserve one simple Page 1 detail as an ending callback: an object, phrase, wish, sound, promise, joke, helper behaviour, or image.
+- Page 6 must bring the original problem to its decisive resolution.
+- Page 7 must answer or fulfil the opening promise, complete the emotional change, reuse the callback naturally, and settle safely.
+- The ending is incomplete if it only fixes an object or completes a task while leaving the opening wish, question, relationship, or emotional need unanswered.
+"""
+
+    def _first_page_spine_setup_rules(self, request: GenerateStoryRequest) -> str:
+        return f"""STORY SPINE SETUP:
+- Establish exactly one clear opening promise: a wish, problem, question, promise, misunderstanding, or emotional need.
+- Make that opening promise strong enough to guide all seven pages.
+- Connect it naturally to the requested moral: {request.moral}.
+- Plant one simple detail that can return meaningfully in the ending.
+- Do not solve the opening promise on Page 1.
+- Do not create several unrelated mysteries, objects, destinations, or goals.
+"""
+
+    def _story_flow_rules(self) -> str:
+        """Surgical anti-repetition guidance with persistent moral visibility."""
+        return """STORY FLOW AND MORAL RESTRAINT:
+- Keep the opening promise and requested moral active from Page 1 to Page 7.
+- The requested moral must remain recognisable through the protagonist's choices, consequences, relationships, and final resolution.
+- Do not repeatedly explain, name, or restate the moral after each event.
+- At least one meaningful choice in the middle and the decisive action near the ending must clearly demonstrate the moral.
+- Characters should not stop to explain what the reader has just seen.
+- Show the moral through choices, dialogue, consequences, changed behaviour, and the final resolution.
+- Trust children to understand an obvious moral from what happens, but do not allow the moral to disappear from the plot.
+- Do not make every encounter follow the same sequence of event, moral reminder, reward, and reset.
+- If the same scene pattern has appeared twice, the next page MUST use a different kind of event: dialogue, discovery, setback, surprise, cooperation, a difficult choice, or a quiet emotional turn.
+- Never write three consecutive pages built around the same encounter shape, such as meeting a new character, hearing a similar problem, and moving on.
+- The central conflict must appear no later than Page 3.
+- Pages 4 and 5 must deepen that same conflict rather than replacing it with a different problem.
+- Repeated phrases, counts, glowing objects, rewards, or symbolic reactions may return only when they move the plot or create a meaningful callback.
+- A child should remember the adventure first and understand the moral through it, without the narrator explaining it word by word.
+"""
+
+    def _page_narrative_role(self, page_number: int) -> str:
+        """Return the single structural job for the next continuation page.
+
+        This is prompt-only and keeps the existing Page-1-first architecture,
+        one-page background batches, storage flow, narration, and timing intact.
+        """
+        roles = {
+            2: """PAGE 2 ROLE — DEEPEN THE PROMISE:
+- Deepen the exact wish, problem, question, promise, or emotional need from Page 1.
+- Introduce only one useful helper, clue, obstacle, or world rule.
+- End with a clear complication, decision, or next step.
+- Do not begin a repeated tour of characters or places.
+""",
+            3: """PAGE 3 ROLE — FIRST REAL COMPLICATION:
+- Let the first attempt partly fail, create a new difficulty, or reveal that the problem is not as simple as it looked.
+- The complication must grow from Pages 1-2, not from a new subplot.
+- Do not repeat Page 2's scene shape.
+- The child must notice, ask, choose, or try something that affects what happens next.
+""",
+            4: """PAGE 4 ROLE — MIDPOINT TURN:
+- Change the direction or understanding of the story.
+- Reveal one unexpected, funny, magical, or emotional truth that makes the child rethink the plan.
+- The child must make a meaningful decision here.
+- Do not add another similar helper encounter, collection stop, or repeated version of the same problem.
+""",
+            5: """PAGE 5 ROLE — STRONGEST SETBACK:
+- Create the greatest obstacle, setback, or difficult choice in the story.
+- Success should briefly feel uncertain, but never frightening.
+- Do not solve the main problem on this page.
+- The child should pause, test an idea, or wonder what to do next before becoming ready to act.
+- Bring back one earlier clue, promise, habit, object, joke, or world rule and make it matter.
+- Everything introduced here must already belong to the existing story.
+- Do not introduce another quest, helper, mystery, location, or magical rule.
+- End with the child ready to take the decisive action on Page 6.
+""",
+            6: """PAGE 6 ROLE — DECISIVE ACTION AND CLIMAX:
+- The child must take the decisive action. Helpers may contribute, but they must not solve it for the child.
+- Resolve the main external problem through the requested moral in action.
+- Include the story's most memorable moment: magical, funny, surprising, or emotional.
+- This page must feel like the peak of the adventure, not merely preparation or another attempt.
+- Leave Page 7 only for the completed result, emotional payoff, callback, and calm settling.
+""",
+            7: """PAGE 7 ROLE — PAYOFF AND BEDTIME LANDING:
+- Begin after the decisive action, with the main problem already resolved or visibly completing.
+- Show the emotional and relationship payoff through action or dialogue.
+- Reuse one earned callback from Pages 1-6.
+- Let the characters briefly enjoy the result, then slow the pace and settle safely.
+- Do not add a new surprise, task, character, object, place, or problem.
+""",
+        }
+        return roles.get(page_number, "")
+
+    def _page_tension_rules(self, page_number: int) -> str:
+        """Control narrative escalation without changing the selected plot."""
+        rules = {
+            2: """PAGE 2 TENSION:
+- The situation should feel slightly more difficult or more important than Page 1.
+- Introduce or sharpen the central conflict if Page 1 only hinted at it.
+- Do not solve anything yet.
+""",
+            3: """PAGE 3 TENSION:
+- The child's first approach should only partly work, fail safely, or reveal a larger difficulty.
+- The central conflict must now be unmistakably clear.
+- Raise the stakes through consequences already connected to the opening promise.
+""",
+            4: """PAGE 4 TENSION:
+- Change the direction or understanding of the story.
+- Reveal something unexpected that forces the child to reconsider the plan.
+- The child must make an important decision that affects the remaining pages.
+""",
+            5: """PAGE 5 TENSION:
+- This is the emotional low point and strongest setback.
+- Success should briefly feel uncertain, but never frightening.
+- Do not solve the main problem here.
+- Do not introduce a new idea merely to create tension.
+""",
+            6: """PAGE 6 TENSION:
+- Bring every important story thread toward the decisive action.
+- The child should succeed because of choices, relationships, clues, habits, or learning established earlier.
+- This is the peak; do not postpone the solution to Page 7.
+""",
+            7: """PAGE 7 TENSION:
+- Add no new tension.
+- Let the story release its energy and settle.
+- Focus on payoff, callback, safety, and calm completion.
+""",
+        }
+        return rules.get(page_number, "")
+
     def _storycraft_rules(self) -> str:
         return """PILLOWTALES STORY VOICE:
 - You are one of the world's finest bedtime story authors for children.
@@ -1894,6 +2073,9 @@ HUMOUR AND WONDER RULES:
 
 MORAL RULES:
 - Let kindness, bravery, sharing, patience, confidence, or friendship emerge naturally through what characters do.
+- Demonstrate the requested moral through actions, choices, dialogue, and natural consequences rather than repeated explanation.
+- Trust children to understand an obvious moral from the story. Do not explain it word by word.
+- Once the moral direction is clear, do not restate it after each scene or encounter.
 - Never explain the moral as a lesson.
 - Avoid lines such as "Emily learned that...", "the lesson was...", or "everyone understood that...".
 - Let the child feel the moral through the ending.
@@ -2098,7 +2280,9 @@ STORY FACTS:
 - Theme: {effective_theme}
 - Moral: {request.moral}
 
+{self._first_page_spine_setup_rules(request)}
 {self._storycraft_rules()}
+{self._story_flow_rules()}
 {self._literary_polish_rules()}
 {self._ending_engine_rules()}
 {self._age_readability_block(request.age)}
@@ -2439,6 +2623,143 @@ OUTPUT RULES:
 
         return True, "ok"
 
+    async def _review_final_page_semantics(
+        self,
+        request: GenerateStoryRequest,
+        title: str,
+        existing_pages: list[str],
+        candidate_page: str,
+    ) -> tuple[bool, str, list[str], dict[str, bool]]:
+        """Review whether Page 7 genuinely completes the story.
+
+        The reviewer returns exact repair instructions so the next generation
+        attempt fixes the actual failed ending rather than receiving a generic
+        "try again" message.
+        """
+        if not self.model:
+            return True, "review_skipped_no_model", [], {}
+
+        story_text = "\n\n".join(
+            f"Page {index + 1}: {page}"
+            for index, page in enumerate([*existing_pages, candidate_page])
+        )
+        spine = self._story_spine_block(
+            request=request,
+            title=title,
+            first_page=(existing_pages or [""])[0],
+        )
+        prompt = f"""Review the ending of this children's bedtime story.
+Return only JSON matching the supplied schema. Be practical, not perfectionist.
+Reject when the ending is incomplete, disconnected, emotionally empty, generic,
+or introduces new plot. When rejecting, provide concrete required_changes that
+can be applied to a rewritten Page 7.
+
+{spine}
+
+FULL STORY:
+{story_text}
+
+REVIEW RULES:
+- resolves_opening_promise: Page 7 answers or fulfils the wish, question, promise, relationship need, or problem introduced on Page 1.
+- resolves_main_problem: the central external problem is actually completed on the page, not merely beginning to complete.
+- moral_visible_through_action: the requested moral is demonstrated by the child's meaningful choice or consequence, not merely stated.
+- emotional_payoff_complete: the promised relationship or emotional change is shown through action or dialogue.
+- callback_earned: at least one earlier detail returns with purpose.
+- no_new_plot: Page 7 adds no new character, task, mystery, object, or sequel hook.
+- ending_feels_earned: the ending depends on specific events, choices, relationships, clues, habits, or rules from Pages 2-6. If it could be swapped into another story with only names changed, mark it false.
+- satisfying_ending: the result feels like the natural destination of Pages 1-6 and includes a brief settled afterglow, not simply a stopped scene.
+- required_changes: give 1-6 short imperative repairs. Name the unresolved promise, problem, missing action, missing relationship payoff, or callback that must appear.
+- Do not request a new subplot. Repairs must use only material already present in Pages 1-6.
+"""
+        try:
+            response = await asyncio.to_thread(
+                self._generate_content_sync,
+                prompt,
+                self._ending_review_response_schema(),
+                1400,
+            )
+            response_text = getattr(response, "text", None)
+            if not response_text or not isinstance(response_text, str):
+                return False, "semantic_review_empty_response", ["Complete the original opening promise and main problem."], {}
+            result = self._clean_json_response(response_text)
+            checks = (
+                "resolves_opening_promise",
+                "resolves_main_problem",
+                "moral_visible_through_action",
+                "emotional_payoff_complete",
+                "callback_earned",
+                "no_new_plot",
+                "ending_feels_earned",
+                "satisfying_ending",
+            )
+            check_results = {key: result.get(key) is True for key in checks}
+            failed = [key for key, passed in check_results.items() if not passed]
+            required_changes = [
+                str(item).strip()
+                for item in (result.get("required_changes") or [])
+                if str(item).strip()
+            ][:6]
+            if failed:
+                reason = str(result.get("reason") or "").strip()
+                if not required_changes:
+                    required_changes = [
+                        "Complete the original opening promise and main problem on Page 7.",
+                        "Show the emotional result through action or dialogue.",
+                        "End with an established story-specific callback and a settled final image.",
+                    ]
+                return (
+                    False,
+                    f"semantic_review_failed:{','.join(failed)}:{reason}"[:700],
+                    required_changes,
+                    check_results,
+                )
+            return True, "ok", [], check_results
+        except Exception as exc:
+            # Reviewer availability must not strand a locally valid final page.
+            print(f"[PERF] final_page_semantic_review_skipped error={str(exc)[:300]}")
+            return True, "semantic_review_unavailable", [], {}
+
+    def _final_page_repair_block(
+        self,
+        rejection_reason: Optional[str],
+        required_changes: Optional[list[str]],
+        repair_attempt: int,
+        completion_first: bool = False,
+    ) -> str:
+        """Build targeted Page 7 repair instructions from the reviewer output."""
+        changes = required_changes or [
+            "Complete the original opening promise and main problem.",
+            "Show the emotional payoff through action or dialogue.",
+            "Use an earlier story detail as the final callback.",
+        ]
+        change_lines = "\n".join(f"- {item}" for item in changes[:6])
+        priority = """
+COMPLETION-FIRST FINAL REPAIR:
+- This is the last recovery pass. A complete, coherent ending is mandatory.
+- Do not stop while an egg is cracking, a door is opening, a character is arriving, or a solution is merely beginning.
+- Show the promised outcome fully happening on this page.
+- Include the relationship or emotional result promised by Page 1.
+- Use only established characters, objects, rules, actions, and locations.
+""" if completion_first else ""
+        return f"""
+TARGETED FINAL PAGE REPAIR — ATTEMPT {repair_attempt}:
+The ending reviewer rejected the previous Page 7 for this exact reason:
+{rejection_reason or 'The ending did not fully complete the story.'}
+
+REQUIRED CHANGES — APPLY EVERY ONE:
+{change_lines}
+
+- Rewrite Page 7 from scratch; do not merely edit its final sentence.
+- Resolve the exact promise and problem established by Pages 1-6.
+- The decisive solution must come from the child or from consequences already earned in the story.
+- Show the completed result, then a brief emotional afterglow, then a safe settled final image.
+- Do not introduce a new method, character, object, clue, sound, task, place, or surprise.
+- Do not end at the instant something begins to happen. Show what happens and what it means to the existing characters.
+- End with one concrete callback from Pages 1-6 followed by exactly: The End.
+{priority}
+"""
+
+
     async def _generate_remaining_pages_batch(
         self,
         request: GenerateStoryRequest,
@@ -2447,17 +2768,20 @@ OUTPUT RULES:
         working_pages: list[str],
         batch_count: int,
     ) -> list[str]:
-        """Generate one continuation batch and return validated pages.
+        """Generate and validate a continuation batch.
 
-        Final Page 7 gets up to three focused attempts. It is accepted only
-        when it passes the ending guard, then the exact closing marker is added.
-        Earlier pages keep the existing one-call path.
+        Page 7 uses reviewer-guided repair. Each retry receives the exact failed
+        criteria and required changes from the previous semantic review. A final
+        completion-first repair may be accepted only when all critical ending
+        checks pass; this prevents a quality preference from leaving the story
+        permanently at six pages.
         """
         next_page_number = len(working_pages) + 1
         intended_final_page = self._intended_page_count(request)
         is_final_page_batch = batch_count == 1 and next_page_number == intended_final_page
-        max_attempts = 3 if is_final_page_batch else 1
+        max_attempts = 5 if is_final_page_batch else 1
         last_error: Optional[str] = None
+        last_required_changes: list[str] = []
 
         for generation_attempt in range(1, max_attempts + 1):
             prompt = self._build_remaining_pages_prompt(
@@ -2469,19 +2793,12 @@ OUTPUT RULES:
                 next_page_number=next_page_number,
             )
             if is_final_page_batch and generation_attempt > 1:
-                prompt += f"""
-
-FINAL PAGE RETRY {generation_attempt}:
-- The previous ending was rejected because it looked unfinished, repeated, or open-ended.
-- Rewrite the final page from scratch.
-- Finish the same story already shown in Pages 1-6.
-- Do not repeat the previous scene.
-- Do not add any new action after the main problem is solved.
-- Do not add a new named character or friend on the final page.
-- End on a concrete image, action, sound, or callback already established in Pages 1-6.
-- Do not finish with a generic statement about feeling brave, proud, happy, or ready.
-- End with that story-specific closing sentence followed by exactly: The End.
-"""
+                prompt += self._final_page_repair_block(
+                    rejection_reason=last_error,
+                    required_changes=last_required_changes,
+                    repair_attempt=generation_attempt,
+                    completion_first=(generation_attempt == max_attempts),
+                )
 
             print(
                 f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
@@ -2502,6 +2819,7 @@ FINAL PAGE RETRY {generation_attempt}:
             response_text = getattr(response, 'text', None)
             if not response_text or not isinstance(response_text, str):
                 last_error = "empty response text"
+                last_required_changes = ["Return one complete Page 7 as valid JSON."]
                 continue
 
             try:
@@ -2522,6 +2840,7 @@ FINAL PAGE RETRY {generation_attempt}:
                     f"Remaining generation produced only {len(batch_pages)} "
                     f"of {batch_count} pages in batch"
                 )
+                last_required_changes = ["Return one complete final page with 5-7 sentences and two short paragraphs."]
                 continue
 
             sanitized = self._sanitize_generated_pages(batch_pages[:batch_count])
@@ -2529,11 +2848,51 @@ FINAL PAGE RETRY {generation_attempt}:
                 valid, reason = self._validate_final_page(sanitized[0], working_pages)
                 if not valid:
                     last_error = reason
+                    last_required_changes = [
+                        "Write a complete final page rather than a caption or repeated scene.",
+                        "Finish the original problem and end without a question or sequel hook.",
+                    ]
                     print(
                         f"[PERF] final_page_rejected attempt={generation_attempt} "
                         f"story_title={title!r} reason={reason}"
                     )
                     continue
+
+                semantic_valid, semantic_reason, required_changes, check_results = await self._review_final_page_semantics(
+                    request=request,
+                    title=title,
+                    existing_pages=working_pages,
+                    candidate_page=sanitized[0],
+                )
+                if not semantic_valid:
+                    last_error = semantic_reason
+                    last_required_changes = required_changes
+                    print(
+                        f"[PERF] final_page_semantic_rejected attempt={generation_attempt} "
+                        f"story_title={title!r} reason={semantic_reason} "
+                        f"required_changes={required_changes}"
+                    )
+
+                    # On the final completion-first pass, accept only when the
+                    # essential completion criteria pass. Secondary polish may
+                    # never strand a child at six pages.
+                    critical_checks = (
+                        "resolves_opening_promise",
+                        "resolves_main_problem",
+                        "emotional_payoff_complete",
+                        "no_new_plot",
+                        "satisfying_ending",
+                    )
+                    critical_pass = bool(check_results) and all(
+                        check_results.get(key) is True for key in critical_checks
+                    )
+                    if generation_attempt < max_attempts or not critical_pass:
+                        continue
+                    print(
+                        f"[PERF] final_page_completion_validated_with_secondary_warnings "
+                        f"story_title={title!r} checks={check_results}"
+                    )
+
                 sanitized[0] = self._ensure_the_end(sanitized[0])
                 print(
                     f"[PERF] final_page_accepted attempt={generation_attempt} "
@@ -2701,6 +3060,7 @@ STORY FACTS:
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 
+{self._first_page_spine_setup_rules(request)}
 PAGE 1 JOB:
 - Write like a relaxed children's author starting a favourite bedtime adventure.
 - Start from this theme-matched opening idea, rewritten naturally: "{opening}"
@@ -2904,8 +3264,15 @@ JSON ONLY:
         existing_pages_text = "\n\n".join(
             f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or [])
         )
+        story_spine = self._story_spine_block(
+            request=request,
+            title=title,
+            first_page=(existing_pages or [""])[0],
+        )
         final_page_number = next_page_number + remaining_page_count - 1
         intended_final_page = self._intended_page_count(request)
+        page_role = self._page_narrative_role(next_page_number)
+        page_tension = self._page_tension_rules(next_page_number)
         includes_final_page = next_page_number <= intended_final_page <= final_page_number
         if includes_final_page:
             ending_job = f"""FINAL PAGE MODE — THIS STORY ENDS NOW:
@@ -2951,6 +3318,7 @@ STORY FACTS:
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 
+{story_spine}
 EXISTING PAGES:
 {existing_pages_text}
 
@@ -2961,18 +3329,28 @@ AGE LOCK:
 - Do not use adult, poetic, cinematic, symbolic, or fantasy-novel language.
 - If a sentence sounds impressive, simplify it.
 
+STORY FLOW:
+{self._story_flow_rules()}
+
 LITERARY POLISH:
 {self._literary_polish_rules()}
+
+CURRENT PAGE ROLE — NON-NEGOTIABLE:
+{page_role}
+
+CURRENT PAGE TENSION — NON-NEGOTIABLE:
+{page_tension}
 
 CONTINUATION JOB:
 - Write exactly {remaining_page_count} new pages: Page {next_page_number} through Page {final_page_number}.
 - Continue from the latest existing page. Do not recap or contradict it.
 - Keep one main story idea visible.
-- Each page needs one clear job: arrive, meet, notice, try, choose, solve, or settle.
+- Each page must clearly move the story forward. It may arrive somewhere, reveal something, test an idea, force a choice, create a setback, solve part of the problem, or settle after the result. These are examples, not a fixed sequence.
 - Every page should include something a child can picture or remember.
 - Pages before the resolution should end with a small reason to keep listening: a clue, choice, surprise, funny complication, or clear next step.
 - Do not use frightening danger or an unresolved cliffhanger.
 - Do not let several pages only search, wait, look around, or explain. Something must change on every page.
+- Compare the last two existing pages before writing. If they use the same type of scene, this page MUST break that pattern rather than repeat it a third time.
 - Use short dialogue, action, and funny behaviour rather than narrator explanation.
 - Harmless silliness is allowed if it helps the story.
 - Include at least one memorable magical detail that affects the story.
@@ -2980,7 +3358,7 @@ CONTINUATION JOB:
 - The child must help drive the solution.
 - Helpers may guide, misunderstand, or make funny mistakes, but they must not solve everything.
 - Bring back one earlier detail when it becomes useful or emotionally meaningful.
-- Show the moral through action. Do not lecture or write "learned that".
+- Show the moral through action. Do not repeat it after each scene, lecture, or write "learned that".
 
 ENDING JOB FOR THIS BATCH:
 {ending_job}

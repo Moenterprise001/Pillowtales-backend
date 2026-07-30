@@ -50,3 +50,25 @@ class StoryRepository:
     def count_narrations_since(self, user_id: str, since_iso: str) -> int:
         result = self.client.table('stories').select('id', count='exact').eq('user_id', user_id).not_.is_('audio_created_at', 'null').gte('audio_created_at', since_iso).execute()
         return getattr(result, 'count', 0) or 0
+
+    def submit_feedback(self, record: dict) -> dict:
+        result = (
+            self.client.table('story_feedback')
+            .upsert(record, on_conflict='story_id,user_id')
+            .execute()
+        )
+        if not result.data:
+            raise HTTPException(status_code=500, detail='Failed to save story feedback')
+        return result.data[0]
+
+    def get_feedback(self, story_id: str, user_id: str) -> Optional[dict]:
+        result = (
+            self.client.table('story_feedback')
+            .select('*')
+            .eq('story_id', story_id)
+            .eq('user_id', user_id)
+            .limit(1)
+            .execute()
+        )
+        return result.data[0] if result.data else None
+
