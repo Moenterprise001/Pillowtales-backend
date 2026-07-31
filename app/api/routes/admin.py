@@ -278,6 +278,125 @@ def _fallback_metrics(stories: list[dict], since: datetime, now: datetime) -> di
     }
 
 
+
+def _feedback_rating(row: dict) -> int | None:
+    """Return a valid 1-5 rating from supported feedback field names."""
+    for key in ('rating', 'story_rating', 'stars', 'score'):
+        value = row.get(key)
+        if value is None:
+            continue
+        try:
+            rating = int(value)
+        except Exception:
+            continue
+        if 1 <= rating <= 5:
+            return rating
+    return None
+
+
+def _feedback_comment(row: dict) -> str:
+    """Return the first available free-text feedback value."""
+    for key in (
+        'comment',
+        'feedback_text',
+        'feedback',
+        'comments',
+        'improvement_text',
+        'what_to_improve',
+        'reason',
+    ):
+        value = row.get(key)
+        if value is not None and str(value).strip():
+            return str(value).strip()
+    return ''
+
+
+def _feedback_categories(row: dict) -> list[str]:
+    """Normalise optional feedback categories from strings, lists, or JSON-like values."""
+    for key in (
+        'improvement_categories',
+        'categories',
+        'improvements',
+        'feedback_categories',
+        'selected_reasons',
+    ):
+        value = row.get(key)
+        if value is None:
+            continue
+        if isinstance(value, (list, tuple, set)):
+            return [str(item).strip() for item in value if str(item).strip()]
+        if isinstance(value, dict):
+            return [str(item).strip() for item, enabled in value.items() if enabled and str(item).strip()]
+        raw = str(value).strip()
+        if not raw:
+            continue
+        # Handles comma-separated values without depending on a fixed database schema.
+        return [item.strip().strip('[]"\'') for item in raw.split(',') if item.strip().strip('[]"\'')]
+    return []
+
+
+def _build_feedback_metrics(
+    rows: list[dict],
+    *,
+    profile_by_id: dict[str, dict],
+    story_by_id: dict[str, dict],
+) -> dict[str, Any]:
+    ratings: list[int] = []
+    rating_counter: Counter[str] = Counter()
+    category_counter: Counter[str] = Counter()
+    recent: list[dict[str, Any]] = []
+
+    for row in rows:
+        rating = _feedback_rating(row)
+        if rating is not None:
+            ratings.append(rating)
+            rating_counter[f'{rating} star' if rating == 1 else f'{rating} stars'] += 1
+
+        for category in _feedback_categories(row):
+            category_counter[category] += 1
+
+        story_id = str(row.get('story_id') or row.get('story_uuid') or '')
+        user_id = str(row.get('user_id') or row.get('profile_id') or '')
+        story = story_by_id.get(story_id, {})
+        profile = profile_by_id.get(user_id, {})
+
+        recent.append({
+            'created_at': row.get('created_at') or row.get('submitted_at') or row.get('updated_at'),
+            'rating': rating,
+            'story_id': _short_id(story_id),
+            'story_title': story.get('title') or row.get('story_title') or 'Untitled',
+            'user_email': _mask_email(profile.get('email')),
+            'comment': _feedback_comment(row),
+            'categories': _feedback_categories(row),
+        })
+
+    average_rating = round(sum(ratings) / len(ratings), 2) if ratings else 0.0
+    positive = sum(1 for rating in ratings if rating >= 4)
+    needs_attention = sum(1 for rating in ratings if rating <= 3)
+
+    # Keep the rating distribution in a predictable 5-to-1 order.
+    by_rating = {
+        f'{star} star' if star == 1 else f'{star} stars': rating_counter.get(
+            f'{star} star' if star == 1 else f'{star} stars',
+            0,
+        )
+        for star in range(5, 0, -1)
+    }
+
+    return {
+        'total': len(rows),
+        'rated': len(ratings),
+        'average_rating': average_rating,
+        'positive': positive,
+        'positive_percent': _pct(positive, len(ratings)),
+        'needs_attention': needs_attention,
+        'needs_attention_percent': _pct(needs_attention, len(ratings)),
+        'by_rating': by_rating,
+        'by_improvement_category': dict(category_counter.most_common()),
+        'recent': recent[:50],
+    }
+
+
 def _build_periods(now: datetime) -> dict[str, datetime]:
     start_of_today = now.replace(hour=0, minute=0, second=0, microsecond=0)
     return {
@@ -342,6 +461,16 @@ async def get_admin_dashboard(
         max_rows=max_rows,
     )
 
+    feedback_table = (os.getenv('ADMIN_FEEDBACK_TABLE') or 'story_feedback').strip()
+    feedback_rows, feedback_error = _safe_fetch_table_rows(
+        user_repo,
+        feedback_table,
+        '*',
+        order_column='created_at',
+        desc=True,
+        max_rows=max_rows,
+    )
+
     internal_domains = _env_csv('ADMIN_INTERNAL_EMAIL_DOMAINS', 'pillowtales.co')
     internal_emails = _env_csv('ADMIN_INTERNAL_EMAILS')
     internal_user_ids = _env_csv('ADMIN_INTERNAL_USER_IDS')
@@ -355,6 +484,10 @@ async def get_admin_dashboard(
     active_users = users if include_internal else [u for u in users if str(u.get('id')) not in internal_user_id_set]
     active_user_ids = {str(u.get('id')) for u in active_users if u.get('id')}
     active_stories = stories if include_internal else [s for s in stories if str(s.get('user_id')) in active_user_ids]
+    active_feedback = feedback_rows if include_internal else [
+        row for row in feedback_rows
+        if not row.get('user_id') or str(row.get('user_id')) in active_user_ids
+    ]
 
     premium_users = [
         user for user in active_users
@@ -385,6 +518,12 @@ async def get_admin_dashboard(
 
     recent_stories = []
     profile_by_id = {str(user.get('id')): user for user in users}
+    story_by_id = {str(story.get('id')): story for story in stories}
+    feedback = _build_feedback_metrics(
+        active_feedback,
+        profile_by_id=profile_by_id,
+        story_by_id=story_by_id,
+    )
     for story in active_stories[:25]:
         user_id = str(story.get('user_id') or '')
         profile = profile_by_id.get(user_id, {})
@@ -437,6 +576,10 @@ async def get_admin_dashboard(
         'parent_voice_consented_users': len(parent_voice_consented),
         'parent_voice_intro_used_users': len(parent_voice_intro_used),
         'parent_voice_credits_total': parent_voice_credits_total,
+        'feedback_total': feedback['total'],
+        'feedback_average_rating': feedback['average_rating'],
+        'feedback_positive': feedback['positive'],
+        'feedback_needs_attention': feedback['needs_attention'],
     }
 
     return {
@@ -482,6 +625,7 @@ async def get_admin_dashboard(
             'page1_fallbacks_24h': fallback_24h,
             'recent_stories': recent_stories,
         },
+        'feedback': feedback,
         'parent_voice': {
             'by_status': _count_by(active_users, 'parent_voice_status', fallback='none'),
             'ready_users': len(parent_voice_ready),
@@ -505,6 +649,7 @@ async def get_admin_dashboard(
             'users_profile': users_error,
             'stories': stories_error,
             'subscriptions': subscriptions_error,
+            feedback_table: feedback_error,
         },
     }
 
@@ -632,6 +777,7 @@ def _render_recent_stories(stories: list[dict[str, Any]], *, limit: int = 12) ->
             f'<td>{escape(str(story.get("story_language") or ""))}</td>'
             f'<td>{escape(str(story.get("narration_language") or ""))}</td>'
             f'<td>{"Yes" if story.get("has_narration") else "No"}</td>'
+            f'<td>{escape(str(story.get("generation_fallback_reason") or "—"))}</td>'
             '</tr>'
         )
     if not rows:
@@ -642,6 +788,36 @@ def _render_recent_stories(stories: list[dict[str, Any]], *, limit: int = 12) ->
         '<table><thead><tr><th>Created</th><th>Title</th><th>User</th><th>Age</th><th>Story lang</th><th>Narration lang</th><th>Narrated</th><th>Fallback</th></tr></thead><tbody>'
         + ''.join(rows) +
         '</tbody></table></section>'
+    )
+
+
+
+def _render_recent_feedback(feedback_rows: list[dict[str, Any]], *, limit: int = 20) -> str:
+    rows = []
+    for item in feedback_rows[:limit]:
+        rating = item.get('rating')
+        rating_text = f'{rating} / 5' if rating is not None else 'Not rated'
+        categories = ', '.join(str(value) for value in (item.get('categories') or []))
+        comment = str(item.get('comment') or '')
+        rows.append(
+            '<tr>'
+            f'<td>{escape(str(item.get("created_at") or ""))}</td>'
+            f'<td>{escape(rating_text)}</td>'
+            f'<td>{escape(str(item.get("story_title") or "Untitled"))}</td>'
+            f'<td>{escape(str(item.get("user_email") or ""))}</td>'
+            f'<td>{escape(categories or "—")}</td>'
+            f'<td class="feedback-comment">{escape(comment or "—")}</td>'
+            '</tr>'
+        )
+    if not rows:
+        rows.append('<tr><td colspan="6" class="muted">No story feedback received yet</td></tr>')
+    return (
+        '<section class="panel wide">'
+        '<h2>Recent story feedback</h2>'
+        '<div class="table-wrap">'
+        '<table><thead><tr><th>Submitted</th><th>Rating</th><th>Story</th><th>User</th><th>Improve</th><th>Comment</th></tr></thead><tbody>'
+        + ''.join(rows) +
+        '</tbody></table></div></section>'
     )
 
 
@@ -674,6 +850,7 @@ def _dashboard_html(snapshot: dict[str, Any], include_internal: bool) -> str:
     users = snapshot.get('users', {})
     stories = snapshot.get('stories', {})
     parent_voice = snapshot.get('parent_voice', {})
+    feedback = snapshot.get('feedback', {})
     data_gaps = snapshot.get('data_gaps', {})
     generated_at = snapshot.get('generated_at', '')
 
@@ -684,6 +861,10 @@ def _dashboard_html(snapshot: dict[str, Any], include_internal: bool) -> str:
         ('Narrated', headline.get('stories_with_narration', 0), f'{headline.get("story_narration_rate_percent", 0)}% narration rate'),
         ('Page 1 Fallbacks', headline.get('page1_fallbacks_24h', 0), f'{headline.get("page1_fallback_rate_24h_percent", 0)}% last 24h'),
         ('Parent Voice Ready', headline.get('parent_voice_ready_users', 0), 'Users with voice ready'),
+        ('Average Rating', headline.get('feedback_average_rating', 0), 'Average story feedback score out of 5'),
+        ('Feedback', headline.get('feedback_total', 0), 'Total feedback submissions'),
+        ('Positive', headline.get('feedback_positive', 0), f'{feedback.get("positive_percent", 0)}% rated 4–5'),
+        ('Needs Attention', headline.get('feedback_needs_attention', 0), f'{feedback.get("needs_attention_percent", 0)}% rated 1–3'),
     ])
 
     warning = ''
@@ -710,7 +891,7 @@ header {{ display:flex; justify-content:space-between; gap:16px; align-items:fle
 h1 {{ margin:0; font-size:32px; letter-spacing:-0.03em; }}
 .subtitle {{ color:var(--muted); margin-top:6px; }}
 .badge {{ display:inline-block; border:1px solid var(--border); background:rgba(255,255,255,.04); color:var(--muted); padding:8px 10px; border-radius:999px; font-size:13px; }}
-.grid {{ display:grid; grid-template-columns: repeat(6, minmax(0, 1fr)); gap:14px; }}
+.grid {{ display:grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap:14px; }}
 .card, .panel {{ background:linear-gradient(180deg, rgba(255,255,255,.045), rgba(255,255,255,.02)); border:1px solid var(--border); border-radius:18px; box-shadow:0 12px 32px rgba(0,0,0,.22); }}
 .card {{ padding:18px; min-height:118px; }}
 .metric-label {{ color:var(--muted); font-size:13px; }}
@@ -731,6 +912,8 @@ tr:last-child td {{ border-bottom:0; }}
 .warning {{ margin:14px 0; border:1px solid rgba(255,107,107,.5); color:#ffdede; background:rgba(255,107,107,.08); padding:12px 14px; border-radius:14px; }}
 .footer {{ color:var(--muted); margin-top:18px; font-size:13px; line-height:1.5; }}
 .controls {{ display:flex; gap:8px; justify-content:flex-end; flex-wrap:wrap; }}
+.table-wrap {{ overflow-x:auto; }}
+.feedback-comment {{ min-width:260px; max-width:520px; white-space:normal; line-height:1.4; }}
 a.button {{ color:var(--text); text-decoration:none; border:1px solid var(--border); padding:8px 12px; border-radius:12px; background:rgba(255,255,255,.05); }}
 code {{ background:rgba(255,255,255,.08); padding:2px 5px; border-radius:6px; }}
 @media (max-width: 1000px) {{ .grid {{ grid-template-columns: repeat(2, minmax(0, 1fr)); }} .panels {{ grid-template-columns:1fr; }} header {{ flex-direction:column; }} }}
@@ -750,6 +933,9 @@ code {{ background:rgba(255,255,255,.08); padding:2px 5px; border-radius:6px; }}
 <section class="grid">{cards}</section>
 <section class="panels">
 {_render_period_table(periods)}
+{_render_kv('Feedback ratings', feedback.get('by_rating', {}), limit=5)}
+{_render_kv('Requested improvements', feedback.get('by_improvement_category', {}), limit=12)}
+{_render_recent_feedback(feedback.get('recent', []))}
 {_render_kv('Story languages', stories.get('by_story_language', {}))}
 {_render_kv('Narration languages', stories.get('by_narration_language', {}))}
 {_render_kv('Themes', stories.get('by_theme', {}))}
