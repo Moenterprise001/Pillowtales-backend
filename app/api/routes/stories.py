@@ -148,6 +148,19 @@ async def get_story(story_id: str, user_id: str = Depends(get_current_user), sto
     story = story_repo.get(story_id, user_id)
     if not story:
         raise HTTPException(status_code=404, detail='Story not found')
+
+    pages = story.get('pages') or []
+    final_page = str(pages[-1] or '') if pages else ''
+    logger.info(
+        '[API_STORY_RESPONSE] user_id=%s story_id=%s status=%s expected_pages=%s page_count=%s final_page_chars=%s final_page_tail=%r',
+        user_id,
+        story_id,
+        story.get('generation_status'),
+        story.get('expected_pages'),
+        len(pages),
+        len(final_page),
+        final_page[-120:],
+    )
     return story
 
 
