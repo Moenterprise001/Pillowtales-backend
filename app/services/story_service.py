@@ -910,7 +910,7 @@ class StoryService:
             f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
             f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
         )
-        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816")
+        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817")
 
     def _normalise_story_world_mode(self, request: GenerateStoryRequest) -> str:
         raw = str(getattr(request, 'storyWorldMode', '') or '').strip().lower()
@@ -3142,6 +3142,93 @@ OUTPUT RULES:
                 )
         return valid_pages
 
+    @staticmethod
+    def _normalise_boundary_overlap_text(text: str) -> str:
+        """Normalise story text only for exact page-boundary overlap comparison."""
+        cleaned = str(text or "").strip().casefold()
+        cleaned = (
+            cleaned
+            .replace("“", '"').replace("”", '"').replace("„", '"')
+            .replace("«", '"').replace("»", '"')
+            .replace("’", "'").replace("‘", "'")
+            .replace("–", "-").replace("—", "-")
+        )
+        cleaned = re.sub(r"\s+", " ", cleaned)
+        return cleaned.strip()
+
+    @staticmethod
+    def _story_sentence_spans(text: str) -> list[tuple[int, int, str]]:
+        """Return multilingual sentence spans while preserving source offsets."""
+        source = str(text or "")
+        if not source.strip():
+            return []
+        spans: list[tuple[int, int, str]] = []
+        pattern = re.compile(r'.+?(?:[.!?؟。！？]+(?:["”’»\)]*)|$)', flags=re.DOTALL)
+        for match in pattern.finditer(source):
+            sentence = match.group(0).strip()
+            if sentence:
+                spans.append((match.start(), match.end(), sentence))
+        return spans
+
+    def _remove_page_boundary_duplicate(
+        self,
+        previous_page: str,
+        new_page: str,
+        language_code: Optional[str] = "en",
+    ) -> tuple[str, bool, str]:
+        """Remove only a confirmed repeated prefix copied from the prior page."""
+        previous = self._sanitize_generated_page_text(previous_page)
+        candidate = self._sanitize_generated_page_text(new_page)
+        if not previous or not candidate:
+            return candidate, False, "empty_boundary"
+
+        prev_spans = self._story_sentence_spans(previous)
+        new_spans = self._story_sentence_spans(candidate)
+        if not prev_spans or not new_spans:
+            return candidate, False, "no_sentence_spans"
+
+        max_sentences = min(4, len(prev_spans), len(new_spans))
+        for count in range(max_sentences, 0, -1):
+            prev_chunk = " ".join(span[2] for span in prev_spans[-count:])
+            new_chunk = " ".join(span[2] for span in new_spans[:count])
+            prev_norm = self._normalise_boundary_overlap_text(prev_chunk)
+            new_norm = self._normalise_boundary_overlap_text(new_chunk)
+            if not prev_norm or prev_norm != new_norm:
+                continue
+
+            base_lang = str(language_code or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+            if base_lang == "ja":
+                substantial = len(re.findall(r'[\u3040-\u30ff\u3400-\u9fff々〆ヵヶA-Za-z0-9]', new_norm)) >= 20
+            else:
+                substantial = len(new_norm.split()) >= 8
+            if not substantial:
+                continue
+
+            cut_at = new_spans[count - 1][1]
+            cleaned = self._sanitize_generated_page_text(candidate[cut_at:].lstrip(" \t\r\n"))
+            if not cleaned:
+                return candidate, False, "overlap_would_empty_page"
+            return cleaned, True, f"exact_{count}_sentence_boundary_overlap"
+
+        prev_paragraphs = [p.strip() for p in re.split(r"\n\s*\n", previous) if p.strip()]
+        new_paragraphs = [p.strip() for p in re.split(r"\n\s*\n", candidate) if p.strip()]
+        if prev_paragraphs and new_paragraphs:
+            prev_norm = self._normalise_boundary_overlap_text(prev_paragraphs[-1])
+            new_norm = self._normalise_boundary_overlap_text(new_paragraphs[0])
+            if prev_norm and prev_norm == new_norm:
+                base_lang = str(language_code or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+                substantial = (
+                    len(re.findall(r'[\u3040-\u30ff\u3400-\u9fff々〆ヵヶA-Za-z0-9]', new_norm)) >= 20
+                    if base_lang == "ja"
+                    else len(new_norm.split()) >= 8
+                )
+                if substantial and len(new_paragraphs) > 1:
+                    cleaned = self._sanitize_generated_page_text("\n\n".join(new_paragraphs[1:]))
+                    if cleaned:
+                        return cleaned, True, "exact_paragraph_boundary_overlap"
+
+        return candidate, False, "no_exact_boundary_overlap"
+
     def _ending_text_without_marker(self, text: str) -> str:
         return re.sub(r"\s*The End\.\s*$", "", str(text or "").strip(), flags=re.IGNORECASE).strip()
 
@@ -3631,6 +3718,55 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                 continue
 
             sanitized = self._sanitize_generated_pages(batch_pages[:batch_count])
+
+            # Deterministic page-boundary de-duplication.
+            # Remove only exact confirmed overlap copied from the end of the
+            # previous page into the start of the new page.
+            boundary_cleaned: list[str] = []
+            previous_for_boundary = working_pages[-1] if working_pages else ""
+            boundary_rejected = False
+            for offset, candidate_page in enumerate(sanitized):
+                cleaned_page, changed, overlap_reason = self._remove_page_boundary_duplicate(
+                    previous_for_boundary,
+                    candidate_page,
+                    request.storyLanguageCode,
+                )
+                page_number = next_page_number + offset
+
+                if changed:
+                    print(
+                        f"[PERF] page_boundary_duplicate_removed "
+                        f"page={page_number} reason={overlap_reason}"
+                    )
+                    revalidated = self._valid_generated_pages(
+                        [cleaned_page],
+                        1,
+                        request=request,
+                    )
+                    if len(revalidated) != 1:
+                        last_error = (
+                            f"Page {page_number} became too thin after removing "
+                            f"repeated content from Page {page_number - 1}"
+                        )
+                        last_required_changes = [
+                            f"Write Page {page_number} with new story content only.",
+                            f"Do not repeat or recap Page {page_number - 1}.",
+                        ]
+                        print(
+                            f"[PERF] page_boundary_duplicate_rejected_after_cleanup "
+                            f"page={page_number} reason={overlap_reason}"
+                        )
+                        boundary_rejected = True
+                        break
+                    cleaned_page = revalidated[0]
+
+                boundary_cleaned.append(cleaned_page)
+                previous_for_boundary = cleaned_page
+
+            if boundary_rejected:
+                continue
+
+            sanitized = boundary_cleaned
             if is_final_page_batch:
                 is_canon = self._is_canon_request(request)
                 valid, reason = self._validate_final_page(sanitized[0], working_pages, request.storyLanguageCode)
