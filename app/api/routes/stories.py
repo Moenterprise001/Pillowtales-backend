@@ -57,6 +57,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
     generation_status = story_data.get('generation_status') or ('complete' if len(pages) >= expected_pages else 'partial')
     custom_moral = (request.customMoral or '').strip()[:15] if getattr(request, 'customMoral', None) else ''
     effective_moral = (custom_moral if request.moral == 'other' and custom_moral else request.moral)
+    story_world_metadata = story_service.get_story_world_generation_metadata(request)
 
     record = {
         'user_id': user_id,
@@ -81,6 +82,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         'generation_status': generation_status,
         'expected_pages': expected_pages,
         'generation_error': None,
+        **story_world_metadata,
         'created_at': datetime.now(timezone.utc).isoformat(),
     }
     saved_story = story_repo.insert(record)
@@ -211,6 +213,10 @@ async def submit_story_feedback(
         'generation_status': story.get('generation_status'),
         'generation_time_seconds': story.get('generation_time_seconds'),
         'is_continuation': bool(story.get('continue_from_story_id') or story.get('parent_story_id')),
+        'story_world_slug': story.get('story_world_slug'),
+        'story_world_mode': story.get('story_world_mode'),
+        'story_world_anchor_slug': story.get('story_world_anchor_slug'),
+        'story_world_prompt_pack_version': story.get('story_world_prompt_pack_version'),
     }
 
     saved_feedback = story_repo.submit_feedback(feedback_record)

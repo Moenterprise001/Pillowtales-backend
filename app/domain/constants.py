@@ -8,6 +8,8 @@ SUPPORTED_LANGUAGES: Dict[str, str] = {
     'fr': 'French',
     'de': 'German',
     'it': 'Italian',
+    'ja': 'Japanese',
+    'ar': 'Arabic',
 }
 
 VOICE_PRESETS: Dict[str, Dict[str, Any]] = {
@@ -18,6 +20,8 @@ VOICE_PRESETS: Dict[str, Dict[str, Any]] = {
     'night_owl_german': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'Weise Eule', 'description': 'Sanfte deutsche Stimme zum Einschlafen', 'icon': '🦉', 'language_code': 'de', 'tier': 'free'},
     'night_owl_french': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'Hibou Sage', 'description': 'Douce voix française pour dormir', 'icon': '🦉', 'language_code': 'fr', 'tier': 'free'},
     'night_owl_italian': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'Gufo Saggio', 'description': 'Dolce voce italiana per dormire', 'icon': '🦉', 'language_code': 'it', 'tier': 'free'},
+    'night_owl_japanese': {'provider': 'openai', 'voice_id': 'shimmer', 'name': '夜ふかしフクロウ', 'description': 'やさしく落ち着いた日本語の読み聞かせ', 'icon': '🦉', 'language_code': 'ja', 'tier': 'free'},
+    'night_owl_arabic': {'provider': 'openai', 'voice_id': 'shimmer', 'name': 'بومة الليل', 'description': 'صوت عربي هادئ ودافئ لقصص ما قبل النوم', 'icon': '🦉', 'language_code': 'ar', 'tier': 'free'},
 }
 
 STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
@@ -33,6 +37,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Luna, la chouette de la lune',
             'de': 'Luna, die Mondeule',
             'it': 'Luna, la civetta della luna',
+            'ja': '月のフクロウ、ルナ',
+            'ar': 'لونا، بومة القمر',
         },
         'description_i18n': {
             'en': 'A wise little owl who glows softly in moonlight',
@@ -40,6 +46,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Une petite chouette sage qui brille doucement au clair de lune',
             'de': 'Eine kleine weise Eule, die im Mondlicht sanft leuchtet',
             'it': 'Una piccola civetta saggia che brilla dolcemente alla luce della luna',
+            'ja': '月明かりの中でやさしく光る、小さくて賢いフクロウ',
+            'ar': 'بومة صغيرة حكيمة تتوهج بلطف في ضوء القمر',
         },
     },
     'milo_fox': {
@@ -54,6 +62,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Milo, le renard somnolent',
             'de': 'Milo, der schläfrige Fuchs',
             'it': 'Milo, la volpe assonnata',
+            'ja': 'ねむたいキツネのマイロ',
+            'ar': 'مايلو، الثعلب النعسان',
         },
         'description_i18n': {
             'en': 'A cozy fox who knows all the best sleeping spots',
@@ -61,6 +71,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Un renard tout doux qui connaît les meilleurs endroits pour s’endormir',
             'de': 'Ein gemütlicher Fuchs, der die besten Schlafplätze kennt',
             'it': 'Una volpe tenera che conosce tutti i posti migliori per addormentarsi',
+            'ja': 'いちばん心地よく眠れる場所をよく知っている、やさしいキツネ',
+            'ar': 'ثعلب لطيف يعرف أفضل الأماكن الهادئة للنوم',
         },
     },
     'spark_dragon': {
@@ -75,6 +87,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Spark, le tout petit dragon',
             'de': 'Spark, der winzige Drache',
             'it': 'Spark, il piccolo drago',
+            'ja': '小さなドラゴンのスパーク',
+            'ar': 'سبارك، التنين الصغير',
         },
         'description_i18n': {
             'en': 'A palm-sized dragon who breathes warm, sparkly light',
@@ -82,6 +96,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Un dragon minuscule qui tient dans la main et souffle une lumière chaude et scintillante',
             'de': 'Ein handflächengroßer Drache, der warmes, funkelndes Licht atmet',
             'it': 'Un draghetto grande come una mano che soffia una luce calda e scintillante',
+            'ja': '手のひらほどの小さなドラゴン。あたたかくきらめく光をふきます',
+            'ar': 'تنين صغير بحجم كف اليد ينفث ضوءًا دافئًا ومتألقًا',
         },
     },
     'stella_fairy': {
@@ -96,6 +112,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Stella, la fée des étoiles',
             'de': 'Stella, die Sternenfee',
             'it': 'Stella, la fata delle stelle',
+            'ja': '星の妖精ステラ',
+            'ar': 'ستيلا، جنية النجوم',
         },
         'description_i18n': {
             'en': 'A tiny fairy who sprinkles sleepy stardust',
@@ -103,6 +121,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Une minuscule fée qui répand une poussière d’étoiles pour s’endormir',
             'de': 'Eine winzige Fee, die schläfrigen Sternenstaub verstreut',
             'it': 'Una fatina minuscola che sparge polvere di stelle per la nanna',
+            'ja': '眠りを誘う星の粉をそっとまく、小さな妖精',
+            'ar': 'جنية صغيرة تنثر غبار النجوم الهادئ للمساعدة على النوم',
         },
     },
     'bramble_bear': {
@@ -117,6 +137,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Bramble, l’ours tout doux',
             'de': 'Bramble, der sanfte Bär',
             'it': 'Bramble, l’orso gentile',
+            'ja': 'やさしいクマのブランブル',
+            'ar': 'برامبل، الدب اللطيف',
         },
         'description_i18n': {
             'en': 'A soft, cuddly bear who gives the best hugs',
@@ -124,6 +146,8 @@ STORY_COMPANIONS: Dict[str, Dict[str, Any]] = {
             'fr': 'Un ours doux et câlin qui donne les meilleurs câlins',
             'de': 'Ein weicher, kuscheliger Bär, der die besten Umarmungen gibt',
             'it': 'Un orso morbido e affettuoso che dà gli abbracci più belli',
+            'ja': 'ふわふわでやさしく、ぎゅっと抱きしめるのが得意なクマ',
+            'ar': 'دب ناعم وحنون يمنح أجمل العناق',
         },
     },
 }
@@ -133,7 +157,7 @@ SUBSCRIPTION_TIERS: Dict[str, Dict[str, Any]] = {
         'weekly_story_limit': 2,
         'weekly_narration_limit': 2,
         'max_saved_stories': 10,
-        'narrators': ['wise_owl', 'night_owl_english', 'night_owl_spanish', 'night_owl_german', 'night_owl_french', 'night_owl_italian'],
+        'narrators': ['wise_owl', 'night_owl_english', 'night_owl_spanish', 'night_owl_german', 'night_owl_french', 'night_owl_italian', 'night_owl_japanese', 'night_owl_arabic'],
         'companions': ['luna_owl', 'milo_fox'],
         'parent_voice': True,
     },

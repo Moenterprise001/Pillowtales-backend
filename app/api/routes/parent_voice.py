@@ -80,6 +80,14 @@ async def upload_parent_voice(
         raise HTTPException(status_code=400, detail='Please upload all 6 voice samples.')
 
     api_key = os.getenv('ELEVENLABS_API_KEY', '').strip()
+
+    logger.info(
+    	'[PARENT_VOICE_KEY_CHECK] configured=%s starts_sk=%s length=%s',
+    	bool(api_key),
+    	api_key.startswith('sk_'),
+    	len(api_key),
+    )
+
     if not api_key:
         raise HTTPException(status_code=500, detail='ELEVENLABS_API_KEY is not configured.')
 
@@ -121,6 +129,12 @@ async def upload_parent_voice(
         raise HTTPException(status_code=502, detail='Failed to connect to ElevenLabs while creating the voice profile.')
 
     if response.status_code not in (200, 201):
+        logger.error(
+            '[PARENT_VOICE_ELEVENLABS_ERROR] user_id=%s status=%s response=%s',
+            user_id,
+            response.status_code,
+            response.text[:1000],
+        )
         user_repo.update_profile(user_id, {'parent_voice_status': 'error'})
         _set_user_meta(user_id, {'status': 'error', 'error': response.text[:500]})
         raise HTTPException(status_code=502, detail=f'ElevenLabs could not create the voice profile: {response.text[:200]}')
@@ -164,7 +178,7 @@ async def delete_parent_voice_profile(user_id: str = Depends(get_current_user), 
     meta = _get_user_meta(user_id)
     voice_id = profile.get('parent_voice_id') or meta.get('voice_id')
     api_key = os.getenv('ELEVENLABS_API_KEY', '').strip()
-
+    
     if voice_id and api_key:
         try:
             async with httpx.AsyncClient(timeout=60.0) as client_http:

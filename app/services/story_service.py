@@ -30,6 +30,7 @@ from app.domain.constants import STORY_COMPANIONS, SUBSCRIPTION_TIERS, SUPPORTED
 from app.models.story import GenerateStoryRequest
 from app.models.subscription import SubscriptionResponse
 from app.repositories.story_repository import StoryRepository
+from app.repositories.story_world_repository import StoryWorldRepository
 from app.utils.story_text import postprocess_story_pages
 
 
@@ -861,10 +862,29 @@ FIRST_PAGE_SOFT_LIMIT_SECONDS = 18
 # after pages 1-3, while preserving Page-1-first playback.
 BACKGROUND_PAGE_BATCH_SIZE = 1
 
+# Background continuation must not hang forever on one provider request.
+# Page 1 remains on the existing fast path; this applies only to Pages 2+.
+BACKGROUND_PAGE_TIMEOUT_SECONDS = 12
+BACKGROUND_PAGE_MAX_ATTEMPTS = 2
+
+# If all immediate continuation attempts for the next page fail (for example,
+# Gemini returns HTTP 200 with empty response text), do not permanently strand
+# an otherwise playable partial story. Retry the SAME next page after a short
+# provider-cooldown delay before allowing the background task to pause.
+#
+# This applies only to Pages 2+ and does not alter the Page-1-first path.
+BACKGROUND_CONTINUATION_RECOVERY_ATTEMPTS = 2
+BACKGROUND_CONTINUATION_RECOVERY_DELAY_SECONDS = 1.5
+
+# Canon-only Story Worlds release. Folk Adventures stay implemented but are
+# disabled by default until their rules/content layer is production-ready.
+ENABLE_FOLK_ADVENTURES = os.getenv("ENABLE_FOLK_ADVENTURES", "false").strip().lower() in {"1", "true", "yes", "on"}
+
 
 class StoryService:
-    def __init__(self, story_repo: StoryRepository):
+    def __init__(self, story_repo: StoryRepository, story_world_repo: Optional[StoryWorldRepository] = None):
         self.story_repo = story_repo
+        self.story_world_repo = story_world_repo
 
         # Prefer config.py settings, but fall back directly to environment
         # variables so local .env loading issues do not silently disable Gemini.
@@ -890,6 +910,430 @@ class StoryService:
             f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
             f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
         )
+        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816")
+
+    def _normalise_story_world_mode(self, request: GenerateStoryRequest) -> str:
+        raw = str(getattr(request, 'storyWorldMode', '') or '').strip().lower()
+        aliases = {
+            'traditional_folk_tale': 'canon',
+            'original_folk_story': 'canon',
+            'canon': 'canon',
+            'adapted_folk_tale': 'folk_adventure',
+            'pillowtales_folk_adventure': 'folk_adventure',
+            'folk_adventure': 'folk_adventure',
+            'adapted': 'folk_adventure',
+        }
+        return aliases.get(raw, raw)
+
+    def _is_canon_request(self, request: GenerateStoryRequest) -> bool:
+        return self._normalise_story_world_mode(request) == 'canon'
+
+    def _is_folk_adventure_request(self, request: GenerateStoryRequest) -> bool:
+        return self._normalise_story_world_mode(request) == 'folk_adventure'
+
+
+    def _moral_requested(self, request: GenerateStoryRequest) -> bool:
+        raw = str(getattr(request, 'moral', '') or '').strip().lower()
+        return raw not in {'', 'none', 'no moral', 'no_moral', 'null', 'undefined'}
+
+    def _select_living_world_episode_seed(self, request: GenerateStoryRequest, context: Optional[dict] = None) -> Optional[dict]:
+        """Select and cache one continuity seed locally for the full request.
+
+        This adds no model call and therefore preserves the Page-1-first path.
+        """
+        context = context or self._resolve_story_world_context(request)
+        if not context or context.get('mode') != 'folk_adventure':
+            return None
+        cached = context.get('living_world_episode_seed')
+        if isinstance(cached, dict):
+            return cached
+        continuity = context.get('living_world_continuity') or {}
+        content = continuity.get('content') if isinstance(continuity, dict) else {}
+        content = content if isinstance(content, dict) else {}
+        seeds = [seed for seed in (content.get('story_seeds') or []) if isinstance(seed, dict)]
+        selected = random.choice(seeds) if seeds else None
+        context['living_world_episode_seed'] = selected
+        return selected
+
+    def _living_world_prompt_payload(self, request: GenerateStoryRequest) -> dict:
+        context = self._resolve_story_world_context(request) or {}
+        source_canon = context.get('source_canon') or {}
+        continuity = context.get('living_world_continuity') or {}
+        episode_seed = self._select_living_world_episode_seed(request, context)
+        return {
+            'source_canon_version': source_canon.get('version'),
+            'source_canon': source_canon.get('content') or {},
+            'continuity_version': continuity.get('version'),
+            'living_world_continuity': continuity.get('content') or {},
+            'selected_episode_seed': episode_seed or {},
+        }
+
+    def _resolve_story_world_context(self, request: GenerateStoryRequest) -> Optional[dict]:
+        """Resolve and cache one stable Story World context per request."""
+        slug = str(getattr(request, 'storyWorldSlug', '') or '').strip().lower()
+        mode = self._normalise_story_world_mode(request)
+        if not slug or not mode:
+            return None
+
+        if mode == 'folk_adventure' and not ENABLE_FOLK_ADVENTURES:
+            raise HTTPException(
+                status_code=404,
+                detail='PillowTales Folk Adventures are not enabled in this release',
+            )
+
+        cached = getattr(request, '_pillowtales_story_world_context', None)
+        if isinstance(cached, dict):
+            cached_world = cached.get('world') or {}
+            if str(cached_world.get('slug') or '').strip().lower() == slug and cached.get('mode') == mode:
+                return cached
+
+        if not self.story_world_repo:
+            raise HTTPException(status_code=500, detail='Story World repository is not configured')
+
+        context = self.story_world_repo.get_generation_context(
+            slug=slug,
+            language_code=request.storyLanguageCode,
+            age=self._safe_child_age(request.age),
+            mode=mode,
+        )
+        if not context or not context.get('prompt_pack'):
+            raise HTTPException(status_code=404, detail='Published Story World prompt pack not found')
+
+        canon_stories = context.get('canon_stories') or []
+        requested_anchor_slug = str(getattr(request, 'storyWorldAnchorSlug', '') or '').strip().lower()
+
+        if requested_anchor_slug:
+            selected_anchor = next(
+                (row for row in canon_stories if str(row.get('slug') or '').strip().lower() == requested_anchor_slug),
+                None,
+            )
+            if not selected_anchor:
+                raise HTTPException(
+                    status_code=409,
+                    detail='Selected folklore story is not available for this child age or Story World',
+                )
+            if mode == 'folk_adventure':
+                if not bool(selected_anchor.get('living_world_expansion_allowed')):
+                    raise HTTPException(
+                        status_code=409,
+                        detail='Selected folklore story is not available for PillowTales Folk Adventure',
+                    )
+                generation_rules = selected_anchor.get('generation_rules') or {}
+                folk_rules = generation_rules.get('folk_adventure') if isinstance(generation_rules, dict) else None
+                if isinstance(folk_rules, dict) and folk_rules.get('allowed') is False:
+                    raise HTTPException(
+                        status_code=409,
+                        detail='Selected folklore story is not available for PillowTales Folk Adventure',
+                    )
+            context['anchor'] = selected_anchor
+        elif canon_stories:
+            eligible_rows = canon_stories
+            if mode == 'folk_adventure':
+                eligible_rows = []
+                for row in canon_stories:
+                    if not bool(row.get('living_world_expansion_allowed')):
+                        continue
+                    generation_rules = row.get('generation_rules') or {}
+                    folk_rules = generation_rules.get('folk_adventure') if isinstance(generation_rules, dict) else None
+                    if isinstance(folk_rules, dict) and folk_rules.get('allowed') is False:
+                        continue
+                    eligible_rows.append(row)
+            if eligible_rows:
+                context['anchor'] = random.choice(eligible_rows)
+            elif mode == 'canon':
+                raise HTTPException(status_code=409, detail='No published original folk story is available for this age')
+            else:
+                raise HTTPException(status_code=409, detail='No published Folk Adventure source is available for this age')
+        elif mode == 'canon':
+            raise HTTPException(status_code=409, detail='No published original folk story is available for this age')
+        else:
+            raise HTTPException(status_code=409, detail='No published Folk Adventure source is available for this age')
+
+        context['mode'] = mode
+        if mode == 'folk_adventure':
+            seed = self._select_living_world_episode_seed(request, context)
+            print(
+                "[STORY_WORLD_CONTEXT] "
+                f"mode={mode} slug={slug} "
+                f"source_canon_loaded={bool(context.get('source_canon'))} "
+                f"continuity_loaded={bool(context.get('living_world_continuity'))} "
+                f"episode_seed={str((seed or {}).get('title') or '')!r}"
+            )
+        try:
+            setattr(request, '_pillowtales_story_world_context', context)
+        except Exception:
+            pass
+        return context
+
+    @staticmethod
+    def _canon_value(anchor: dict, *keys: str, default: Any = None) -> Any:
+        """Read Canon values from the actual Story World record shape.
+
+        Canon story columns live at the top level, while detailed enforcement
+        data is stored inside generation_rules. Older records may also carry a
+        content object, so keep that as a backward-compatible fallback.
+        """
+        containers = [anchor]
+        generation_rules = anchor.get('generation_rules')
+        if isinstance(generation_rules, dict):
+            containers.append(generation_rules)
+        content = anchor.get('content')
+        if isinstance(content, dict):
+            containers.append(content)
+
+        for container in containers:
+            for key in keys:
+                value = container.get(key)
+                if value not in (None, '', [], {}):
+                    return value
+        return default
+
+    @staticmethod
+    def _canon_display_title(anchor: dict) -> str:
+        """Return the published title for the requested generation language.
+
+        The repository attaches the selected catalogue translation as
+        ``_story_translation``. Only the display title is localised here;
+        authoritative Canon characters, events, locations and generation rules
+        remain on the base Canon record.
+        """
+        translation = anchor.get('_story_translation')
+        if isinstance(translation, dict):
+            translated_title = str(translation.get('title') or '').strip()
+            if translated_title:
+                return translated_title
+
+        return str(
+            StoryService._canon_value(
+                anchor,
+                'title',
+                'official_title',
+                'canonical_title',
+                default='Original Folk Story',
+            )
+        )
+
+    def _canon_contract(self, request: GenerateStoryRequest) -> dict:
+        context = self._resolve_story_world_context(request)
+        if not context or context.get('mode') != 'canon':
+            return {}
+        anchor = context.get('anchor') or {}
+        title = self._canon_display_title(anchor)
+        return {
+            'title': str(title),
+            'overview': self._canon_value(anchor, 'overview', 'synopsis', 'summary', 'canonical_summary', default=''),
+            'historical_context': self._canon_value(anchor, 'historical_context', 'source_context', 'tradition_context', default=''),
+            'characters': self._canon_value(anchor, 'main_characters', 'characters', 'required_characters', 'principal_characters', default=[]),
+            'locations': self._canon_value(anchor, 'locations', 'required_locations', default=[]),
+            'required_scenes': self._canon_value(anchor, 'required_scenes', 'scenes', 'scene_sequence', default=[]),
+            'required_events': self._canon_value(anchor, 'required_events', 'events', 'event_sequence', default=[]),
+            'required_event_order': self._canon_value(anchor, 'required_event_order', 'event_order', default=[]),
+            'forbidden_additions': self._canon_value(anchor, 'forbidden_additions', 'forbidden_changes', 'prohibited_inventions', default=[]),
+            'allowed_embellishments': self._canon_value(anchor, 'allowed_embellishments', 'permitted_adaptations', default=[]),
+            'child_insertion_rules': self._canon_value(anchor, 'child_insertion_rules', 'child_role', default=[]),
+            'ending_rules': self._canon_value(anchor, 'required_ending', 'ending_rules', 'canonical_ending', 'ending', default=''),
+            'validation_rules': self._canon_value(anchor, 'validation_rules', 'canon_validation', default=[]),
+            'bedtime_adaptation': self._canon_value(anchor, 'bedtime_adaptation', default=''),
+        }
+
+    def _folk_adventure_contract(self, request: GenerateStoryRequest) -> dict:
+        """Return the selected folklore source as an expansion contract.
+
+        Folk Adventure is creative, but it must exist because the selected
+        folklore source exists. The same request-level Story World context is
+        reused for Page 1, Pages 2-7, retries and metadata persistence.
+        """
+        context = self._resolve_story_world_context(request)
+        if not context or context.get('mode') != 'folk_adventure':
+            return {}
+        anchor = context.get('anchor') or {}
+        generation_rules = anchor.get('generation_rules') or {}
+        folk_rules = generation_rules.get('folk_adventure') or {}
+
+        return {
+            'source_title': str(anchor.get('title') or ''),
+            'source_slug': str(anchor.get('slug') or ''),
+            'summary': anchor.get('summary') or '',
+            'characters': anchor.get('main_characters') or [],
+            'locations': anchor.get('locations') or [],
+            'creatures': anchor.get('creatures') or [],
+            'core_values': anchor.get('core_values') or [],
+            'protected_facts': folk_rules.get('protected_facts') or [],
+            'valid_timeframes': folk_rules.get('valid_timeframes') or [],
+            'valid_entry_points': folk_rules.get('valid_entry_points') or [],
+            'expandable_consequences': folk_rules.get('expandable_consequences') or [],
+            'forbidden_contradictions': folk_rules.get('forbidden_contradictions') or [],
+            'allowed': folk_rules.get('allowed', True),
+        }
+
+    def _folk_adventure_contract_block(self, request: GenerateStoryRequest) -> str:
+        contract = self._folk_adventure_contract(request)
+        if not contract:
+            return ''
+        payload = json.dumps(contract, ensure_ascii=False, separators=(',', ':'))
+        return f"""FOLK ADVENTURE SOURCE CONTRACT — AUTHORITATIVE:
+{payload}
+
+SOURCE DEPENDENCY RULES:
+- This is a new Living World episode, not a retelling and not a repair of the legend.
+- Preserve all protected facts and forbidden contradictions.
+- The selected source is historical foundation and identity; it is not a compulsory plot template.
+- Legendary characters may lead the episode when compatible with Source Canon.
+- The listening child is not a character in Living World episodes. The child's name may appear only in the brief external Page 1 bedtime invitation; once the episode begins, do not insert, address, describe, or refer to the listener inside the plot.
+- Do not invent a missing, forgotten, corrected, repaired, recovered, secret, or alternative part of the recorded legend.
+- Never make any new character responsible for completing or correcting canon.
+- Protected names retain exact spelling, accents, spacing and capitalisation.
+- Pronunciation guidance changes narration only, never written spelling.
+"""
+
+    def _canon_contract_block(self, request: GenerateStoryRequest) -> str:
+        contract = self._canon_contract(request)
+        if not contract:
+            return ''
+        payload = json.dumps(contract, ensure_ascii=False, separators=(',', ':'))
+        return f"""CANON SOURCE OF TRUTH — AUTHORITATIVE:
+{payload}
+
+CANON AUTHORITY RULES:
+- Retell this record. Do not create a new plot inspired by it.
+- Preserve the exact canonical title, characters, locations, events, sequence and ending.
+- Any Canon character or location marked protected=true is immutable display text. Use its stored spelling, accents, spacing and capitalisation exactly every time it appears.
+- Never anglicise, translate, simplify, modernise, respell, de-accent or change the capitalisation of a protected Canon name.
+- A shortened reference is allowed only when it is an exact component of the protected stored name (for example, Fionn from Fionn mac Cumhaill). Never substitute a different variant such as Finn.
+- Pronunciation guidance affects narration only; it must never change the written story spelling.
+- Do not invent objects, quests, morals, motivations, titles, villains, helpers, solutions or endings.
+- Ignore the parent's theme and moral as plot instructions.
+- The listening child must remain completely outside the Canon story.
+- Do not mention the child's name anywhere in the generated story prose.
+- Do not address, describe or refer to the listening child in the opening, body, ending, epilogue, dialogue, framing device or bedtime outro.
+- Do not invent a parent, grown-up, narrator or storyteller speaking to the listening child.
+- Only canonical characters may appear or participate in the story.
+- Personalisation may affect age-appropriate vocabulary, sentence complexity, pacing, intensity, length and bedtime tone only. It must not insert the listening child into the prose.
+- These rules override child_insertion_rules for Original Folk Stories. Canon stories never include the listening child.
+- Bedtime-safe connective details may clarify a canonical departure without changing it: when someone leaves home, family, guardians or companions for an extended journey, do not accidentally imply an unexplained disappearance if the source permits a brief acknowledgement, farewell, permission, witnessed departure or equivalent reassurance.
+- Such connective detail must never change the canonical decision, event, relationship, consequence or ending.
+- Improve only age clarity, dialogue, pacing, warmth and bedtime readability.
+- When a general creative rule conflicts with canon, canon wins.
+"""
+
+    def _story_world_prompt_block(self, request: GenerateStoryRequest) -> str:
+        context = self._resolve_story_world_context(request)
+        if not context:
+            return ''
+
+        world = context['world']
+        prompt_pack = context.get('prompt_pack') or {}
+        story_dna = context.get('story_dna') or {}
+        editorial = context.get('editorial_bible') or {}
+        anchor = context.get('anchor') or {}
+        mode = context.get('mode')
+
+        pack_content = json.dumps(prompt_pack.get('content') or {}, ensure_ascii=False, separators=(',', ':'))
+        dna_content = json.dumps(story_dna.get('content') or {}, ensure_ascii=False, separators=(',', ':'))
+        editorial_content = json.dumps(editorial.get('content') or {}, ensure_ascii=False, separators=(',', ':'))
+        anchor_content = json.dumps(anchor, ensure_ascii=False, separators=(',', ':'))
+
+        if mode == 'canon':
+            return f"""STORY WORLD CONTEXT — CANON ENGINE:
+- Story World slug: {world.get('slug')}
+- Story World category: {world.get('category')}
+- Prompt pack version: {prompt_pack.get('version')}
+
+{self._canon_contract_block(request)}
+
+STORY WORLD DNA — STYLE ONLY:
+{dna_content}
+
+EDITORIAL AND CULTURAL BOUNDARIES:
+{editorial_content}
+
+CANON LAYERING RULE:
+- Canon controls facts, order and ending.
+- Story DNA controls voice and atmosphere only.
+- Parent theme, parent moral, random opening seeds and invented plot engines are disabled.
+"""
+
+        living_payload = self._living_world_prompt_payload(request)
+        living_content = living_payload.get('living_world_continuity') or {}
+        anti_generic = living_content.get('anti_generic_failures') or []
+        quality_contract = living_content.get('episode_quality_contract') or []
+        transplant_test = living_content.get('transplant_test') or ''
+        protagonist_rule = (
+            "Use an established legendary, recurring, or continuity-approved world character as protagonist. "
+            "The listening child remains entirely outside the episode."
+        )
+        return f"""STORY WORLD CONTEXT — LIVING WORLD ENGINE:
+- Story World slug: {world.get('slug')}
+- Story World category: {world.get('category')}
+- Story World type: {world.get('world_type')}
+- Prompt pack version: {prompt_pack.get('version')}
+
+MODE: PILLOWTALES LIVING WORLD
+- Create a new episode inside this continuing Story World.
+- {protagonist_rule}
+- The only listener-facing material allowed is a brief external Page 1 bedtime invitation. The actual episode must begin inside the selected Story World, not in the listener's bedroom, imagination, dream, beach, home, or ordinary life.
+- Do not frame the episode as a symbolic memory of the country.
+- No parent-selected moral or parent-selected theme drives this mode.
+- Begin with an active world-specific situation involving a place, character, institution, creature, conflict, discovery or event from continuity.
+- The selected folklore anchor protects identity and supplies foundations; it does not force the child into the plot.
+
+{self._folk_adventure_contract_block(request)}
+
+PROTECTED SOURCE CANON — WORLD LEVEL:
+{json.dumps(living_payload.get('source_canon') or {}, ensure_ascii=False, separators=(',', ':'))}
+
+PILLOWTALES LIVING WORLD CONTINUITY — AUTHORITATIVE FOR NEW EPISODES:
+{json.dumps(living_content, ensure_ascii=False, separators=(',', ':'))}
+
+SELECTED EPISODE SEED — USE AS THE PRIMARY PREMISE:
+{json.dumps(living_payload.get('selected_episode_seed') or {}, ensure_ascii=False, separators=(',', ':'))}
+
+SELECTED FOLKLORE SOURCE RECORD — PROTECTED FOUNDATION:
+{anchor_content}
+
+COMPILED STORY WORLD PROMPT PACK:
+{pack_content}
+
+STORY WORLD DNA:
+{dna_content}
+
+EDITORIAL AND CULTURAL BOUNDARIES:
+{editorial_content}
+
+LIVING WORLD HARD RULES:
+- The listening child may appear only in the brief external Page 1 bedtime invitation. The child MUST NOT appear in the episode title, plot narration, dialogue, dream, memory, cameo, witness role, helper role, solution, climax, or ending.
+- The protagonist must be an established legendary, recurring, or continuity-approved world character.
+- The story must materially use this world's continuity, geography, characters, powers or institutions.
+- The selected episode seed controls the central premise unless it conflicts with Source Canon.
+- Do not use whispers, humming shells, shimmering fragments, forgotten memories, lost wishes, glowing clues, arbitrary portals or generic magical objects as the plot engine.
+- Do not turn Ireland or another world into a vague memory, feeling or symbol.
+- Do not solve the plot with gentleness, kindness or another moral unless the events naturally require that choice; no moral is requested here.
+- Magic may create possibilities or complications but must not automatically solve the problem.
+- WORLD ISOLATION: use only the selected Story World's canon, continuity, characters, places, powers and institutions. Never import another Story World's identity.
+- LANGUAGE ISOLATION: all ordinary narration, dialogue, descriptions and non-protected invented labels must be natural {SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')}. Do not expose English database prose verbatim merely because source data is stored in English.
+- Protected cultural names and protected proper nouns keep their exact stored spelling. Descriptive or PillowTales-invented place labels that are not protected proper names should be translated naturally and consistently into the requested story language.
+- Transplant Test: {transplant_test}
+- Explicit anti-generic failures: {json.dumps(anti_generic, ensure_ascii=False)}
+- Episode quality contract: {json.dumps(quality_contract, ensure_ascii=False)}
+"""
+
+    def get_story_world_generation_metadata(self, request: GenerateStoryRequest) -> dict:
+        context = self._resolve_story_world_context(request)
+        if not context:
+            return {}
+        prompt_pack = context.get('prompt_pack') or {}
+        anchor = context.get('anchor') or {}
+        return {
+            'story_world_slug': context['world'].get('slug'),
+            'story_world_mode': context.get('mode'),
+            'story_world_anchor_slug': anchor.get('slug'),
+            'story_world_anchor_title': (
+                self._canon_display_title(anchor)
+                if context.get('mode') == 'canon'
+                else anchor.get('title')
+            ),
+            'story_world_prompt_pack_version': prompt_pack.get('version'),
+        }
 
     def _json_generation_config(
         self,
@@ -957,17 +1401,40 @@ class StoryService:
             "required": ["summary", "characters", "setting"],
         }
 
-    def _ending_review_response_schema(self) -> dict:
+    def _ending_review_response_schema(self, include_moral: bool = True) -> dict:
         """Structured semantic review for the final page only."""
         boolean_fields = {
             "resolves_opening_promise": {"type": "boolean"},
             "resolves_main_problem": {"type": "boolean"},
-            "moral_visible_through_action": {"type": "boolean"},
             "emotional_payoff_complete": {"type": "boolean"},
             "callback_earned": {"type": "boolean"},
             "no_new_plot": {"type": "boolean"},
             "ending_feels_earned": {"type": "boolean"},
             "satisfying_ending": {"type": "boolean"},
+        }
+        if include_moral:
+            boolean_fields["moral_visible_through_action"] = {"type": "boolean"}
+        return {
+            "type": "object",
+            "properties": {
+                **boolean_fields,
+                "reason": {"type": "string"},
+                "required_changes": {"type": "array", "items": {"type": "string"}, "maxItems": 6},
+            },
+            "required": [*boolean_fields.keys(), "reason", "required_changes"],
+        }
+
+    def _canon_ending_review_response_schema(self) -> dict:
+        """Structured semantic review for a Canon final page."""
+        boolean_fields = {
+            "canonical_ending_complete": {"type": "boolean"},
+            "required_final_events_present": {"type": "boolean"},
+            "required_event_order_preserved": {"type": "boolean"},
+            "canonical_characters_preserved": {"type": "boolean"},
+            "no_invented_resolution": {"type": "boolean"},
+            "child_does_not_change_outcome": {"type": "boolean"},
+            "no_unfinished_canon_event": {"type": "boolean"},
+            "satisfying_canonical_close": {"type": "boolean"},
         }
         return {
             "type": "object",
@@ -1112,17 +1579,17 @@ class StoryService:
         lang = (language_code or "en").lower()[:2]
         key = raw.lower().replace("-", "_").replace(" ", "_")
         theme_labels = {
-            "dragons": {"en": "dragons", "es": "dragones", "fr": "dragons", "de": "Drachen", "it": "draghi"},
-            "space": {"en": "space", "es": "espacio", "fr": "espace", "de": "Weltraum", "it": "spazio"},
-            "animals": {"en": "animals", "es": "animales", "fr": "animaux", "de": "Tiere", "it": "animali"},
-            "princess": {"en": "princess", "es": "princesa", "fr": "princesse", "de": "Prinzessin", "it": "principessa"},
-            "adventure": {"en": "adventure", "es": "aventura", "fr": "aventure", "de": "Abenteuer", "it": "avventura"},
-            "underwater": {"en": "underwater", "es": "bajo el agua", "fr": "sous l’eau", "de": "Unterwasserwelt", "it": "mondo sottomarino"},
-            "forest": {"en": "forest", "es": "bosque", "fr": "forêt", "de": "Wald", "it": "foresta"},
-            "magic": {"en": "magic", "es": "magia", "fr": "magie", "de": "Magie", "it": "magia"},
-            "dinosaurs": {"en": "dinosaurs", "es": "dinosaurios", "fr": "dinosaures", "de": "Dinosaurier", "it": "dinosauri"},
-            "superheroes": {"en": "superheroes", "es": "superhéroes", "fr": "super-héros", "de": "Superhelden", "it": "supereroi"},
-            "emotions": {"en": "emotions", "es": "emociones", "fr": "émotions", "de": "Gefühle", "it": "emozioni"},
+            "dragons": {"en": "dragons", "es": "dragones", "fr": "dragons", "de": "Drachen", "it": "draghi", "ja": "ドラゴン", "ar": "التنانين"},
+            "space": {"en": "space", "es": "espacio", "fr": "espace", "de": "Weltraum", "it": "spazio", "ja": "宇宙", "ar": "الفضاء"},
+            "animals": {"en": "animals", "es": "animales", "fr": "animaux", "de": "Tiere", "it": "animali", "ja": "動物", "ar": "الحيوانات"},
+            "princess": {"en": "princess", "es": "princesa", "fr": "princesse", "de": "Prinzessin", "it": "principessa", "ja": "お姫さま", "ar": "الأميرة"},
+            "adventure": {"en": "adventure", "es": "aventura", "fr": "aventure", "de": "Abenteuer", "it": "avventura", "ja": "冒険", "ar": "المغامرة"},
+            "underwater": {"en": "underwater", "es": "bajo el agua", "fr": "sous l’eau", "de": "Unterwasserwelt", "it": "mondo sottomarino", "ja": "海の中", "ar": "تحت الماء"},
+            "forest": {"en": "forest", "es": "bosque", "fr": "forêt", "de": "Wald", "it": "foresta", "ja": "森", "ar": "الغابة"},
+            "magic": {"en": "magic", "es": "magia", "fr": "magie", "de": "Magie", "it": "magia", "ja": "魔法", "ar": "السحر"},
+            "dinosaurs": {"en": "dinosaurs", "es": "dinosaurios", "fr": "dinosaures", "de": "Dinosaurier", "it": "dinosauri", "ja": "恐竜", "ar": "الديناصورات"},
+            "superheroes": {"en": "superheroes", "es": "superhéroes", "fr": "super-héros", "de": "Superhelden", "it": "supereroi", "ja": "スーパーヒーロー", "ar": "الأبطال الخارقون"},
+            "emotions": {"en": "emotions", "es": "emociones", "fr": "émotions", "de": "Gefühle", "it": "emozioni", "ja": "気持ち", "ar": "المشاعر"},
         }
         return theme_labels.get(key, {}).get(lang) or theme_labels.get(key, {}).get("en") or raw
 
@@ -1134,17 +1601,17 @@ class StoryService:
         key = raw.lower().replace("-", "_").replace(" ", "_")
         lang = (language_code or "en").lower()[:2]
         relationship_labels = {
-            "mother": {"en": "mother", "es": "madre", "fr": "mère", "de": "Mutter", "it": "mamma"},
-            "mum": {"en": "mum", "es": "mamá", "fr": "maman", "de": "Mama", "it": "mamma"},
-            "mom": {"en": "mum", "es": "mamá", "fr": "maman", "de": "Mama", "it": "mamma"},
-            "father": {"en": "father", "es": "padre", "fr": "père", "de": "Vater", "it": "papà"},
-            "dad": {"en": "dad", "es": "papá", "fr": "papa", "de": "Papa", "it": "papà"},
-            "sister": {"en": "sister", "es": "hermana", "fr": "sœur", "de": "Schwester", "it": "sorella"},
-            "brother": {"en": "brother", "es": "hermano", "fr": "frère", "de": "Bruder", "it": "fratello"},
-            "friend": {"en": "friend", "es": "amigo o amiga", "fr": "ami ou amie", "de": "Freund oder Freundin", "it": "amico o amica"},
-            "cat": {"en": "cat", "es": "gato", "fr": "chat", "de": "Katze", "it": "gatto"},
-            "dog": {"en": "dog", "es": "perro", "fr": "chien", "de": "Hund", "it": "cane"},
-            "pet": {"en": "pet", "es": "mascota", "fr": "animal de compagnie", "de": "Haustier", "it": "animale domestico"},
+            "mother": {"en": "mother", "es": "madre", "fr": "mère", "de": "Mutter", "it": "mamma", "ja": "お母さん", "ar": "الأم"},
+            "mum": {"en": "mum", "es": "mamá", "fr": "maman", "de": "Mama", "it": "mamma", "ja": "お母さん", "ar": "ماما"},
+            "mom": {"en": "mum", "es": "mamá", "fr": "maman", "de": "Mama", "it": "mamma", "ja": "お母さん", "ar": "ماما"},
+            "father": {"en": "father", "es": "padre", "fr": "père", "de": "Vater", "it": "papà", "ja": "お父さん", "ar": "الأب"},
+            "dad": {"en": "dad", "es": "papá", "fr": "papa", "de": "Papa", "it": "papà", "ja": "お父さん", "ar": "بابا"},
+            "sister": {"en": "sister", "es": "hermana", "fr": "sœur", "de": "Schwester", "it": "sorella", "ja": "姉妹", "ar": "الأخت"},
+            "brother": {"en": "brother", "es": "hermano", "fr": "frère", "de": "Bruder", "it": "fratello", "ja": "兄弟", "ar": "الأخ"},
+            "friend": {"en": "friend", "es": "amigo o amiga", "fr": "ami ou amie", "de": "Freund oder Freundin", "it": "amico o amica", "ja": "友だち", "ar": "صديق أو صديقة"},
+            "cat": {"en": "cat", "es": "gato", "fr": "chat", "de": "Katze", "it": "gatto", "ja": "猫", "ar": "قطة"},
+            "dog": {"en": "dog", "es": "perro", "fr": "chien", "de": "Hund", "it": "cane", "ja": "犬", "ar": "كلب"},
+            "pet": {"en": "pet", "es": "mascota", "fr": "animal de compagnie", "de": "Haustier", "it": "animale domestico", "ja": "ペット", "ar": "حيوان أليف"},
         }
         return relationship_labels.get(key, {}).get(lang) or relationship_labels.get(key, {}).get("en") or raw
 
@@ -1155,6 +1622,8 @@ class StoryService:
             "fr": "Aucun compagnon n’est nécessaire.",
             "de": "Es muss kein Begleiter vorkommen.",
             "it": "Non è necessario includere un compagno.",
+            "ja": "物語に相棒を登場させる必要はありません。",
+            "ar": "لا حاجة إلى إضافة رفيق في القصة.",
         }.get((language_code or "en").lower()[:2], "No companion is required.")
 
     def _no_extra_characters_required_text(self, language_code: Optional[str]) -> str:
@@ -1164,6 +1633,8 @@ class StoryService:
             "fr": "Aucun membre de la famille, ami ou animal supplémentaire n’est nécessaire.",
             "de": "Es müssen keine zusätzlichen Familienmitglieder, Freunde oder Haustiere vorkommen.",
             "it": "Non è necessario includere altri familiari, amici o animali.",
+            "ja": "家族や友だち、ペットを追加で登場させる必要はありません。",
+            "ar": "لا حاجة إلى إضافة أفراد آخرين من العائلة أو الأصدقاء أو الحيوانات الأليفة.",
         }.get((language_code or "en").lower()[:2], "No extra family members or friends are required.")
 
     def _select_story_archetype(self) -> dict:
@@ -1865,43 +2336,68 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
         title: Optional[str] = None,
         first_page: Optional[str] = None,
     ) -> str:
-        """Create a stable story contract from the request and Page 1.
-
-        The continuation engine is page-by-page, so Page 1 is treated as the
-        permanent opening promise. This block is regenerated identically from
-        the same request and first page on every continuation call and requires
-        no database schema or API contract change.
-        """
         title_line = title or "the story title created with Page 1"
         opening_text = (first_page or "").strip()
         opening_excerpt = opening_text[:1200] if opening_text else (
             "Page 1 must establish one clear wish, problem, question, promise, or emotional need."
         )
+
+        if self._is_folk_adventure_request(request):
+            seed = self._select_living_world_episode_seed(request) or {}
+            return f"""FIXED LIVING WORLD EPISODE SPINE — DO NOT DRIFT:
+- Story title: {title_line}
+- Selected episode seed: {json.dumps(seed, ensure_ascii=False)}
+- Page 1 establishes the permanent episode promise:
+  {opening_excerpt}
+- Keep the same protagonist and central world-specific problem from page to page.
+- Every major event must deepen, complicate or resolve that problem.
+- The listening child never appears in the episode.
+- Do not replace the premise with an object-retrieval, memory, wish, shell, ribbon, portal or moral demonstration plot.
+- By Page 4, the story must have materially changed direction or understanding through a meaningful clue, reveal, decision or reversal.
+- Page 5 must contain the strongest genuine setback, failed attempt, difficult choice or complication. Do not let the protagonist walk directly from discovery to easy success.
+- Page 6 delivers the decisive action and climax. The protagonist must drive it.
+- Page 7 may complete the already-established climax when needed, but it must also provide consequence, emotional payoff, an earned callback and a safe settled close.
+- Never save the basic cause, culprit or entire solution for an unexplained last-page invention.
+"""
+
+        moral_lines = (
+            f"""- Requested moral: {request.moral}
+- The requested moral must remain recognisable through the child's choices and consequences, but must never be lectured or repeatedly named.
+- At least one meaningful choice in the middle and the decisive action near the ending must demonstrate the moral."""
+            if self._moral_requested(request)
+            else "- No moral was requested. Do not invent, demonstrate or validate one."
+        )
+
         return f"""FIXED STORY SPINE — DO NOT DRIFT:
 - Story title: {title_line}
-- Requested moral: {request.moral}
 - Theme: {request.customTheme or request.theme}
+{moral_lines}
 - Page 1 is the permanent opening promise of this story:
   {opening_excerpt}
 - Identify the ONE central wish, problem, question, promise, or emotional need established there and keep it active from page to page.
-- Every major event must either deepen that same problem, test the requested moral through action, or move directly toward its resolution.
-- Do not replace the opening promise with a more convenient object-retrieval, repair, delivery, or celebration plot unless Page 1 clearly established that plot.
-- The requested moral must remain recognisable through the child's choices and consequences, but must never be lectured or repeatedly named.
-- At least one meaningful choice in the middle and the decisive action near the ending must demonstrate the moral.
+- Every major event must deepen that same problem, reveal something important about it, test the child's choices, or move directly toward its resolution.
+- Do not replace the opening promise with a more convenient object-retrieval, repair, delivery, celebration, or generic magical-task plot unless Page 1 clearly established that plot.
 - Preserve one simple Page 1 detail as an ending callback: an object, phrase, wish, sound, promise, joke, helper behaviour, or image.
-- Page 6 must bring the original problem to its decisive resolution.
+- The child must make at least one meaningful choice that changes what happens next.
+- Page 6 must bring the original problem to its decisive resolution or make that resolution inevitable.
 - Page 7 must answer or fulfil the opening promise, complete the emotional change, reuse the callback naturally, and settle safely.
 - The ending is incomplete if it only fixes an object or completes a task while leaving the opening wish, question, relationship, or emotional need unanswered.
+- The ending should depend on specific events, choices, relationships, clues, habits, or rules from this story. If it could be pasted into another story with only the names changed, it is not good enough.
 """
 
     def _first_page_spine_setup_rules(self, request: GenerateStoryRequest) -> str:
+        moral_line = (
+            f"- Connect it naturally to the requested moral: {request.moral}."
+            if self._moral_requested(request) else
+            "- No moral is requested. Do not invent a moral requirement."
+        )
         return f"""STORY SPINE SETUP:
-- Establish exactly one clear opening promise: a wish, problem, question, promise, misunderstanding, or emotional need.
-- Make that opening promise strong enough to guide all seven pages.
-- Connect it naturally to the requested moral: {request.moral}.
+- Establish exactly one clear opening promise, problem, opportunity or conflict.
+- Make it strong enough to guide all seven pages.
+{moral_line}
 - Plant one simple detail that can return meaningfully in the ending.
-- Do not solve the opening promise on Page 1.
-- Do not create several unrelated mysteries, objects, destinations, or goals.
+- Do not solve it on Page 1.
+- Do not create several unrelated mysteries, objects, destinations or goals.
 """
 
     def _story_flow_rules(self) -> str:
@@ -2011,6 +2507,33 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 """,
         }
         return rules.get(page_number, "")
+
+    def _natural_name_pronoun_rules(self, protect_canon_names: bool = False) -> str:
+        """Global natural name/pronoun guidance for all story-generation paths.
+
+        Prompt-only: this changes prose guidance, not stored names, Canon facts,
+        narration, pronunciation, page flow, polling, or post-processing.
+        """
+        canon_rules = ""
+        if protect_canon_names:
+            canon_rules = """
+CANON NAME PROTECTION:
+- Pronouns may replace unnecessary repetition, but they never change Canon identity.
+- Whenever a protected Canon name is actually written, preserve its stored spelling, accents, spacing and capitalisation exactly.
+- Do not invent nicknames, anglicise, de-accent, respell, modernise or arbitrarily shorten protected names.
+- A shortened Canon form is allowed only when the existing Canon rules explicitly permit that exact form.
+"""
+
+        return """NATURAL NAME & PRONOUN USAGE — GLOBAL STORYTELLING RULE:
+- Introduce the protagonist clearly by name.
+- Once the protagonist's identity is established, avoid unnecessarily repeating the name in consecutive or closely spaced sentences.
+- When it is obvious who is acting, prefer the natural pronoun for that character rather than repeating the name.
+- Reintroduce the protagonist's name when needed for clarity, after another character becomes the focus, following a scene or viewpoint transition, when pronouns could be ambiguous, or when the name adds genuine emotional or narrative emphasis.
+- Keep personalisation present where the story mode allows it, but make it sound like natural human storytelling rather than repeated name insertion.
+- Do not use a numeric name-frequency limit. Choose names or pronouns according to clarity, rhythm and natural prose.
+- Do not mechanically replace names in post-processing; write the sentence naturally in the first place.
+- Avoid several consecutive sentences beginning with the same name or the same pronoun when natural sentence variation is possible.
+""" + canon_rules
 
     def _storycraft_rules(self) -> str:
         return """PILLOWTALES STORY VOICE:
@@ -2144,7 +2667,13 @@ FINAL QUALITY CHECK:
                 age_pool = themed_pool
 
         seed = random.choice(age_pool)
-        template = seed.get(language_code) or seed["en"]
+        template = seed.get(language_code)
+        if not template and language_code == "ja":
+            template = "{childName}は、眠る前の静かな時間に、小さな不思議を見つけました。"
+        elif not template and language_code == "ar":
+            template = "في هدوء ما قبل النوم، وجد {childName} شيئًا صغيرًا وعجيبًا ينتظر بداية الحكاية."
+        elif not template:
+            template = seed["en"]
         return {
             "family": seed.get("family", "place_entry"),
             "sentence": template.replace("{childName}", child),
@@ -2228,6 +2757,10 @@ ENGLISH STORY STYLE:
             return "Write natural Italian bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff or literal phrasing."
         if language_code == "de":
             return "Write natural German bedtime prose, warm, clear, and read-aloud friendly. Avoid stiff or academic phrasing."
+        if language_code == "ja":
+            return "Write natural Japanese bedtime prose for a young child. Use clear native Japanese, short age-appropriate sentences, natural dialogue, and a warm read-aloud rhythm. Avoid literal translated phrasing."
+        if language_code == "ar":
+            return "Write natural Arabic bedtime prose for a young child. Use clear child-friendly Arabic, short age-appropriate sentences, natural dialogue, and a warm read-aloud rhythm. Avoid stiff or literal translated phrasing."
         return "Write warm, clear, read-aloud English bedtime prose. Keep sentences direct and child-friendly."
 
     def _build_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
@@ -2265,6 +2798,7 @@ ENGLISH STORY STYLE:
             character_instruction = self._no_extra_characters_required_text(language_code)
 
         language_style_block = self._language_style_block(request.storyLanguageCode)
+        story_world_block = self._story_world_prompt_block(request)
 
         return f"""You are writing a PillowTales bedtime story.
 
@@ -2280,7 +2814,14 @@ STORY FACTS:
 - Theme: {effective_theme}
 - Moral: {request.moral}
 
+STORY WORLD ISOLATION:
+- If no Story World context follows, this is a standard PillowTales story.
+- Do not import characters, places, canon, continuity, terminology or institutions from Story Worlds into a standard story.
+
+{story_world_block}
+
 {self._first_page_spine_setup_rules(request)}
+{self._natural_name_pronoun_rules(protect_canon_names=self._is_canon_request(request) or self._is_folk_adventure_request(request))}
 {self._storycraft_rules()}
 {self._story_flow_rules()}
 {self._literary_polish_rules()}
@@ -2441,13 +2982,46 @@ OUTPUT RULES:
         return pages
 
     def _count_story_sentences(self, text: str) -> int:
-        """Best-effort sentence count for story-quality validation.
+        """Best-effort multilingual sentence count for story-quality validation.
 
-        This is deliberately lightweight and local. It does not change the
+        Recognises Latin, Arabic and Japanese sentence-ending punctuation.
+        This remains deliberately lightweight and local. It does not change
         Page-1-first architecture, narration, polling, subscriptions, Parent
         Voice, or reader behaviour.
         """
-        return len([part for part in re.split(r'[.!?]+(?:\s+|$)', text or '') if part.strip()])
+        cleaned = str(text or "").strip()
+        if not cleaned:
+            return 0
+        parts = re.split(r'[.!?؟。！？]+(?:\s+|$)?', cleaned)
+        return len([part for part in parts if part.strip()])
+
+    @staticmethod
+    def _story_text_units(text: str, language_code: Optional[str]) -> int:
+        """Return a language-safe lightweight content-size measure.
+
+        Existing whitespace word counts remain unchanged for space-delimited
+        languages. Japanese uses visible Japanese/alphanumeric characters
+        because ``split()`` collapses a whole Japanese sentence into one token.
+        """
+        language = str(language_code or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+        cleaned = str(text or "").strip()
+        if language == "ja":
+            return len(re.findall(r'[\u3040-\u30ff\u3400-\u9fff々〆ヵヶA-Za-z0-9]', cleaned))
+        return len(cleaned.split())
+
+    @staticmethod
+    def _first_page_minimum_units(child_age: int, language_code: Optional[str]) -> tuple[int, str]:
+        """Return the existing Page-1 floor, adapted only where words are unsafe.
+
+        English and other space-delimited languages retain the exact historical
+        28/38/48-word thresholds. Japanese uses a conservative character floor
+        while sentence-count validation continues to provide the stronger shape
+        guard.
+        """
+        language = str(language_code or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+        if language == "ja":
+            return (45 if child_age <= 5 else 60 if child_age <= 8 else 75), "chars"
+        return (28 if child_age <= 5 else 38 if child_age <= 8 else 48), "words"
 
     def _sanitize_generated_page_text(self, text: Any) -> str:
         """Remove model-only page labels and repair obvious formatting splits.
@@ -2471,6 +3045,12 @@ OUTPUT RULES:
             count=1,
             flags=re.IGNORECASE,
         ).lstrip()
+
+        # Gemini can occasionally leave JSON-style escaped quote markers in
+        # the decoded story string (for example: \\"You may go...\\").
+        # Story pages are prose, so remove only the stray escape before a
+        # double quote. This keeps the visible text and narration text clean.
+        cleaned = cleaned.replace('\\"', '"')
 
         # Remove accidental single line wrapping inside paragraphs.
         cleaned = re.sub(r"(?<!\n)\n(?!\n)", " ", cleaned)
@@ -2503,7 +3083,7 @@ OUTPUT RULES:
             if (cleaned := self._sanitize_generated_page_text(page))
         ]
 
-    def _valid_generated_pages(self, pages: Any, expected_count: int) -> list[str]:
+    def _valid_generated_pages(self, pages: Any, expected_count: int, request: Optional[GenerateStoryRequest] = None) -> list[str]:
         """Normalize and validate a generated continuation page batch.
 
         Phase 11 quality guard: pages 2+ must be real story pages, not
@@ -2516,17 +3096,42 @@ OUTPUT RULES:
         valid_pages: list[str] = []
         for index, page in enumerate(processed, start=1):
             text = str(page or "").strip()
-            word_count = len(text.split())
+            language = (request.storyLanguageCode if request is not None else "en")
+            word_count = self._story_text_units(text, language)
             sentence_count = self._count_story_sentences(text)
             paragraph_count = len([p for p in re.split(r'\n\s*\n', text) if p.strip()])
 
-            # Continuation pages should normally be 105-155 words, but the
-            # new simpler picture-book voice can produce good shorter pages.
-            # Keep blocking single-sentence captions, but do not reject valid
-            # bedtime pages just because they are concise.
+            if request is not None and self._is_canon_request(request):
+                leak_reason = self._canon_instruction_leak_reason(text)
+                if leak_reason:
+                    print(
+                        f"[PERF] canon_generated_page_rejected index={index} "
+                        f"reason={leak_reason}"
+                    )
+                    continue
+
+            # Keep the legacy floor for standard/Canon stories. Living World
+            # has a stronger age-aware floor so synopsis-sized pages cannot pass
+            # while still allowing natural variation below the preferred target.
+            base_language = str(language or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+            min_words = 80 if base_language == "ja" else 50
+            min_sentences = 3
+            if request is not None and self._is_folk_adventure_request(request):
+                child_age = self._safe_child_age(request.age)
+                if child_age <= 4:
+                    min_words, min_sentences = 45, 3
+                elif child_age <= 6:
+                    min_words, min_sentences = 60, 4
+                elif child_age <= 8:
+                    min_words, min_sentences = 80, 4
+                elif child_age <= 10:
+                    min_words, min_sentences = 90, 4
+                else:
+                    min_words, min_sentences = 95, 4
+
             if (
-                word_count >= 50
-                and sentence_count >= 3
+                word_count >= min_words
+                and sentence_count >= min_sentences
             ):
                 valid_pages.append(text)
             else:
@@ -2556,14 +3161,26 @@ OUTPUT RULES:
                 fingerprints.add(normalized)
         return fingerprints
 
-    def _validate_final_page(self, page: str, existing_pages: list[str]) -> tuple[bool, str]:
-        """Reject obvious mid-story, repeated, or open-ended final pages."""
+    def _validate_final_page(
+        self,
+        page: str,
+        existing_pages: list[str],
+        language_code: Optional[str] = "en",
+    ) -> tuple[bool, str]:
+        """Reject obvious mid-story, repeated, or open-ended final pages.
+
+        Japanese does not delimit words with spaces, so the historical 45-word
+        check must use the existing language-safe story-unit counter instead.
+        """
         body = self._ending_text_without_marker(page)
-        if len(body.split()) < 45:
+        language = str(language_code or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+        content_units = self._story_text_units(body, language)
+        minimum_units = 80 if language == "ja" else 45
+        if content_units < minimum_units:
             return False, "final_page_too_short"
         if self._count_story_sentences(body) < 3:
             return False, "final_page_too_few_sentences"
-        if body.rstrip().endswith("?"):
+        if body.rstrip().endswith(("?", "？", "؟")):
             return False, "final_page_ends_with_question"
 
         lower = body.lower()
@@ -2623,74 +3240,67 @@ OUTPUT RULES:
 
         return True, "ok"
 
-    async def _review_final_page_semantics(
+    async def _review_canon_final_page_semantics(
         self,
         request: GenerateStoryRequest,
         title: str,
         existing_pages: list[str],
         candidate_page: str,
     ) -> tuple[bool, str, list[str], dict[str, bool]]:
-        """Review whether Page 7 genuinely completes the story.
-
-        The reviewer returns exact repair instructions so the next generation
-        attempt fixes the actual failed ending rather than receiving a generic
-        "try again" message.
-        """
+        """Verify that a Canon Page 7 completes the recorded folklore ending."""
         if not self.model:
             return True, "review_skipped_no_model", [], {}
 
+        contract = self._canon_contract(request)
         story_text = "\n\n".join(
             f"Page {index + 1}: {page}"
             for index, page in enumerate([*existing_pages, candidate_page])
         )
-        spine = self._story_spine_block(
-            request=request,
-            title=title,
-            first_page=(existing_pages or [""])[0],
-        )
-        prompt = f"""Review the ending of this children's bedtime story.
-Return only JSON matching the supplied schema. Be practical, not perfectionist.
-Reject when the ending is incomplete, disconnected, emotionally empty, generic,
-or introduces new plot. When rejecting, provide concrete required_changes that
-can be applied to a rewritten Page 7.
+        prompt = f"""Review the final page of a canonical children's folklore retelling.
+Return only JSON matching the supplied schema. Use the Canon record as the authority.
+Reject an ending that is grammatically finished but does not complete the defining folklore ending.
+Do not apply normal PillowTales requirements for a child-led solution, parent theme, or selected moral.
 
-{spine}
+EXACT STORY TITLE:
+{title}
 
-FULL STORY:
+CANON RECORD:
+{json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
+
+FULL GENERATED STORY:
 {story_text}
 
 REVIEW RULES:
-- resolves_opening_promise: Page 7 answers or fulfils the wish, question, promise, relationship need, or problem introduced on Page 1.
-- resolves_main_problem: the central external problem is actually completed on the page, not merely beginning to complete.
-- moral_visible_through_action: the requested moral is demonstrated by the child's meaningful choice or consequence, not merely stated.
-- emotional_payoff_complete: the promised relationship or emotional change is shown through action or dialogue.
-- callback_earned: at least one earlier detail returns with purpose.
-- no_new_plot: Page 7 adds no new character, task, mystery, object, or sequel hook.
-- ending_feels_earned: the ending depends on specific events, choices, relationships, clues, habits, or rules from Pages 2-6. If it could be swapped into another story with only names changed, mark it false.
-- satisfying_ending: the result feels like the natural destination of Pages 1-6 and includes a brief settled afterglow, not simply a stopped scene.
-- required_changes: give 1-6 short imperative repairs. Name the unresolved promise, problem, missing action, missing relationship payoff, or callback that must appear.
-- Do not request a new subplot. Repairs must use only material already present in Pages 1-6.
+- canonical_ending_complete: the defining ending in ending_rules and required events is fully shown, not summarised away or stopped early.
+- required_final_events_present: all events needed to complete the recorded ending appear in substance.
+- required_event_order_preserved: the defining events remain in their recorded order.
+- canonical_characters_preserved: legendary characters keep their identities, roles, motivations, and outcomes.
+- no_invented_resolution: no new object, helper, villain, quest, moral, or substitute solution resolves the legend.
+- child_does_not_change_outcome: the child remains outside the legend and does not enter, observe, accompany, speak to, assist, warn, replace, or alter any canonical character, event, or result.
+- no_unfinished_canon_event: no recorded event remains pending and there is no sequel hook.
+- satisfying_canonical_close: the story ends naturally inside the canonical narrative with no listener frame, parent exchange, epilogue or commentary.
+- required_changes: give 1-6 precise imperative repairs using only the Canon record and material already established.
 """
         try:
             response = await asyncio.to_thread(
                 self._generate_content_sync,
                 prompt,
-                self._ending_review_response_schema(),
-                1400,
+                self._canon_ending_review_response_schema(),
+                1600,
             )
             response_text = getattr(response, "text", None)
             if not response_text or not isinstance(response_text, str):
-                return False, "semantic_review_empty_response", ["Complete the original opening promise and main problem."], {}
+                return False, "canon_semantic_review_empty_response", ["Complete the recorded canonical ending without inventing a replacement resolution."], {}
             result = self._clean_json_response(response_text)
             checks = (
-                "resolves_opening_promise",
-                "resolves_main_problem",
-                "moral_visible_through_action",
-                "emotional_payoff_complete",
-                "callback_earned",
-                "no_new_plot",
-                "ending_feels_earned",
-                "satisfying_ending",
+                "canonical_ending_complete",
+                "required_final_events_present",
+                "required_event_order_preserved",
+                "canonical_characters_preserved",
+                "no_invented_resolution",
+                "child_does_not_change_outcome",
+                "no_unfinished_canon_event",
+                "satisfying_canonical_close",
             )
             check_results = {key: result.get(key) is True for key in checks}
             failed = [key for key, passed in check_results.items() if not passed]
@@ -2700,6 +3310,136 @@ REVIEW RULES:
                 if str(item).strip()
             ][:6]
             if failed:
+                if not required_changes:
+                    required_changes = [
+                        "Complete every final Canon event in the recorded order.",
+                        "Remove any invented resolution or child-led change to the outcome.",
+                        "Close only after the defining folklore ending is fully shown.",
+                    ]
+                reason = str(result.get("reason") or "").strip()
+                return False, f"canon_semantic_review_failed:{','.join(failed)}:{reason}"[:700], required_changes, check_results
+            return True, "ok", [], check_results
+        except Exception as exc:
+            # As with the normal reviewer, reviewer availability must not strand
+            # a locally complete Page 7. Log the loss of semantic assurance.
+            print(f"[PERF] canon_final_page_semantic_review_unavailable error={str(exc)[:300]}")
+            return True, "canon_semantic_review_unavailable", [], {}
+
+    async def _canon_can_finish_on_current_page(
+        self,
+        request: GenerateStoryRequest,
+        title: str,
+        pages: list[str],
+    ) -> tuple[bool, str]:
+        """Allow Canon to finish naturally on Page 6 when the source is complete.
+
+        This is background-only and does not change Page-1-first generation.
+        The existing Canon semantic reviewer remains the authority. We only
+        shorten the provisional seven-page target when every critical Canon
+        completion check passes.
+        """
+        if not self._is_canon_request(request) or len(pages) < 2:
+            return False, "not_applicable"
+
+        semantic_valid, semantic_reason, _, check_results = await self._review_canon_final_page_semantics(
+            request=request,
+            title=title,
+            existing_pages=pages[:-1],
+            candidate_page=pages[-1],
+        )
+        critical_checks = (
+            "canonical_ending_complete",
+            "required_final_events_present",
+            "required_event_order_preserved",
+            "canonical_characters_preserved",
+            "no_invented_resolution",
+            "child_does_not_change_outcome",
+            "no_unfinished_canon_event",
+            "satisfying_canonical_close",
+        )
+        critical_pass = bool(check_results) and all(
+            check_results.get(key) is True for key in critical_checks
+        )
+        return bool(semantic_valid and critical_pass), semantic_reason
+
+    async def _review_final_page_semantics(
+        self,
+        request: GenerateStoryRequest,
+        title: str,
+        existing_pages: list[str],
+        candidate_page: str,
+    ) -> tuple[bool, str, list[str], dict[str, bool]]:
+        """Review whether Page 7 genuinely completes the story."""
+        if not self.model:
+            return True, "review_skipped_no_model", [], {}
+
+        moral_required = self._moral_requested(request) and not self._is_folk_adventure_request(request)
+        story_text = "\n\n".join(
+            f"Page {index + 1}: {page}" for index, page in enumerate([*existing_pages, candidate_page])
+        )
+        spine = self._story_spine_block(request=request, title=title, first_page=(existing_pages or [""])[0])
+        moral_rule = (
+            "- moral_visible_through_action: the requested moral is demonstrated by a meaningful choice or consequence, not merely stated."
+            if moral_required else
+            "- No moral was requested. Do not assess, request or repair a moral."
+        )
+        mode_rules = (
+            """LIVING WORLD ENDING REVIEW:
+- Page 6 should contain the decisive action/climax or make the resolution inevitable.
+- Page 7 may complete that already-established climax, but it must also provide consequence, relief, callback and safe settling.
+- Do NOT demand a new solution if Pages 1-6 already resolved the main problem.
+- Reject Page 7 if it invents a new cause, unrelated clue, unestablished solution method, new task, or sequel hook."""
+            if self._is_folk_adventure_request(request) else
+            """STANDARD BEDTIME STORY ENDING REVIEW:
+- Judge this as a complete seven-page children's story, not merely as a locally valid final paragraph.
+- Page 7 must answer or fulfil the wish, question, promise, relationship need, or problem introduced on Page 1.
+- The decisive result must be earned by the child's earlier actions, choices, relationships, clues, habits, or established story rules.
+- A generic celebration, generic praise, sudden gift, unexplained magical fix, or interchangeable bedtime paragraph is not a satisfying ending.
+- If the ending could be swapped into another story with only names changed, reject it.
+- The final callback should come from something established earlier and create recognition rather than summarising the lesson."""
+        )
+        prompt = f"""Review the ending of this children's bedtime story.
+Return only JSON matching the supplied schema. Be demanding about story quality but do not invent extra plot when repairing.
+
+{spine}
+
+FULL STORY INCLUDING CANDIDATE FINAL PAGE:
+{story_text}
+
+{mode_rules}
+
+REVIEW RULES:
+- resolves_opening_promise: the Page 1 wish, question, promise, relationship need, or problem is genuinely answered or fulfilled by the end.
+- resolves_main_problem: the central external problem is actually completed, not merely beginning to complete.
+{moral_rule}
+- emotional_payoff_complete: the promised relationship or emotional change is shown through action or dialogue.
+- callback_earned: at least one earlier detail returns with purpose.
+- no_new_plot: Page 7 adds no new character, task, mystery, object, place, rule, or sequel hook.
+- ending_feels_earned: the ending depends on specific events, choices, relationships, clues, habits, or rules from Pages 2-6.
+- satisfying_ending: the result feels like the natural destination of Pages 1-6 and includes a brief settled afterglow, not simply a stopped scene.
+- required_changes: give 1-6 short imperative repairs using only established material from Pages 1-6.
+"""
+        try:
+            response = await asyncio.to_thread(
+                self._generate_content_sync,
+                prompt,
+                self._ending_review_response_schema(include_moral=moral_required),
+                1400,
+            )
+            response_text = getattr(response, "text", None)
+            if not response_text or not isinstance(response_text, str):
+                return False, "semantic_review_empty_response", ["Complete the original opening promise and main problem."], {}
+            result = self._clean_json_response(response_text)
+            checks = [
+                "resolves_opening_promise", "resolves_main_problem", "emotional_payoff_complete",
+                "callback_earned", "no_new_plot", "ending_feels_earned", "satisfying_ending",
+            ]
+            if moral_required:
+                checks.append("moral_visible_through_action")
+            check_results = {key: result.get(key) is True for key in checks}
+            failed = [key for key, passed in check_results.items() if not passed]
+            required_changes = [str(item).strip() for item in (result.get("required_changes") or []) if str(item).strip()][:6]
+            if failed:
                 reason = str(result.get("reason") or "").strip()
                 if not required_changes:
                     required_changes = [
@@ -2707,15 +3447,9 @@ REVIEW RULES:
                         "Show the emotional result through action or dialogue.",
                         "End with an established story-specific callback and a settled final image.",
                     ]
-                return (
-                    False,
-                    f"semantic_review_failed:{','.join(failed)}:{reason}"[:700],
-                    required_changes,
-                    check_results,
-                )
+                return False, f"semantic_review_failed:{','.join(failed)}:{reason}"[:700], required_changes, check_results
             return True, "ok", [], check_results
         except Exception as exc:
-            # Reviewer availability must not strand a locally valid final page.
             print(f"[PERF] final_page_semantic_review_skipped error={str(exc)[:300]}")
             return True, "semantic_review_unavailable", [], {}
 
@@ -2751,7 +3485,7 @@ REQUIRED CHANGES — APPLY EVERY ONE:
 
 - Rewrite Page 7 from scratch; do not merely edit its final sentence.
 - Resolve the exact promise and problem established by Pages 1-6.
-- The decisive solution must come from the child or from consequences already earned in the story.
+- The decisive solution must come from the established protagonist or from consequences already earned in the story.
 - Show the completed result, then a brief emotional afterglow, then a safe settled final image.
 - Do not introduce a new method, character, object, clue, sound, task, place, or surprise.
 - Do not end at the instant something begins to happen. Show what happens and what it means to the existing characters.
@@ -2779,7 +3513,11 @@ REQUIRED CHANGES — APPLY EVERY ONE:
         next_page_number = len(working_pages) + 1
         intended_final_page = self._intended_page_count(request)
         is_final_page_batch = batch_count == 1 and next_page_number == intended_final_page
-        max_attempts = 5 if is_final_page_batch else 1
+        max_attempts = (
+            5
+            if is_final_page_batch
+            else (3 if self._is_canon_request(request) else BACKGROUND_PAGE_MAX_ATTEMPTS)
+        )
         last_error: Optional[str] = None
         last_required_changes: list[str] = []
 
@@ -2792,13 +3530,44 @@ REQUIRED CHANGES — APPLY EVERY ONE:
                 remaining_page_count=batch_count,
                 next_page_number=next_page_number,
             )
+            if (
+                self._is_canon_request(request)
+                and not is_final_page_batch
+                and generation_attempt > 1
+            ):
+                prompt += f"""
+CANON CONTINUATION PAGE REPAIR — ATTEMPT {generation_attempt}:
+- The previous continuation candidate was rejected as too thin or incomplete.
+- Rewrite Page {next_page_number} as a complete story page.
+- Use 90-150 words, 5-7 read-aloud sentences, and exactly 2 short paragraphs.
+- Do not return fewer than 80 words.
+- Expand the protected Canon material assigned to Page {next_page_number} with concrete action, brief dialogue, reactions and place detail.
+- If the Canon event budget requires more than one ordered event on this page, progress through those events naturally rather than stretching one event.
+- Do not advance merely to add length, and do not skip or reorder required events.
+- Do not recap Page {next_page_number - 1}.
+- Return only the required JSON.
+"""
+
             if is_final_page_batch and generation_attempt > 1:
-                prompt += self._final_page_repair_block(
-                    rejection_reason=last_error,
-                    required_changes=last_required_changes,
-                    repair_attempt=generation_attempt,
-                    completion_first=(generation_attempt == max_attempts),
-                )
+                if self._is_canon_request(request):
+                    prompt += f"""
+CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
+- The previous page failed Canon completeness review: {last_error or 'unknown failure'}.
+- Required repairs from the reviewer: {json.dumps(last_required_changes, ensure_ascii=False)}
+- Rewrite the final page from scratch using only the protected Canon record and events already established in Pages 1-6.
+- Explicitly complete every reviewer-listed missing Canon event in the recorded order.
+- Do not repeat already-completed earlier events simply to fill space.
+- Do not invent a new resolution, moral, object, helper, callback, or child-led solution.
+- If several protected closing events remain, use concise scene transitions so they ALL fit naturally on this final page.
+- Fully reach the protected required ending, add no listener frame, parent exchange, epilogue or commentary, and end exactly with The End.
+"""
+                else:
+                    prompt += self._final_page_repair_block(
+                        rejection_reason=last_error,
+                        required_changes=last_required_changes,
+                        repair_attempt=generation_attempt,
+                        completion_first=(generation_attempt == max_attempts),
+                    )
 
             print(
                 f"[PERF] remaining_pages_batch prompt chars={len(prompt)} "
@@ -2806,11 +3575,29 @@ REQUIRED CHANGES — APPLY EVERY ONE:
             )
 
             t_gemini = time.time()
-            response = await asyncio.to_thread(
-                self._generate_content_sync,
-                prompt,
-                self._story_response_schema(batch_count, include_title=False),
-            )
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._generate_content_sync,
+                        prompt,
+                        self._story_response_schema(batch_count, include_title=False),
+                    ),
+                    timeout=BACKGROUND_PAGE_TIMEOUT_SECONDS,
+                )
+            except asyncio.TimeoutError:
+                elapsed = time.time() - t_gemini
+                last_error = (
+                    f"Gemini continuation timed out after "
+                    f"{BACKGROUND_PAGE_TIMEOUT_SECONDS}s on Page {next_page_number}"
+                )
+                last_required_changes = []
+                print(
+                    f"[PERF] remaining_pages_batch TIMEOUT after={elapsed:.2f}s "
+                    f"next_page={next_page_number} count={batch_count} "
+                    f"attempt={generation_attempt}/{max_attempts}"
+                )
+                continue
+
             print(
                 f"[PERF] remaining_pages_batch Gemini took {time.time() - t_gemini:.2f}s "
                 f"next_page={next_page_number} count={batch_count} attempt={generation_attempt}"
@@ -2826,7 +3613,7 @@ REQUIRED CHANGES — APPLY EVERY ONE:
                 story_data = self._clean_json_response(response_text)
                 if not isinstance(story_data, dict) or 'pages' not in story_data:
                     raise ValueError("Invalid remaining-pages batch format returned by AI")
-                batch_pages = self._valid_generated_pages(story_data.get('pages', []), batch_count)
+                batch_pages = self._valid_generated_pages(story_data.get('pages', []), batch_count, request=request)
             except Exception as parse_exc:
                 print(
                     f"[PERF] remaining_pages_batch parse failed "
@@ -2845,8 +3632,10 @@ REQUIRED CHANGES — APPLY EVERY ONE:
 
             sanitized = self._sanitize_generated_pages(batch_pages[:batch_count])
             if is_final_page_batch:
-                valid, reason = self._validate_final_page(sanitized[0], working_pages)
-                if not valid:
+                is_canon = self._is_canon_request(request)
+                valid, reason = self._validate_final_page(sanitized[0], working_pages, request.storyLanguageCode)
+                repetition_only = reason.startswith("final_page_repeats_previous_content_")
+                if not valid and not (is_canon and repetition_only):
                     last_error = reason
                     last_required_changes = [
                         "Write a complete final page rather than a caption or repeated scene.",
@@ -2858,12 +3647,33 @@ REQUIRED CHANGES — APPLY EVERY ONE:
                     )
                     continue
 
-                semantic_valid, semantic_reason, required_changes, check_results = await self._review_final_page_semantics(
-                    request=request,
-                    title=title,
-                    existing_pages=working_pages,
-                    candidate_page=sanitized[0],
-                )
+                if is_canon and repetition_only:
+                    # Canon closings can legitimately mention the immediately
+                    # preceding defining event, so do not let the generic local
+                    # overlap gate prevent the Canon semantic reviewer from
+                    # inspecting the complete story. A repeated candidate is
+                    # still rejected below unless the semantic review passes and
+                    # the page is sufficiently distinct to serve as a closing.
+                    last_error = reason
+                    print(
+                        f"[PERF] canon_final_page_repetition_sent_to_semantic_review "
+                        f"attempt={generation_attempt} story_title={title!r} reason={reason}"
+                    )
+
+                if is_canon:
+                    semantic_valid, semantic_reason, required_changes, check_results = await self._review_canon_final_page_semantics(
+                        request=request,
+                        title=title,
+                        existing_pages=working_pages,
+                        candidate_page=sanitized[0],
+                    )
+                else:
+                    semantic_valid, semantic_reason, required_changes, check_results = await self._review_final_page_semantics(
+                        request=request,
+                        title=title,
+                        existing_pages=working_pages,
+                        candidate_page=sanitized[0],
+                    )
                 if not semantic_valid:
                     last_error = semantic_reason
                     last_required_changes = required_changes
@@ -2877,11 +3687,21 @@ REQUIRED CHANGES — APPLY EVERY ONE:
                     # essential completion criteria pass. Secondary polish may
                     # never strand a child at six pages.
                     critical_checks = (
-                        "resolves_opening_promise",
-                        "resolves_main_problem",
-                        "emotional_payoff_complete",
-                        "no_new_plot",
-                        "satisfying_ending",
+                        (
+                            "canonical_ending_complete",
+                            "required_final_events_present",
+                            "no_invented_resolution",
+                            "child_does_not_change_outcome",
+                            "no_unfinished_canon_event",
+                        )
+                        if self._is_canon_request(request)
+                        else (
+                            "resolves_opening_promise",
+                            "resolves_main_problem",
+                            "emotional_payoff_complete",
+                            "no_new_plot",
+                            "satisfying_ending",
+                        )
                     )
                     critical_pass = bool(check_results) and all(
                         check_results.get(key) is True for key in critical_checks
@@ -2893,6 +3713,21 @@ REQUIRED CHANGES — APPLY EVERY ONE:
                         f"story_title={title!r} checks={check_results}"
                     )
 
+                if is_canon and repetition_only:
+                    # Even if the full Canon story is semantically complete, do
+                    # not publish a Page 7 that is substantially a duplicate of
+                    # Page 6. Keep trying for a distinct aftermath/bedtime close.
+                    last_required_changes = [
+                        "Do not retell or paraphrase Page 6.",
+                        "Begin after the last completed canonical event.",
+                        "Complete only any remaining canonical aftermath, then return briefly to the external bedtime frame.",
+                    ]
+                    print(
+                        f"[PERF] canon_final_page_repetition_rejected_after_semantic_review "
+                        f"attempt={generation_attempt} story_title={title!r} reason={reason}"
+                    )
+                    continue
+
                 sanitized[0] = self._ensure_the_end(sanitized[0])
                 print(
                     f"[PERF] final_page_accepted attempt={generation_attempt} "
@@ -2900,6 +3735,17 @@ REQUIRED CHANGES — APPLY EVERY ONE:
                 )
 
             return sanitized
+
+        if is_final_page_batch and self._is_canon_request(request):
+            # Do not manufacture a meta-story Page 7. If Canon was already
+            # complete on Page 6, complete_story_background now detects that
+            # before Page 7 is requested. If genuine Canon still remained and
+            # all Page 7 attempts failed, preserve the partial story for retry
+            # rather than publishing commentary such as "the tale was complete".
+            print(
+                f"[PERF] canon_final_page_no_meta_fallback story_title={title!r} "
+                f"previous_error={last_error!r}"
+            )
 
         raise ValueError(
             f"Remaining generation failed after {max_attempts} attempt(s): "
@@ -3025,13 +3871,546 @@ REQUIRED CHANGES — APPLY EVERY ONE:
 - Include one emotionally useful memory seed, phrase, promise, or character detail.
 - Avoid dense world-building, adult literary prose, or over-complicated setup."""
 
+    def _canon_age_storytelling_block(self, age: Any) -> str:
+        """Canon-specific age calibration: Canon controls WHAT; age controls HOW."""
+        child_age = self._safe_child_age(age)
+
+        if child_age <= 4:
+            level = """CANON READING/READ-ALOUD LEVEL — AGE 0-4:
+- Use very short, concrete sentences and familiar words.
+- Keep cause and effect explicit and easy to follow.
+- Use brief natural dialogue only where it helps understanding.
+- Describe frightening, violent, cruel or adult material very gently and without graphic detail."""
+        elif child_age <= 6:
+            level = """CANON READING/READ-ALOUD LEVEL — AGE 5-6:
+- Use Oxford-inspired early-reader clarity: mostly short sentences, one clear idea at a time, familiar vocabulary and concrete actions.
+- Let important Canon moments happen as simple scenes with short dialogue and visible reactions.
+- Keep motivations clear rather than abstract.
+- Soften frightening, violent, cruel, sexual or otherwise adult presentation, but preserve the event and its cause when part of Canon."""
+        elif child_age <= 8:
+            level = """CANON READING/READ-ALOUD LEVEL — AGE 7-8:
+- Use Oxford-inspired confident early chapter-book storytelling.
+- Use varied but clear sentences, richer child-friendly vocabulary, regular characterful dialogue and connected scenes.
+- Let motives and feelings emerge through actions and dialogue rather than narrator summary.
+- Important Canon moments should be dramatized as scenes, not reduced to plot-summary sentences."""
+        elif child_age <= 10:
+            level = """CANON READING/READ-ALOUD LEVEL — AGE 9-10:
+- Use Oxford-inspired middle-grade clarity with richer vocabulary, varied sentence structure, stronger dialogue, motives, anticipation and consequence.
+- Allow the reader to infer some feelings and intentions.
+- Give defining Canon scenes enough atmosphere and emotional weight to feel lived rather than reported."""
+        else:
+            level = """CANON READING/READ-ALOUD LEVEL — AGE 11-12:
+- Use the strongest fluent-child level in the PillowTales Oxford-inspired scale.
+- Use nuanced but clear vocabulary, varied sentence structure, layered dialogue, implication, motivation, atmosphere and emotional consequence.
+- Do not talk down to the reader or over-explain feelings.
+- Let major Canon scenes breathe with anticipation, reaction and subtext while remaining children's fiction and bedtime-safe."""
+
+        return level + """
+
+CANON AGE-ADAPTATION LAW — NON-NEGOTIABLE:
+- CANON determines WHAT happens: required characters, relationships, events, event order, transformations, consequences and ending.
+- AGE SAFETY determines HOW disturbing or adult material is expressed.
+- READING LEVEL determines HOW sophisticated the prose, dialogue, inference, description and scene depth may be.
+- Age adaptation may soften graphic violence, cruelty, horror, sexual intent, adult implications, punishment, death, pregnancy, childbirth or frightening imagery.
+- Age adaptation MUST NOT delete a required event, relationship, parentage fact, marriage, birth, death, betrayal, transformation, consequence, cause, rescue, reunion or ending when necessary to the authentic story.
+- If an adult or violent Canon event is essential, state it simply and safely rather than replacing it with a different event.
+- Never remove marriage, parentage, pregnancy or birth if those facts explain who characters are or why later events happen; tell them without sexual detail.
+- Do not sanitise so aggressively that the story stops making causal sense.
+
+CANON STORYTELLING LAW — DRAMATISE, DO NOT INVENT:
+- A faithful retelling is still a STORY, not a synopsis, timeline or encyclopedia entry.
+- Dramatise authentic events through dialogue, reaction, body language, atmosphere, sensory detail, anticipation and emotional consequence.
+- Never invent a new event, villain, helper, object, quest, power, solution or motivation merely to create drama.
+- Prefer showing a protected event happening in-scene over summarising it as 'they decided', 'he failed', 'she rescued him', or 'the truth was revealed' when that event deserves narrative space.
+- Dialogue may expand a Canon moment only when it preserves the recorded relationship, motivation, fact and outcome.
+- For older children, increase scene depth and inference rather than simply using harder vocabulary.
+- For younger children, simplify the same authentic scene rather than deleting it.
+"""
+
+    def _build_canon_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
+        blocks = self._language_and_character_blocks(request, companion)
+        contract = self._canon_contract(request)
+        title = contract.get('title') or 'Original Folk Story'
+        child_age = self._safe_child_age(request.age)
+        max_chars = 560 if child_age <= 6 else 700
+        return f"""Write Page 1 only of a faithful canonical folklore retelling. Return only final JSON.
+
+LANGUAGE:
+- Write only in {blocks['language_name']}.
+- {self._first_page_language_style_block(request.storyLanguageCode)}
+
+LISTENER AGE ONLY:
+- Age: {request.age}
+- The listener's name is intentionally not supplied to Canon generation.
+- Never add or address the listener in the canonical prose.
+
+{self._story_world_prompt_block(request)}
+
+PAGE 1 CANON JOB:
+- Use the exact canon title: {title}
+- Begin directly inside the first required canonical scene.
+- Do not use a random PillowTales opening seed or external bedtime frame.
+- Do not invent a trigger, quest, object, helper, joke, mystery, moral or motivation.
+- Do not mention, address, describe or refer to the listening child anywhere in the page.
+- Only canonical characters may appear or participate.
+- Preserve the first required event and its place in the sequence.
+- Do not solve or skip ahead.
+
+AGE, STORYTELLING AND SAFETY:
+{self._canon_age_storytelling_block(request.age)}
+
+{self._natural_name_pronoun_rules(protect_canon_names=True)}
+- Maximum {max_chars} characters.
+- 4-6 read-aloud sentences in 1-2 short paragraphs.
+- Clear, warm and bedtime-safe, but factually faithful.
+
+JSON ONLY:
+{{"title":{json.dumps(str(title), ensure_ascii=False)},"pages":["page 1 text"]}}
+- The returned title must match exactly.
+"""
+
+    def _canon_event_budget_block(self, request: GenerateStoryRequest, next_page_number: int) -> str:
+        """Allocate ordered Canon events across the seven-page maximum."""
+        contract = self._canon_contract(request)
+        events = contract.get("required_events") or []
+        if not isinstance(events, list) or not events:
+            return ""
+        clean_events = [str(event).strip() for event in events if str(event).strip()]
+        if not clean_events:
+            return ""
+        total = len(clean_events)
+        progress_fraction = {2: 0.22, 3: 0.38, 4: 0.54, 5: 0.68, 6: 0.82, 7: 1.00}.get(next_page_number)
+        if progress_fraction is None:
+            return ""
+        target_index = max(1, min(total, int(round(total * progress_fraction))))
+        target_event = clean_events[target_index - 1]
+        remaining_after_target = total - target_index
+        if next_page_number == 7:
+            return f"""CANON EVENT COMPLETION BUDGET — FINAL PAGE:
+- There are {total} ordered required Canon events.
+- Complete every required event not already shown in Pages 1-6, in recorded order.
+- Do not repeat completed events merely to mention them again.
+- Fully reach the protected required ending before The End.
+"""
+        return f"""CANON EVENT PACING BUDGET — PAGE {next_page_number}:
+- The protected record contains {total} ordered required Canon events.
+- By the END of Page {next_page_number}, normally progress through approximately required event {target_index}: {target_event}
+- This leaves about {remaining_after_target} required event(s) for later pages.
+- This is a pacing floor, not permission to skip, reorder, summarise away, or invent events.
+- If already ahead, continue naturally without repetition. If behind, move forward with concise scenes and dialogue rather than stretching one event across pages.
+"""
+
+    def _canon_page_pacing_block(self, next_page_number: int) -> str:
+        """Pace Canon as scenes without forcing every tale to consume Page 7.
+
+        Canon records remain authoritative for facts, order and ending. The
+        provisional seven-page target is a maximum structure, not permission to
+        pad a tale after its authentic ending has already been completed.
+        """
+        rules = {
+            2: """CANON PAGE 2 PACING:
+- Continue the early canonical sequence and let the first major movement breathe.
+- Do not rush through several defining events simply to reach the famous part of the legend.
+- Turn the current required event into a scene with concrete action, reaction and brief dialogue where the source permits it.
+""",
+            3: """CANON PAGE 3 PACING:
+- Move through the early-middle canonical events in order.
+- Turn required events into scenes with clear action or dialogue rather than a list of things that happened.
+- Deepen the current event before advancing; do not consume later events merely to fill the page.
+""",
+            4: """CANON PAGE 4 PACING:
+- Deepen the central canonical relationship, place, change, warning, longing or consequence already recorded.
+- Preserve event order and give the current canonical moment enough room to feel like a story scene rather than a summary.
+- Do not invent an extra mechanism, explanation or new folklore event to create length.
+""",
+            5: """CANON PAGE 5 PACING:
+- Advance into the late canonical events in order.
+- Do not deliberately rush to the ending, but do not withhold or distort a required event merely to reserve material for another page.
+- Do not write retrospective legend summaries, moral explanations, cultural commentary or invented explanatory mythology.
+- Let the recorded source determine how much canon remains.
+""",
+            6: """CANON PAGE 6 PACING — NATURAL COMPLETION ALLOWED:
+- Show the defining late event or consequence as a full scene, not as a summary.
+- If the recorded canonical ending naturally completes on this page, COMPLETE IT fully. Do not withhold part of the authentic ending merely to force Page 7.
+- If required canonical events genuinely remain, stop at a natural point and leave only those real events for Page 7.
+- Do not add a retrospective legend summary, cultural explanation, moral explanation, invented mechanism or generic bedtime conclusion.
+- Do not write 'The End.' on Page 6; the backend will add the marker if semantic Canon review confirms the tale is complete.
+""",
+            7: """CANON PAGE 7 PACING — ONLY IF CANON REMAINS:
+- Page 7 exists only because required canonical material still remained after Page 6.
+- Do not retell or paraphrase Page 6.
+- Complete only the remaining recorded canonical event(s) and authentic ending.
+- Do not explain what the legend means, why it is famous, or what lesson it teaches.
+- Do not add an external bedtime frame, listener reaction, parent exchange, epilogue or commentary.
+- End naturally inside the canonical narrative, then end exactly with The End.
+""",
+        }
+        return rules.get(next_page_number, "")
+
+    def _build_canon_emergency_closing_page(
+        self,
+        request: GenerateStoryRequest,
+        title: str,
+    ) -> str:
+        """Deterministic Canon close used only as a last-resort Page 7.
+
+        It adds no listener, parent, narrator or new folklore facts and is safe
+        only when semantic review confirms that Pages 1-6 already contain the
+        complete Canon ending.
+        """
+        lang = (request.storyLanguageCode or "en").lower()[:2]
+        templates = {
+            "en": "The old story had reached its true ending. Nothing more was added, and the tale was complete.",
+            "es": "El antiguo cuento había llegado a su verdadero final. No se añadió nada más y la historia quedó completa.",
+            "fr": "Le vieux récit avait atteint sa véritable fin. Rien ne fut ajouté, et l'histoire était complète.",
+            "de": "Die alte Geschichte hatte ihr wahres Ende erreicht. Nichts wurde hinzugefügt, und die Erzählung war vollständig.",
+            "it": "L'antico racconto aveva raggiunto il suo vero finale. Non fu aggiunto altro e la storia era completa.",
+        }
+        page = templates.get(lang, templates["en"])
+        return self._ensure_the_end(page)
+
+
+    def _build_canon_remaining_pages_prompt(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+        title: str,
+        existing_pages: list[str],
+        remaining_page_count: int,
+        next_page_number: int,
+    ) -> str:
+        blocks = self._language_and_character_blocks(request, companion)
+        existing_pages_text = "\n\n".join(
+            f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or [])
+        )
+        final_page_number = next_page_number + remaining_page_count - 1
+        is_final = final_page_number >= self._intended_page_count(request)
+        pacing_block = self._canon_page_pacing_block(next_page_number)
+        event_budget_block = self._canon_event_budget_block(request, next_page_number)
+        final_rule = (
+            "Use the recorded canonical ending exactly in substance. Do not substitute a generic PillowTales resolution. "
+            "After the canonical ending is fully shown, add no listener frame, parent exchange, epilogue or commentary; end exactly with The End."
+            if is_final else
+            "Do not end the legend early and do not add a bedtime conclusion yet."
+        )
+        return f"""Continue a faithful canonical folklore retelling. Return only JSON.
+
+LANGUAGE:
+- Write only in {blocks['language_name']}.
+
+{self._story_world_prompt_block(request)}
+
+{event_budget_block}
+
+EXISTING PAGES:
+{existing_pages_text}
+
+CANON CONTINUATION JOB:
+- Write exactly {remaining_page_count} new page(s): Page {next_page_number} through Page {final_page_number}.
+- Continue from the exact next required canon scene or event.
+- Preserve required scene order and event order.
+- Do not recap, reorder, merge away, replace, or reinterpret defining events.
+- Do not create a new child-led mission.
+- Do not use parent theme or moral.
+- Do not introduce a random magical object, helper, villain, clue, side quest, reward, motivation or solution.
+- The listening child must remain completely outside the story. Do not mention, address, describe or refer to the child anywhere; only canonical characters may participate.
+- Dialogue may be improved only when it preserves the recorded meaning and motivation.
+- Keep cultural names and pronunciation guidance intact.
+
+{self._canon_age_storytelling_block(request.age)}
+
+{self._natural_name_pronoun_rules(protect_canon_names=True)}
+
+- Each page MUST contain exactly 2 short paragraphs and 5-7 read-aloud sentences.
+- Each page MUST contain at least 80 words; target 90-150 words.
+- A continuation page under 80 words is incomplete. Expand the SAME canonical scene with concrete action, brief dialogue, reactions, physical behaviour and setting detail without adding new canon events.
+- SCENE, NOT SUMMARY: let the current required event breathe. Show how it happens instead of compressing it into one or two sentences.
+- Never advance into later required events merely to reach the word target.
+- Never invent a new causal mechanism, magical explanation, object, weather event, transformation, moral or cultural explanation to create length. Atmosphere may surround a canonical event but must not become the reason the canonical outcome happens.
+- If the Canon record says an outcome simply happens (for example something scatters, is lost, is given or is transformed), preserve that outcome without inventing a new folklore explanation for HOW it happened unless the selected source baseline supplies one.
+
+{pacing_block}
+
+FINAL PAGE RULES:
+- {final_rule}
+
+OUTPUT JSON:
+{{"pages":["new page text"]}}
+- Return exactly {remaining_page_count} string(s).
+- No notes, markdown or extra keys.
+"""
+
+    def _build_canon_first_page_fallback(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, Any]:
+        """Fail closed if Canon Page 1 cannot be generated safely.
+
+        Canon Page 1 must be real narrative prose. A deterministic fallback built
+        from source-control text can expose editorial instructions or create a
+        synopsis-sized opening that Pages 2+ then repeat. Do not manufacture a
+        Canon page locally. Keep the existing Page-1-first architecture: the
+        normal Gemini Page 1 still returns independently and Pages 2+ still load
+        in the background; this path is reached only after Page 1 generation has
+        already failed or timed out.
+        """
+        raise HTTPException(
+            status_code=503,
+            detail='Canonical story generation is temporarily unavailable. Please try again.',
+        )
+
+
+    def _living_world_adapt_original_rules(self, rules: str) -> str:
+        """Adapt mature PillowTales quality rules for Living World episodes.
+
+        The original engine remains the quality authority. This adapter removes
+        parent-moral requirements and translates plot-role references from the
+        listening child to the established Story World protagonist without
+        weakening audience-facing child-readability guidance.
+        """
+        if not rules:
+            return ""
+
+        adapted_lines: list[str] = []
+        for raw_line in str(rules).splitlines():
+            line = raw_line
+            lower = line.lower()
+
+            # Living World has no parent-selected moral. Remove moral-specific
+            # instructions rather than leaving contradictory remnants.
+            if "moral" in lower:
+                continue
+
+            replacements = (
+                ("child-led decision", "protagonist-led decision"),
+                ("child-led solution", "protagonist-led solution"),
+                ("The child must", "The protagonist must"),
+                ("the child must", "the protagonist must"),
+                ("The child should", "The protagonist should"),
+                ("the child should", "the protagonist should"),
+                ("The child's", "The protagonist's"),
+                ("the child's", "the protagonist's"),
+                ("where the child started", "where the protagonist started"),
+                ("why the child is involved", "why the protagonist is involved"),
+                ("because A happened, the child did B", "because A happened, the protagonist did B"),
+                ("with the child", "with the protagonist"),
+                ("by the child", "by the protagonist"),
+                ("the child discovers", "the protagonist discovers"),
+                ("the child notices", "the protagonist notices"),
+                ("the child remembers", "the protagonist remembers"),
+                ("the child says", "the protagonist says"),
+                ("the child does", "the protagonist does"),
+                ("the child keeps", "the protagonist keeps"),
+                ("the child gives", "the protagonist gives"),
+                ("the child or supporting character", "the protagonist or supporting character"),
+                ("the child and important characters", "the protagonist and important characters"),
+                ("child or helper", "protagonist or helper"),
+                ("Return the child", "Return the protagonist"),
+                ("return the child", "return the protagonist"),
+                ("Give the child an emotional reward", "Give the protagonist an emotional reward"),
+                ("give the child an emotional reward", "give the protagonist an emotional reward"),
+                ("The child and parent should", "The listener and parent should"),
+                ("the child and parent should", "the listener and parent should"),
+                ("for the child", "for the listener"),
+            )
+            for old, new in replacements:
+                line = line.replace(old, new)
+
+            adapted_lines.append(line)
+
+        return "\n".join(adapted_lines).strip()
+
+    def _living_world_depth_contract(self, age: Any) -> str:
+        """Age-aware page depth derived from the original 115-155 word contract."""
+        child_age = self._safe_child_age(age)
+        if child_age <= 4:
+            target = "55-80"
+        elif child_age <= 6:
+            target = "75-105"
+        elif child_age <= 8:
+            target = "105-135"
+        elif child_age <= 10:
+            target = "115-145"
+        else:
+            target = "120-155"
+
+        return f"""LIVING WORLD STORY DEPTH — INHERITED FROM THE ORIGINAL PILLOWTALES ENGINE:
+- Create exactly 7 substantial pages.
+- Each page should normally contain about {target} words.
+- Each page should normally contain 5-7 read-aloud sentences in 2 short paragraphs.
+- Do not create one strong opening followed by thin summary pages.
+- Do not pad with repeated description, recap, wandering, or extra lore merely to reach length.
+- Earn the length through action, dialogue, character behaviour, clues, choices, complications, consequences and callbacks.
+- Every page must contain a meaningful story beat that changes what happens next.
+- One real complication or setback is mandatory before the decisive resolution.
+- At least one supporting character should have a distinctive job, habit, phrase, worry, tool or behaviour that affects the plot.
+- Include at least one memorable visual, magical or funny moment that a child could describe tomorrow.
+- Reuse at least one early story detail later with purpose.
+"""
+
+    def _living_world_inherited_quality_rules(self, request: GenerateStoryRequest) -> str:
+        """Compile compatible mature PillowTales rules for Story Worlds."""
+        story_flow = self._living_world_adapt_original_rules(self._story_flow_rules())
+        literary = self._living_world_adapt_original_rules(self._literary_polish_rules())
+        clarity = self._living_world_adapt_original_rules(self._story_clarity_rules())
+        character_memory = self._living_world_adapt_original_rules(self._character_memory_rules())
+        emotional_cohesion = self._living_world_adapt_original_rules(self._emotional_cohesion_rules())
+        ending = self._living_world_adapt_original_rules(self._ending_engine_rules())
+
+        return f"""ORIGINAL PILLOWTALES QUALITY ENGINE — ACTIVE FOR THIS LIVING WORLD EPISODE:
+
+{self._oxford_inspired_age_profile_block(request.age)}
+
+{self._age_readability_block(request.age)}
+
+{self._age_vocabulary_block(request.age)}
+
+{self._age_quality_control_block(request.age)}
+
+{clarity}
+
+{story_flow}
+
+{character_memory}
+
+{emotional_cohesion}
+
+{literary}
+
+SHOW, DON'T EXPLAIN — LIVING WORLD:
+- Do not narrate conclusions the scene has already shown.
+- Avoid summary sentences such as "This was a deeper problem than they expected", "This was different from anything they had seen", or "The situation was becoming serious".
+- Show escalation through what changes: a failed attempt, a character reaction, a consequence, a silence, a damaged plan, a new obstacle, or short dialogue.
+- Prefer a visible or audible consequence over an abstract explanation.
+- Let the listener infer simple emotions and significance at the level appropriate to the Oxford-inspired age profile.
+
+{self._living_world_depth_contract(request.age)}
+
+LIVING WORLD ADAPTATION:
+- Wherever the original PillowTales engine expects the listening child to make the choice or solve the problem, the established Story World protagonist performs that role instead.
+- The listening child remains completely outside the plot.
+- Parent-selected theme and parent-selected moral are disabled.
+- Story World Source Canon, continuity, protected names, geography, relationships, institutions, creatures and powers override generic creative suggestions.
+- A new detail invented for this episode is story-local unless continuity explicitly marks it as persistent. Do not write a one-off invention as though it has always been established world canon.
+- Write the finished story entirely in the requested story language. Preserve protected proper names exactly, but translate ordinary descriptive wording and non-protected invented labels naturally.
+- Do not modernise the world merely because the premise resembles a modern situation. Express institutions and conflicts in language and imagery that belong naturally to this Story World.
+- Avoid adult labels such as politics, bureaucracy, policy, administration or governance when a child-friendly world-specific description can show the same idea.
+- The world may contain leadership contests, councils, promises, rules, disagreements, danger, mysteries, rivals or defence, but present them as story events rather than adult explanation.
+
+ENDING QUALITY — ADAPTED FROM THE ORIGINAL ENGINE:
+{ending}
+"""
+
+    def _living_world_age_style_block(self, age: Any) -> str:
+        """Age calibration specifically for Story World Living World episodes.
+
+        This is prompt-only and does not change page count, Page-1-first,
+        background generation, narration, polling, storage, or reader flow.
+        """
+        child_age = self._safe_child_age(age)
+
+        if child_age <= 4:
+            return """LIVING WORLD AGE STYLE — AGE 0-4:
+- Use very simple read-aloud language and one obvious problem.
+- Most sentences should be 5-9 words.
+- Use concrete actions and familiar feelings.
+- Avoid lore-heavy explanation, abstract ideas, politics, symbolism, and long descriptions.
+- Keep named characters and locations to the minimum needed to follow the episode."""
+        if child_age <= 6:
+            return """LIVING WORLD AGE STYLE — AGE 5-6:
+- Use plain early-reader adventure language.
+- Most sentences should be 5-10 words.
+- Use one action or idea per sentence.
+- Prefer common verbs and concrete nouns.
+- Avoid abstract phrases, formal language, layered motives, and lore explanations.
+- If a sentence sounds impressive but harder to understand, simplify it."""
+        if child_age <= 8:
+            return """LIVING WORLD AGE STYLE — AGE 7-8:
+- Write for an eight-year-old listening at bedtime, not for a ten-year-old reader.
+- Most sentences should usually be 10-18 words, matching the Oxford-inspired age profile. Shorter sentences are welcome for pace and dialogue.
+- Prefer everyday words and concrete actions over abstract or literary wording.
+- Keep dialogue short and natural.
+- Avoid phrases such as "in their everyday concerns", "familiar longing", "urgent sense of purpose", "shared a silent worry", "magical imbalance", "protective measure", or similar adult-sounding abstractions.
+- Explain unusual world rules through what characters see and do, not through long narration.
+- Use no more than one important new idea per paragraph.
+- A child should understand what happened on the first listen without needing a word explained.
+- Rich folklore names and places may remain exact; simplify the surrounding English instead."""
+        if child_age <= 10:
+            return """LIVING WORLD AGE STYLE — AGE 9-10:
+- Use clear middle-grade bedtime language with controlled detail.
+- Most sentences should usually be 12-22 words, matching the Oxford-inspired age profile, while keeping read-aloud clarity.
+- Allow richer motives and world detail, but keep the central action easy to follow.
+- Prefer active scenes and dialogue over abstract explanation."""
+        return """LIVING WORLD AGE STYLE — AGE 11-12:
+- Use richer children's fiction language while remaining read-aloud friendly.
+- Allow more nuance, but avoid adult literary density.
+- Keep the main problem and cause-and-effect clear on every page."""
+
+    def _build_folk_adventure_first_page_prompt(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+    ) -> str:
+        blocks = self._language_and_character_blocks(request, companion)
+        child_age = self._safe_child_age(request.age)
+        max_chars = 650 if child_age <= 6 else 900 if child_age <= 8 else 1050
+        seed = self._select_living_world_episode_seed(request) or {}
+        return f"""Write Page 1 only of a PillowTales Living World episode. Return only final JSON.
+
+LANGUAGE:
+- Write only in {blocks['language_name']}.
+- {self._first_page_language_style_block(request.storyLanguageCode)}
+
+LISTENER PROFILE:
+- Listening child: {request.childName}
+- Listening age: {request.age}
+- The child is outside the adventure itself.
+- The child's name may appear ONLY in the external bedtime invitation at the very start of Page 1.
+- After that invitation, never make the listener a character, witness, dreamer, helper, narrator, visitor or participant.
+- No moral is requested.
+
+{self._story_world_prompt_block(request)}
+
+{self._living_world_inherited_quality_rules(request)}
+
+{self._natural_name_pronoun_rules(protect_canon_names=True)}
+
+PAGE 1 LIVING WORLD JOB:
+- Use this selected episode seed as the central premise: {json.dumps(seed, ensure_ascii=False)}
+- FIRST PARAGRAPH ONLY: write a brief 1-2 sentence personalised bedtime invitation using {request.childName}. Invite the child to snuggle down/get cosy and get ready to hear or visit this Story World. Write the invitation naturally in {blocks['language_name']}; do not translate protected Story World names.
+- SECOND PARAGRAPH: begin the actual episode immediately inside the selected Story World with an established or continuity-approved world character taking action.
+- Choose the protagonist only from Source Canon or Living World continuity. Never hardcode a character from another Story World.
+- After the first paragraph, do not mention or refer to the listening child anywhere in the episode.
+- The bedtime invitation is external framing only; the actual plot must not start in the child's bedroom, ordinary beach, home or dream.
+- Do not use whispering waves, humming shells, shimmering objects, forgotten memories, lost wishes, magical fragments, ribbons or vague calls for help.
+- Establish a concrete world-specific disruption, opportunity, discovery, rivalry, event or threat.
+- Make the selected Story World operationally necessary to what happens.
+- The anchor characters, powers, places, institutions or continuity must materially affect the plot.
+- Give the protagonist a clear immediate objective by the end of Page 1.
+- Do not solve it yet.
+- Title the episode around the world character, place, event or problem; do not automatically put the listening child's name in the title.
+
+AGE AND LENGTH:
+{self._living_world_age_style_block(request.age)}
+- Maximum {max_chars} characters for this fast Page 1 response.
+- Aim for a substantial opening rather than a synopsis: normally 5-7 read-aloud sentences in 2 short paragraphs.
+- Establish character, place, concrete problem and immediate objective through scene action rather than explanation.
+- Adventure can be exciting; bedtime-safe does not mean passive or overly gentle.
+
+JSON ONLY:
+{{"title":"...","pages":["page 1 text"]}}
+"""
+
     def _build_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
+        if self._is_canon_request(request):
+            return self._build_canon_first_page_prompt(request, companion)
+        if self._is_folk_adventure_request(request):
+            return self._build_folk_adventure_first_page_prompt(request, companion)
+
         blocks = self._language_and_character_blocks(request, companion)
 
         opening_seed = self._select_opening_seed(request)
         opening = opening_seed["sentence"]
         language_code = (request.storyLanguageCode or "en").lower()[:2]
         child_age = self._safe_child_age(request.age)
+        story_world_block = self._story_world_prompt_block(request)
 
         if child_age <= 2:
             age_contract = "Use baby/toddler read-aloud language: very short sentences, familiar words, one place, one tiny event."
@@ -3060,7 +4439,14 @@ STORY FACTS:
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 
+STORY WORLD ISOLATION:
+- This is a standard PillowTales story unless Story World context is explicitly present below.
+- Do not import characters, places, canon, continuity, terminology or institutions from any Story World into a standard story.
+
+{story_world_block}
+
 {self._first_page_spine_setup_rules(request)}
+{self._natural_name_pronoun_rules()}
 PAGE 1 JOB:
 - Write like a relaxed children's author starting a favourite bedtime adventure.
 - Start from this theme-matched opening idea, rewritten naturally: "{opening}"
@@ -3098,7 +4484,174 @@ JSON ONLY:
 - Never return placeholder titles such as "Short title", "Title", or "Story Title".
 """
 
+    def _build_living_world_first_page_fallback(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, Any]:
+        """Instant local fallback that stays inside the selected Living World.
+
+        This fallback is generic across Story Worlds and must never hardcode
+        Ireland, Tír na nÓg, Niamh, Oisín or any first-world identity.
+        """
+        context = self._resolve_story_world_context(request) or {}
+        continuity = (context.get('living_world_continuity') or {}).get('content') or {}
+        seed = self._select_living_world_episode_seed(request, context) or {}
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
+        child = str(request.childName or "the child").strip() or "the child"
+
+        characters = continuity.get('persistent_characters') or {}
+        protagonist = ""
+        if isinstance(characters, dict) and characters:
+            protagonist = str(next(iter(characters.keys())))
+        elif isinstance(characters, list) and characters:
+            first = characters[0]
+            protagonist = str(first.get('name') if isinstance(first, dict) else first)
+        if not protagonist:
+            anchor_characters = (context.get('anchor') or {}).get('main_characters') or []
+            if isinstance(anchor_characters, list) and anchor_characters:
+                first = anchor_characters[0]
+                protagonist = str(first.get('name') if isinstance(first, dict) else first)
+        protagonist = protagonist.strip() or {
+            "es": "una guardiana del lugar",
+            "fr": "une gardienne du lieu",
+            "de": "eine Hüterin dieser Welt",
+            "it": "una custode di quel mondo",
+        }.get(language_code, "a guardian of the world")
+
+        invitations = {
+            "en": f"Snuggle down, {child}, and get nice and cosy. Tonight, a new Story World adventure is ready for you.",
+            "es": f"Acurrúcate bien, {child}, y ponte cómodo. Esta noche te espera una nueva aventura en Story Worlds.",
+            "fr": f"Installe-toi bien, {child}, et mets-toi à l'aise. Ce soir, une nouvelle aventure de Story Worlds t'attend.",
+            "de": f"Kuschel dich ein, {child}, und mach es dir gemütlich. Heute Abend wartet ein neues Story-World-Abenteuer auf dich.",
+            "it": f"Rannicchiati bene, {child}, e mettiti comodo. Stasera ti aspetta una nuova avventura di Story Worlds.",
+        }
+        generic_openings = {
+            "en": f"Inside that world, {protagonist} noticed that something familiar had changed and set off to find out why.",
+            "es": f"Dentro de aquel mundo, {protagonist} vio que algo conocido había cambiado y salió a descubrir por qué.",
+            "fr": f"Dans ce monde, {protagonist} remarqua que quelque chose de familier avait changé et partit découvrir pourquoi.",
+            "de": f"In dieser Welt bemerkte {protagonist}, dass sich etwas Vertrautes verändert hatte, und machte sich auf den Weg, den Grund herauszufinden.",
+            "it": f"In quel mondo, {protagonist} si accorse che qualcosa di familiare era cambiato e partì per capire il perché.",
+        }
+
+        title = str(seed.get('title') or '').strip()
+        if language_code != "en" or not title:
+            title = {
+                "es": "Una aventura en Story Worlds",
+                "fr": "Une aventure dans Story Worlds",
+                "de": "Ein Abenteuer in Story Worlds",
+                "it": "Un'avventura in Story Worlds",
+            }.get(language_code, "A Story World Adventure")
+
+        page = (
+            f"{invitations.get(language_code, invitations['en'])}\n\n"
+            f"{generic_openings.get(language_code, generic_openings['en'])}"
+        )
+        return {
+            'title': title,
+            'pages': postprocess_story_pages([page])[:1],
+            'companion': companion,
+            'expected_pages': self._intended_page_count(request),
+            'generation_status': 'partial',
+            'generation_fallback_reason': 'living_world_first_page_fallback',
+            'first_page_generation_source': 'fallback_living_world_local',
+        }
+
+    def _build_living_world_remaining_pages_prompt(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+        title: str,
+        existing_pages: list[str],
+        remaining_page_count: int,
+        next_page_number: int,
+    ) -> str:
+        blocks = self._language_and_character_blocks(request, companion)
+        existing_pages_text = "\n\n".join(f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or []))
+        final_page_number = next_page_number + remaining_page_count - 1
+        is_final = final_page_number >= self._intended_page_count(request)
+        role_map = {
+            2: (
+                "DEEPEN THE PROMISE. Develop the exact Page 1 problem or opportunity. "
+                "Introduce only one useful clue, helper, obstacle or world rule. "
+                "Give the protagonist a clear next step."
+            ),
+            3: (
+                "FIRST REAL COMPLICATION. Let the first approach partly fail, expose a new difficulty, "
+                "or reveal that the problem is not as simple as it looked. "
+                "The protagonist must notice, ask, choose or try something that changes what happens next."
+            ),
+            4: (
+                "MIDPOINT TURN. Reveal the strongest clue, hidden motive, surprising truth or world rule so far. "
+                "Change the protagonist's understanding or plan. Do not solve the whole problem here."
+            ),
+            5: (
+                "STRONGEST SETBACK. The protagonist acts on what was learned, but meets the hardest obstacle, "
+                "failed attempt, difficult choice or reversal. Success should briefly feel uncertain. "
+                "Bring back an earlier clue, habit, promise, object, joke or world rule and make it matter."
+            ),
+            6: (
+                "DECISIVE ACTION AND CLIMAX. The protagonist drives the solution using established clues, "
+                "relationships, skills, powers, strategy or teamwork. This must be the adventure's peak. "
+                "The main problem should be resolved or be visibly and irreversibly resolving by the end."
+            ),
+            7: (
+                "FINAL PAYOFF AND BEDTIME LANDING. If one final action or reveal is still required to complete "
+                "the climax, finish it immediately using only established story material. Then show consequence, "
+                "relief, one earned callback and a calm settled ending. No new problem, quest, clue, magical rule or sequel hook."
+            ),
+        }
+        ending = (
+            "This is the final page. Complete any already-established final resolution immediately, then give the result room to breathe. Do not invent a new solution, cause, character, place, magical rule, task or sequel hook. End exactly with The End."
+            if is_final else
+            "Do not finish the whole episode prematurely; follow the page role and keep the same central problem."
+        )
+        return f"""Continue this PillowTales Living World episode. Return only JSON.
+
+LANGUAGE:
+- Write only in {blocks['language_name']}.
+
+{self._story_world_prompt_block(request)}
+
+{self._living_world_inherited_quality_rules(request)}
+
+{self._natural_name_pronoun_rules(protect_canon_names=True)}
+
+FIXED EPISODE SPINE:
+{self._story_spine_block(request, title, (existing_pages or [''])[0])}
+
+EXISTING PAGES:
+{existing_pages_text}
+
+PAGE {next_page_number} ROLE:
+- {role_map.get(next_page_number, 'Move the same episode forward.')}
+
+CONTINUATION RULES:
+- Write exactly {remaining_page_count} new page(s), Page {next_page_number} through Page {final_page_number}.
+- Preserve the protagonist established after the external bedtime invitation on Page 1.
+- Treat Page 1's first-paragraph bedtime invitation as external framing, not as part of the episode plot.
+- The listening child must NEVER appear, be named, be addressed, or be inserted at any later point.
+- Write all ordinary narration, dialogue and non-protected descriptive labels naturally in {blocks['language_name']}. Preserve only protected proper names exactly.
+- Continue the selected episode seed and the same concrete world-specific problem.
+- Every page must materially use established locations, characters, powers, institutions, creatures or rules from continuity.
+- Do not drift into a generic object hunt, magical repair, lost memory, lost wish, shell, ribbon, whisper, shimmer or moral lesson.
+- Do not make gentleness or kindness the automatic solution.
+- Magic cannot automatically solve the plot; action, intelligence, courage, strategy or teamwork must matter.
+{self._living_world_age_style_block(request.age)}
+- Keep each sentence focused on one clear action, observation, or spoken idea.
+- Follow the Living World story-depth target above. Do not return a synopsis-sized page.
+- Use action, dialogue, complication, character behaviour and consequence to create depth; never pad with recap or decorative lore.
+- Each page should normally contain 5-7 read-aloud sentences in 2 short paragraphs.
+- A command from the protagonist must not end the conflict by itself. If an antagonist, rival or obstacle matters, require a believable action, choice, trick, cost, discovery, reversal or consequence before resolution.
+- {ending}
+
+JSON ONLY:
+{{"pages":["new page text"]}}
+- Return exactly {remaining_page_count} string(s), with no notes or extra keys.
+"""
+
     def _build_first_page_fallback(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, Any]:
+        if self._is_canon_request(request):
+            return self._build_canon_first_page_fallback(request, companion)
+        if self._is_folk_adventure_request(request):
+            return self._build_living_world_first_page_fallback(request, companion)
+
         """Fast polished page-1 fallback used only when Gemini is too slow or malformed.
 
         This must remain instant and local. It protects the Page-1-first
@@ -3225,6 +4778,28 @@ JSON ONLY:
                     ),
                 }
             ],
+            "ja": [
+                {
+                    "title": f"{child}とはじめの手がかり",
+                    "page": (
+                        f"{opening_sentence} "
+                        f"ねる前の絵本のそばに、{theme}の絵がかかれた小さな手紙が置いてありました。 "
+                        f"手紙には、夜になる前に二人の友だちを助けてほしいと書いてありました。 "
+                        f"{child}は手紙を大切に持ち、最初の手がかりをたどってドアのほうへ進みました。"
+                    ),
+                }
+            ],
+            "ar": [
+                {
+                    "title": f"{child} والدليل الأول",
+                    "page": (
+                        f"{opening_sentence} "
+                        f"وبجوار كتاب ما قبل النوم، ظهرت رسالة صغيرة عليها صورة عن {theme}. "
+                        f"قالت الرسالة إن صديقين يحتاجان إلى المساعدة قبل أن يحل المساء. "
+                        f"احتفظ {child} بالرسالة بعناية، ثم اتبع الدليل الأول نحو الباب."
+                    ),
+                }
+            ],
         }
 
         variants = fallback_variants.get(language_code, fallback_variants["en"])
@@ -3253,6 +4828,25 @@ JSON ONLY:
         remaining_page_count: int,
         next_page_number: int,
     ) -> str:
+        if self._is_canon_request(request):
+            return self._build_canon_remaining_pages_prompt(
+                request=request,
+                companion=companion,
+                title=title,
+                existing_pages=existing_pages,
+                remaining_page_count=remaining_page_count,
+                next_page_number=next_page_number,
+            )
+        if self._is_folk_adventure_request(request):
+            return self._build_living_world_remaining_pages_prompt(
+                request=request,
+                companion=companion,
+                title=title,
+                existing_pages=existing_pages,
+                remaining_page_count=remaining_page_count,
+                next_page_number=next_page_number,
+            )
+
         """Build a compact continuation prompt for pages 2+.
 
         The continuation prompt is intentionally simpler than earlier Phase 11
@@ -3264,6 +4858,7 @@ JSON ONLY:
         existing_pages_text = "\n\n".join(
             f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or [])
         )
+        story_world_block = self._story_world_prompt_block(request)
         story_spine = self._story_spine_block(
             request=request,
             title=title,
@@ -3304,6 +4899,28 @@ JSON ONLY:
 - Do not introduce a new subplot, unrelated mystery, or premature return-home ending.
 """
 
+        story_identity_line = (
+            "Story identity: selected Story World + selected folklore source. Ignore the parent's generic theme."
+            if self._is_folk_adventure_request(request)
+            else f"Theme: {blocks['effective_theme']}"
+        )
+
+        folk_adventure_continuity = (
+            """FOLK ADVENTURE CONTINUITY — NON-NEGOTIABLE:
+- Keep the same selected folklore source dependency established on Page 1.
+- Every major development must remain connected to that source's place, consequence, untold space, protected fact, or compatible character role.
+- Do not drift into a generic fantasy mission that could be moved to another country by renaming places.
+- Prefer the supplied Story World landscape, customs, creatures, objects, atmosphere, places, relationships and folklore consequences over generic fantasy inventions.
+- Do not invent a missing, forgotten, secret, corrected, repaired, recovered, or alternative part of the source legend.
+- Do not rewrite, prevent, reverse, repair, complete, restore, or replace any protected canonical event or outcome.
+- The child solves only the separate NEW mission and is never responsible for making canon happen correctly.
+- If a generic creative rule conflicts with Story World authenticity or the source contract, the Story World material and source contract win.
+- Preserve protected cultural names exactly.
+"""
+            if self._is_folk_adventure_request(request)
+            else ""
+        )
+
         return f"""Continue this bedtime story from the existing pages.
 
 LANGUAGE:
@@ -3315,8 +4932,12 @@ LANGUAGE:
 STORY FACTS:
 - Title: {title}
 - Child: {request.childName}, age {request.age}
-- Theme: {blocks['effective_theme']}
+- {story_identity_line}
 - Moral: {request.moral}
+
+{story_world_block}
+
+{folk_adventure_continuity}
 
 {story_spine}
 EXISTING PAGES:
@@ -3331,6 +4952,8 @@ AGE LOCK:
 
 STORY FLOW:
 {self._story_flow_rules()}
+
+{self._natural_name_pronoun_rules()}
 
 LITERARY POLISH:
 {self._literary_polish_rules()}
@@ -3443,8 +5066,270 @@ Return ONLY valid JSON:
         preview = response_text[:300].replace("\n", "\\n").replace("\r", "\\r")
         print(f"[PERF] {label}_raw_preview chars={len(response_text)} preview={preview!r}")
 
+    @staticmethod
+    def _flatten_canon_text(value: Any) -> list[str]:
+        """Return readable strings from nested Canon record values."""
+        if value in (None, "", [], {}):
+            return []
+        if isinstance(value, str):
+            return [value.strip()] if value.strip() else []
+        if isinstance(value, dict):
+            preferred = []
+            for key in ("name", "title", "label", "character", "location", "event", "scene", "description", "summary"):
+                if key in value:
+                    preferred.extend(StoryService._flatten_canon_text(value.get(key)))
+            if preferred:
+                return preferred
+            flattened: list[str] = []
+            for item in value.values():
+                flattened.extend(StoryService._flatten_canon_text(item))
+            return flattened
+        if isinstance(value, (list, tuple, set)):
+            flattened: list[str] = []
+            for item in value:
+                flattened.extend(StoryService._flatten_canon_text(item))
+            return flattened
+        return [str(value).strip()]
+
+    def _canon_page_one_terms(self, request: GenerateStoryRequest) -> list[str]:
+        """Extract language-matched Canon anchors for the lightweight Page 1 guard.
+
+        The authoritative Canon contract remains the source of truth. For a
+        translated story, the repository already attaches the published story
+        translation to the selected Canon anchor; those translated catalogue
+        fields are added as matching anchors so Arabic/Japanese prose is not
+        rejected merely because its script differs from the base Canon record.
+        """
+        contract = self._canon_contract(request)
+        source_values = [
+            contract.get("characters"),
+            contract.get("locations"),
+            (contract.get("required_scenes") or [])[:1] if isinstance(contract.get("required_scenes"), list) else contract.get("required_scenes"),
+            (contract.get("required_events") or [])[:1] if isinstance(contract.get("required_events"), list) else contract.get("required_events"),
+        ]
+
+        language = str(request.storyLanguageCode or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+        context = self._resolve_story_world_context(request)
+        anchor = (context or {}).get("anchor") or {}
+        translation = anchor.get("_story_translation") if isinstance(anchor, dict) else None
+        if language != "en" and isinstance(translation, dict):
+            source_values.extend([
+                translation.get("title"),
+                translation.get("subtitle"),
+                translation.get("summary"),
+            ])
+
+        stopwords = {
+            "about", "after", "again", "before", "being", "between", "child", "during",
+            "first", "from", "into", "legend", "place", "scene", "story", "their", "there",
+            "these", "they", "this", "through", "where", "which", "while", "with",
+        }
+        arabic_stopwords = {
+            "التي", "الذي", "هذه", "هذا", "ذلك", "هناك", "كانت", "كان", "بعد", "قبل",
+            "عندما", "حيث", "حول", "قصة", "حكاية", "إلى", "على", "من", "في", "مع",
+        }
+        terms: list[str] = []
+
+        def add_term(term: str) -> None:
+            candidate = str(term or "").strip()
+            if candidate and candidate not in terms:
+                terms.append(candidate)
+
+        for text in self._flatten_canon_text(source_values):
+            cleaned = re.sub(r"\s+", " ", text).strip(" -:;,.،؛。！？؟\n\t")
+            if 3 <= len(cleaned) <= 80:
+                add_term(cleaned)
+
+            for token in re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿĀ-ž’'-]{4,}", cleaned):
+                normalized = token.strip("’'-").lower()
+                if normalized and normalized not in stopwords:
+                    add_term(token)
+
+            if language == "ar":
+                for token in re.findall(r"[\u0600-\u06FF]{3,}", cleaned):
+                    normalized = token.strip("ـ").lower()
+                    if normalized and normalized not in arabic_stopwords:
+                        add_term(token)
+            elif language == "ja":
+                # Prefer compact script runs that are likely to carry names or
+                # distinctive title/summary concepts; avoid treating an entire
+                # unspaced Japanese sentence as one required phrase.
+                for token in re.findall(r"[\u30a0-\u30ff]{2,12}|[\u3400-\u9fff々]{2,8}|[\u3040-\u309f]{3,10}", cleaned):
+                    add_term(token)
+
+        return terms[:60]
+
+    @staticmethod
+    def _canon_instruction_leak_reason(text: Any) -> Optional[str]:
+        """Return a rejection reason if child-facing Canon prose exposes control text.
+
+        This is deliberately narrow and Canon-only. It does not rewrite prose,
+        add model calls, wait for later pages, or touch narration. It simply
+        prevents editorial/prompt language from being published as story text.
+        """
+        candidate = re.sub(r"\s+", " ", str(text or "")).strip().lower()
+        if not candidate:
+            return None
+
+        leaked_phrases = (
+            "canonical characters",
+            "canonical events",
+            "canonical setting",
+            "canon characters",
+            "canon events",
+            "canon setting",
+            "canon source of truth",
+            "source of truth",
+            "canon authority rules",
+            "canon layering rule",
+            "required canonical event",
+            "required canonical events",
+            "required event order",
+            "generation rules",
+            "generation_rule",
+            "editorial and cultural boundaries",
+            "story world dna",
+            "prompt pack",
+            "return only json",
+            "json only",
+            "do not invent",
+            "the story continues only with its canonical",
+        )
+        for phrase in leaked_phrases:
+            if phrase in candidate:
+                return f"canon_instruction_leak:{phrase.replace(' ', '_')}"
+        return None
+
+    def _validate_canon_first_page(self, request: GenerateStoryRequest, story_data: dict) -> tuple[bool, str]:
+        """Reject a thin or source-disconnected Canon Page 1 locally.
+
+        For Japanese/Arabic, never require an English Canon substring when the
+        catalogue has no published source-scene anchors in the requested script.
+        That cross-script requirement caused valid Japanese Canon openings to
+        fail closed even though Gemini had generated the correct Tara/Aillen
+        scene. In that no-native-anchor case, the exact canonical title plus
+        the existing shape guards remain the local identity check; the full
+        Canon contract still governs generation and later semantic review.
+        """
+        pages = self._sanitize_generated_pages(postprocess_story_pages(story_data.get("pages", [])))[:1]
+        if not pages:
+            return False, "canon_page_1_missing"
+        page = pages[0].strip()
+        leak_reason = self._canon_instruction_leak_reason(page)
+        if leak_reason:
+            return False, leak_reason
+
+        language = str(request.storyLanguageCode or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+        content_units = self._story_text_units(page, language)
+        sentence_count = self._count_story_sentences(page)
+        child_age = self._safe_child_age(request.age)
+        minimum_units, unit_label = self._first_page_minimum_units(child_age, language)
+        minimum_sentences = 3 if child_age <= 5 else 4
+        if content_units < minimum_units:
+            return False, f"canon_page_1_too_short_{content_units}_{unit_label}"
+        if sentence_count < minimum_sentences:
+            return False, f"canon_page_1_too_few_sentences_{sentence_count}"
+
+        contract = self._canon_contract(request)
+        expected_title = str(contract.get("title") or "").strip()
+        returned_title = str(story_data.get("title") or "").strip()
+        if expected_title and returned_title != expected_title:
+            return False, "canon_page_1_title_mismatch"
+
+        lower = page.lower()
+        frame_markers = (
+            "settled into bed", "settled in bed", "closed their eyes", "closed his eyes",
+            "closed her eyes", "listened to the story", "began to listen", "bedtime story",
+            "once upon a time",
+        )
+        source_terms = self._canon_page_one_terms(request)
+        candidate_terms = [term for term in source_terms if len(term.strip()) >= 4]
+
+        # For Japanese and Arabic, prefer anchors written in the requested
+        # script. An English fallback catalogue row must not make a correct
+        # translated scene impossible to validate locally.
+        if language == "ja":
+            native_terms = [
+                term for term in candidate_terms
+                if re.search(r'[\u3040-\u30ff\u3400-\u9fff]', term)
+            ]
+        elif language == "ar":
+            native_terms = [
+                term for term in candidate_terms
+                if re.search(r'[\u0600-\u06ff]', term)
+            ]
+        else:
+            native_terms = candidate_terms
+
+        terms_to_match = native_terms or candidate_terms
+        source_present = any(term.lower() in lower for term in terms_to_match)
+        frame_present = any(marker in lower for marker in frame_markers)
+
+        if source_terms and not source_present:
+            if language in {"ja", "ar"} and not native_terms:
+                # No same-script source anchors exist in the selected catalogue
+                # translation. Do not fail a valid translated Canon scene solely
+                # because the authoritative record is stored in another script.
+                print(
+                    f"[PERF] canon_page_1_cross_script_source_guard_fallback "
+                    f"lang={language} title={expected_title!r}"
+                )
+            else:
+                return False, "canon_page_1_missing_source_scene"
+
+        if frame_present and content_units < minimum_units + (12 if unit_label == "words" else 18) and not source_present:
+            return False, "canon_page_1_only_child_frame"
+        return True, "ok"
+
+    def _validate_folk_adventure_first_page(
+        self,
+        request: GenerateStoryRequest,
+        story_data: dict,
+    ) -> tuple[bool, str]:
+        """Reject a generic Story World Page 1 that lacks source dependency."""
+        pages = self._sanitize_generated_pages(postprocess_story_pages(story_data.get("pages", [])))[:1]
+        if not pages:
+            return False, "folk_adventure_page_1_missing"
+        page = pages[0].strip()
+        child_age = self._safe_child_age(request.age)
+        minimum_words = 28 if child_age <= 5 else 38 if child_age <= 8 else 48
+        if len(page.split()) < minimum_words:
+            return False, f"folk_adventure_page_1_too_short_{len(page.split())}_words"
+        if self._count_story_sentences(page) < (3 if child_age <= 5 else 4):
+            return False, "folk_adventure_page_1_too_few_sentences"
+
+        contract = self._folk_adventure_contract(request)
+        anchor_terms: list[str] = []
+        for value in (
+            contract.get("source_title"),
+            contract.get("characters"),
+            contract.get("locations"),
+            contract.get("protected_facts"),
+            contract.get("valid_entry_points"),
+            contract.get("expandable_consequences"),
+        ):
+            anchor_terms.extend(self._flatten_canon_text(value))
+
+        lower = page.lower()
+        distinctive_terms: list[str] = []
+        for raw in anchor_terms:
+            cleaned = re.sub(r"\s+", " ", str(raw or "")).strip()
+            if not cleaned:
+                continue
+            if 4 <= len(cleaned) <= 100:
+                distinctive_terms.append(cleaned.lower())
+            for token in re.findall(r"[A-Za-zÀ-ÖØ-öø-ÿĀ-ž’'-]{4,}", cleaned):
+                distinctive_terms.append(token.lower().strip("’'-"))
+
+        source_present = any(term and term in lower for term in distinctive_terms[:80])
+        if distinctive_terms and not source_present:
+            return False, "folk_adventure_page_1_missing_source_dependency"
+
+        return True, "ok"
+
     async def _generate_first_page_response_with_retry(
         self,
+        request: GenerateStoryRequest,
         prompt: str,
         response_schema: dict,
         soft_limit_seconds: float,
@@ -3492,6 +5377,14 @@ Return ONLY valid JSON:
                 story_data = self._clean_json_response(response_text)
                 if not isinstance(story_data, dict) or 'title' not in story_data or 'pages' not in story_data:
                     raise ValueError('Invalid first-page story format returned by AI')
+                if self._is_canon_request(request):
+                    valid, reason = self._validate_canon_first_page(request, story_data)
+                    if not valid:
+                        raise ValueError(reason)
+                elif self._is_folk_adventure_request(request):
+                    valid, reason = self._validate_folk_adventure_first_page(request, story_data)
+                    if not valid:
+                        raise ValueError(reason)
                 return story_data
             except Exception as parse_exc:
                 last_error = parse_exc
@@ -3516,6 +5409,11 @@ Return ONLY valid JSON:
         expected_pages = self._intended_page_count(request)
 
         if not self.model:
+            if self._is_canon_request(request):
+                raise HTTPException(
+                    status_code=503,
+                    detail='Canonical Story Worlds generation is temporarily unavailable',
+                )
             page_one = f"Once upon a time, {request.childName} discovered a quiet little path full of wonder. The stars seemed to listen as the bedtime adventure began. With a calm heart, {request.childName} stepped forward to learn something kind about {request.customTheme or self._localized_theme_label(request.theme, request.storyLanguageCode)}."
             pages = postprocess_story_pages([page_one])
             return {
@@ -3524,7 +5422,7 @@ Return ONLY valid JSON:
                 'companion': companion,
                 'expected_pages': expected_pages,
                 'generation_status': 'partial',
-                'first_page_generation_source': 'gemini_primary',
+                'first_page_generation_source': 'local_standard_fallback',
             }
 
         try:
@@ -3538,12 +5436,22 @@ Return ONLY valid JSON:
                 # output path, plus one fast retry if parsing fails. The whole
                 # operation remains bounded by FIRST_PAGE_SOFT_LIMIT_SECONDS.
                 story_data = await self._generate_first_page_response_with_retry(
+                    request=request,
                     prompt=prompt,
                     response_schema=self._story_response_schema(1, include_title=True),
                     soft_limit_seconds=FIRST_PAGE_SOFT_LIMIT_SECONDS,
                 )
             except asyncio.TimeoutError:
                 elapsed = time.time() - t_gemini
+                if self._is_canon_request(request):
+                    print(
+                        f"[PERF] canon first_page timed out after {elapsed:.2f}s; "
+                        "failing closed to prevent unsafe Canon fallback content"
+                    )
+                    raise HTTPException(
+                        status_code=503,
+                        detail='Canonical story generation timed out. Please try again.',
+                    )
                 print(
                     f"[PERF] first_page Gemini soft limit hit after {elapsed:.2f}s; "
                     "using fast fallback page 1"
@@ -3564,6 +5472,11 @@ Return ONLY valid JSON:
             if not pages:
                 raise ValueError('First-page story returned no pages')
 
+            if self._is_canon_request(request):
+                canon_title = str(self._canon_contract(request).get('title') or story_data.get('title') or '').strip()
+                if canon_title:
+                    story_data['title'] = canon_title
+
             page_one_words = len(pages[0].split())
             page_one_chars = len(pages[0])
             print(f"[PERF] first_page_size words={page_one_words} chars={page_one_chars}")
@@ -3578,12 +5491,18 @@ Return ONLY valid JSON:
                 'generation_status': 'partial',
                 'first_page_generation_source': 'gemini_primary',
             }
+        except HTTPException:
+            raise
         except Exception as exc:
             # Never fall back to full story generation inside the initial
-            # Page-1 request. That can block the frontend until the 90s
-            # timeout and breaks the Page-1-first architecture. Return the
-            # deterministic Page 1 fallback instead; pages 2+ can still be
-            # generated by the normal background continuation path.
+            # Page-1 request. For non-English Canon, fail closed rather than
+            # exposing untranslated source material.
+            if self._is_canon_request(request):
+                print(f"[PERF] canon first_page failed closed: {exc}")
+                raise HTTPException(
+                    status_code=503,
+                    detail='Canonical story generation is temporarily unavailable. Please try again.',
+                )
             print(f"[PERF] first_page failed, using deterministic page 1 fallback: {exc}")
             fallback = self._build_first_page_fallback(request, companion)
             fallback['generation_fallback_reason'] = 'first_page_exception'
@@ -3604,6 +5523,8 @@ Return ONLY valid JSON:
         print(f"[PERF] complete_story_background START story_id={story_id}")
         try:
             if not self.model:
+                if self._is_canon_request(request):
+                    raise RuntimeError("Canonical Story Worlds background generation requires Gemini")
                 remaining = [
                     f"On the next part of the path, {request.childName} found a small kindness waiting to be shared.",
                     f"The adventure took one surprising turn, and {request.childName} used the chosen moral to put things right.",
@@ -3662,27 +5583,146 @@ Return ONLY valid JSON:
                             )
 
                     if not batch_pages:
-                        # Do not mark the story failed if we already have pages
-                        # the reader can safely continue using. Preserve current
-                        # pages and leave status partial for polling/diagnostics.
-                        safe_pages = postprocess_story_pages(working_pages or current_pages)[:expected_pages]
+                        # Immediate provider attempts for this exact next page
+                        # have been exhausted. A transient HTTP-200/empty-text
+                        # Gemini response must not permanently strand a story at
+                        # 4/7 (or any other partial count), so keep the existing
+                        # playable pages published and perform a small number of
+                        # delayed recovery cycles for the SAME next page.
+                        #
+                        # Each recovery call still uses the existing
+                        # _generate_remaining_pages_batch validation/retry logic;
+                        # we do not weaken page quality, Canon checks, or invent
+                        # fallback story text.
+                        safe_pages = postprocess_story_pages(
+                            working_pages or current_pages
+                        )[:expected_pages]
+
                         if safe_pages:
                             self._publish_partial_story_pages(
                                 story_id=story_id,
                                 user_id=user_id,
                                 working_pages=safe_pages,
                                 expected_pages=expected_pages,
-                                generation_error=last_batch_error or "Background continuation did not produce usable pages",
+                                generation_error=(
+                                    last_batch_error
+                                    or "Background continuation did not produce usable pages"
+                                ),
+                            )
+
+                        for recovery_attempt in range(
+                            1,
+                            BACKGROUND_CONTINUATION_RECOVERY_ATTEMPTS + 1,
+                        ):
+                            delay_seconds = (
+                                BACKGROUND_CONTINUATION_RECOVERY_DELAY_SECONDS
+                                * recovery_attempt
                             )
                             print(
-                                f"[PERF] complete_story_background PAUSED story_id={story_id} "
-                                f"pages={len(safe_pages)}/{expected_pages} total={time.time() - start_total:.2f}s"
+                                f"[PERF] remaining_pages_recovery WAIT story_id={story_id} "
+                                f"next_page={next_page_number} "
+                                f"attempt={recovery_attempt}/"
+                                f"{BACKGROUND_CONTINUATION_RECOVERY_ATTEMPTS} "
+                                f"delay={delay_seconds:.2f}s "
+                                f"previous_error={(last_batch_error or 'unknown')[:220]}"
                             )
-                            return
-                        raise ValueError(last_batch_error or "Background continuation produced no usable pages")
+                            await asyncio.sleep(delay_seconds)
+
+                            try:
+                                print(
+                                    f"[PERF] remaining_pages_recovery TRY story_id={story_id} "
+                                    f"next_page={next_page_number} "
+                                    f"attempt={recovery_attempt}/"
+                                    f"{BACKGROUND_CONTINUATION_RECOVERY_ATTEMPTS}"
+                                )
+                                batch_pages = await self._generate_remaining_pages_batch(
+                                    request=request,
+                                    companion=companion,
+                                    title=title,
+                                    working_pages=working_pages,
+                                    batch_count=1,
+                                )
+                                print(
+                                    f"[PERF] remaining_pages_recovery SUCCESS story_id={story_id} "
+                                    f"next_page={next_page_number} "
+                                    f"attempt={recovery_attempt}/"
+                                    f"{BACKGROUND_CONTINUATION_RECOVERY_ATTEMPTS}"
+                                )
+                                break
+                            except Exception as recovery_exc:
+                                last_batch_error = str(recovery_exc)
+                                print(
+                                    f"[PERF] remaining_pages_recovery FAILED story_id={story_id} "
+                                    f"next_page={next_page_number} "
+                                    f"attempt={recovery_attempt}/"
+                                    f"{BACKGROUND_CONTINUATION_RECOVERY_ATTEMPTS} "
+                                    f"error={last_batch_error[:300]}"
+                                )
+
+                        if not batch_pages:
+                            # Preserve the old safe failure mode after bounded
+                            # recovery is genuinely exhausted: keep the usable
+                            # pages partial rather than marking the story failed.
+                            safe_pages = postprocess_story_pages(
+                                working_pages or current_pages
+                            )[:expected_pages]
+                            if safe_pages:
+                                self._publish_partial_story_pages(
+                                    story_id=story_id,
+                                    user_id=user_id,
+                                    working_pages=safe_pages,
+                                    expected_pages=expected_pages,
+                                    generation_error=(
+                                        last_batch_error
+                                        or "Background continuation recovery exhausted"
+                                    ),
+                                )
+                                print(
+                                    f"[PERF] complete_story_background PAUSED_AFTER_RECOVERY "
+                                    f"story_id={story_id} "
+                                    f"pages={len(safe_pages)}/{expected_pages} "
+                                    f"total={time.time() - start_total:.2f}s"
+                                )
+                                return
+                            raise ValueError(
+                                last_batch_error
+                                or "Background continuation produced no usable pages"
+                            )
 
                     working_pages = postprocess_story_pages([*working_pages, *batch_pages])[:expected_pages]
                     remaining.extend(batch_pages)
+
+                    # Canon uses 7 pages as a provisional maximum. After Page 6,
+                    # let the existing semantic Canon reviewer decide whether the
+                    # authentic story has already finished. If it has, reduce the
+                    # confirmed final page count to the text we actually have and
+                    # complete normally. This preserves text polling as the source
+                    # of truth and avoids manufacturing a filler Page 7.
+                    if (
+                        self._is_canon_request(request)
+                        and len(working_pages) == expected_pages - 1
+                    ):
+                        canon_complete, canon_reason = await self._canon_can_finish_on_current_page(
+                            request=request,
+                            title=title,
+                            pages=working_pages,
+                        )
+                        print(
+                            f"[PERF] canon_early_completion_review story_id={story_id} "
+                            f"pages={len(working_pages)}/{expected_pages} "
+                            f"complete={canon_complete} reason={canon_reason[:220]!r}"
+                        )
+                        if canon_complete:
+                            working_pages[-1] = self._ensure_the_end(working_pages[-1])
+                            # Keep `remaining` aligned with the now-final working
+                            # pages in case _ensure_the_end changed Page 6 text.
+                            remaining = working_pages[len(current_pages):]
+                            expected_pages = len(working_pages)
+                            print(
+                                f"[PERF] canon_story_completed_early story_id={story_id} "
+                                f"confirmed_pages={expected_pages}"
+                            )
+                            break
 
                     # Publish partial pages immediately. Reader polling can then
                     # advance to pages 2+ without waiting for the full story.

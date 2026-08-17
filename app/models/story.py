@@ -27,6 +27,9 @@ class GenerateStoryRequest(BaseModel):
     companionId: Optional[str] = None
     childNamePronunciation: Optional[str] = None
     gender: str = 'neutral'
+    storyWorldSlug: Optional[str] = None
+    storyWorldMode: Optional[Literal['traditional_folk_tale', 'pillowtales_folk_adventure']] = None
+    storyWorldAnchorSlug: Optional[str] = None
 
     @field_validator('customMoral')
     @classmethod
@@ -144,4 +147,8 @@ class StoryRecord(BaseModel):
     expected_pages: int = 7
     generation_error: Optional[str] = None
     is_favorite: bool = False
+    story_world_slug: Optional[str] = None
+    story_world_mode: Optional[str] = None
+    story_world_anchor_slug: Optional[str] = None
+    story_world_prompt_pack_version: Optional[int] = None
     created_at: str

@@ -15,6 +15,7 @@ from app.models.subscription import SubscriptionResponse
 from app.repositories.story_repository import StoryRepository
 from app.repositories.user_repository import UserRepository
 from app.services.subscription_service import SubscriptionService
+from app.services.story_world_pronunciation_service import StoryWorldPronunciationService
 from app.services.text_cleaner import clean_text_for_tts, apply_pronunciation
 
 # In-memory job state for active chunked narration generation.
@@ -30,12 +31,14 @@ WISE_OWL_AUDIO_CACHE_VERSION = "v8"
 STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
     # Separate English locale caches so US Night Owl and UK Wise Owl never
     # replay audio generated through the previous single-English narrator path.
-    "en-US": "v2",
-    "en-GB": "v2",
+    "en-US": "v7",
+    "en-GB": "v7",
     "es": "v10",
     "fr": "v10",
     "de": "v10",
     "it": "v10",
+    "ja": "v1",
+    "ar": "v1",
 }
 
 # In-memory abuse/rate limiting state.
@@ -350,13 +353,33 @@ def soften_bedtime_narration_text(text: str, language_code: str) -> str:
         text = text.replace("tutto a un tratto", "poi")
         return text.strip()
 
+    if lang == "ja":
+        # Keep Japanese wording intact. Only normalise whitespace so TTS receives
+        # clean native text without introducing English-style punctuation.
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\s*([。！？])\s*", r"\1", text)
+        return text.strip()
+
+    if lang == "ar":
+        # Keep Arabic wording intact; use punctuation/spacing cleanup only.
+        text = re.sub(r"[ \t]+", " ", text)
+        text = re.sub(r"\s+([،؛؟.!])", r"\1", text)
+        return text.strip()
+
     return text
 
 class NarrationService:
-    def __init__(self, story_repo: StoryRepository, user_repo: UserRepository, subscription_service: SubscriptionService):
+    def __init__(
+        self,
+        story_repo: StoryRepository,
+        user_repo: UserRepository,
+        subscription_service: SubscriptionService,
+        story_world_pronunciation_service: Optional[StoryWorldPronunciationService] = None,
+    ):
         self.story_repo = story_repo
         self.user_repo = user_repo
         self.subscription_service = subscription_service
+        self.story_world_pronunciation_service = story_world_pronunciation_service
 
     def get_narration_usage(self, user_id: str) -> dict:
         """
@@ -405,6 +428,8 @@ class NarrationService:
             "de": "night_owl_german",
             "fr": "night_owl_french",
             "it": "night_owl_italian",
+            "ja": "night_owl_japanese",
+            "ar": "night_owl_arabic",
         }.get(base_lang, "night_owl_english")
 
     def _preset_language_for_voice(self, voice: str) -> str:
@@ -782,6 +807,26 @@ class NarrationService:
                 "Keep the voice tender, reassuring, dreamy, and suitable for sleep."
             )
 
+        if lang == "ja":
+            return (
+                "Read as the same calm Japanese parent telling one continuous bedtime story in natural Japanese. "
+                "Use a warm, gentle, reassuring Japanese delivery with clear native pronunciation and soft bedtime pacing. "
+                "Treat every page as part of the exact same recording session. Keep narrator identity, speed, warmth, energy, and emotional tone consistent across pages. "
+                "Start each page cleanly on the first word without an audible breath, gulp, mouth sound, or reset effect. "
+                "Avoid exaggerated anime, announcer, commercial, theatrical, or overly energetic delivery. "
+                "Keep the voice intimate, natural, peaceful, and easy for a young child to follow."
+            )
+
+        if lang == "ar":
+            return (
+                "Read as the same calm Arabic-speaking parent telling one continuous bedtime story in clear, natural Arabic. "
+                "Use warm, gentle, reassuring pronunciation and a soft bedtime rhythm. "
+                "Treat every page as part of the exact same recording session. Keep narrator identity, speed, warmth, energy, and emotional tone consistent across pages. "
+                "Start each page cleanly on the first word without an audible breath, gulp, mouth sound, or reset effect. "
+                "Avoid announcer, newsreader, theatrical, commercial, or overly formal delivery. "
+                "Keep the voice intimate, natural, peaceful, and easy for a young child to follow."
+            )
+
         return (
             "Read as a calm, warm bedtime storyteller for a young child, with the gentle reassurance of a loving grandparent. "
             "Use soft, sleepy pacing, natural breathing pauses, and tender sentence endings. "
@@ -876,12 +921,59 @@ class NarrationService:
         )
 
 
+    def _translation_output_matches_target(
+        self,
+        original_text: str,
+        translated_text: str,
+        *,
+        source_lang: str,
+        target_lang: str,
+    ) -> bool:
+        """Reject obvious wrong-language translation results before TTS.
+
+        This is intentionally conservative. It catches the failure mode seen in
+        production where an Arabic -> Italian request returned Arabic unchanged,
+        while avoiding heavyweight language detection on the Page-1 path.
+        """
+        candidate = (translated_text or "").strip()
+        original = (original_text or "").strip()
+        if not candidate:
+            return False
+
+        if source_lang and source_lang != target_lang:
+            normalized_original = re.sub(r"\s+", " ", original).strip().casefold()
+            normalized_candidate = re.sub(r"\s+", " ", candidate).strip().casefold()
+            if normalized_original == normalized_candidate:
+                return False
+
+        total_letters = max(1, sum(1 for ch in candidate if ch.isalpha()))
+        arabic_chars = sum(1 for ch in candidate if "\u0600" <= ch <= "\u06ff")
+        japanese_chars = sum(
+            1
+            for ch in candidate
+            if ("\u3040" <= ch <= "\u30ff") or ("\u4e00" <= ch <= "\u9fff")
+        )
+        arabic_ratio = arabic_chars / total_letters
+        japanese_ratio = japanese_chars / total_letters
+
+        if target_lang == "ar":
+            return arabic_ratio >= 0.20
+        if source_lang == "ar" and target_lang != "ar" and arabic_ratio >= 0.20:
+            return False
+
+        if target_lang == "ja":
+            return japanese_ratio >= 0.20
+        if source_lang == "ja" and target_lang != "ja" and japanese_ratio >= 0.20:
+            return False
+
+        return True
+
     async def _translate_text(self, text: str, target_lang: str, source_lang: Optional[str] = None) -> str:
         if not text:
             return text
 
-        target = (target_lang or "en").lower()
-        source = (source_lang or "").lower()
+        target = base_language_code(target_lang or "en")
+        source = base_language_code(source_lang) if source_lang else ""
 
         if source and source == target:
             print(f"[TRANSLATE] Skipping translation source_lang={source} target_lang={target}")
@@ -895,58 +987,150 @@ class NarrationService:
             print(f"[TRANSLATE] OPENAI_API_KEY missing for source_lang={source or 'unknown'} target_lang={target}")
             raise RuntimeError("OPENAI_API_KEY not configured for translation")
 
-        try:
-            system_prompt = (
-                f"Translate the following children's bedtime story text from {source or 'the original language'} into {target}. "
-                "Keep it warm, magical, emotionally comforting, and natural for young children. "
-                "Preserve names, tone, emotional pacing, and bedtime softness. "
-                "Do not translate literally. "
-                "Write as if the story was originally written in the target language. "
-                "If translating into Spanish, use Spain Spanish (Castellano), not Latin American Spanish. "
-                "If translating into French, use warm, natural bedtime French rather than formal or academic phrasing. "
-                "If translating into Italian, use warm, natural Italian with a gentle bedtime rhythm. "
-                "If translating into German, use warm, natural German suitable for children, not stiff or academic phrasing. "
-                "Return only the translated text."
-            )
-            async with httpx.AsyncClient(
-                timeout=httpx.Timeout(
-                    connect=8.0,
-                    read=18.0,
-                    write=8.0,
-                    pool=8.0,
+        language_names = {
+            "en": "English",
+            "es": "Spanish",
+            "fr": "French",
+            "de": "German",
+            "it": "Italian",
+            "ja": "Japanese",
+            "ar": "Arabic",
+        }
+        source_name = language_names.get(source, source or "the original language")
+        target_name = language_names.get(target, target)
+
+        last_error: Optional[Exception] = None
+        for attempt in range(1, 3):
+            try:
+                system_prompt = (
+                    f"Translate the following children's bedtime story text from {source_name} into {target_name}. "
+                    f"The entire output MUST be written in {target_name}. Never return the source-language text. "
+                    "Keep it warm, magical, emotionally comforting, and natural for young children. "
+                    "Preserve names, tone, emotional pacing, and bedtime softness. "
+                    "Do not translate literally. "
+                    "Write as if the story was originally written in the target language. "
+                    "If translating into Spanish, use Spain Spanish (Castellano), not Latin American Spanish. "
+                    "If translating into French, use warm, natural bedtime French rather than formal or academic phrasing. "
+                    "If translating into Italian, use warm, natural Italian with a gentle bedtime rhythm. "
+                    "If translating into German, use warm, natural German suitable for children, not stiff or academic phrasing. "
+                    "If translating into Japanese, use natural child-friendly Japanese that sounds written originally for a bedtime read-aloud, not literal translation. "
+                    "If translating into Arabic, use clear, natural child-friendly Arabic with warm bedtime phrasing and avoid stiff machine-translated wording. "
+                    "Return only the translated text."
                 )
-            ) as client:
-                resp = await client.post(
-                    "https://api.openai.com/v1/chat/completions",
-                    headers={
-                        "Authorization": f"Bearer {api_key}",
-                        "Content-Type": "application/json",
-                    },
-                    json={
-                        "model": "gpt-4o-mini",
-                        "messages": [
-                            {"role": "system", "content": system_prompt},
-                            {"role": "user", "content": text},
-                        ],
-                        "temperature": 0.2,
-                    },
-                )
-                resp.raise_for_status()
-                data = resp.json()
-                translated = data["choices"][0]["message"]["content"].strip()
+                async with httpx.AsyncClient(
+                    timeout=httpx.Timeout(
+                        connect=8.0,
+                        read=18.0,
+                        write=8.0,
+                        pool=8.0,
+                    )
+                ) as client:
+                    resp = await client.post(
+                        "https://api.openai.com/v1/chat/completions",
+                        headers={
+                            "Authorization": f"Bearer {api_key}",
+                            "Content-Type": "application/json",
+                        },
+                        json={
+                            "model": "gpt-4o-mini",
+                            "messages": [
+                                {"role": "system", "content": system_prompt},
+                                {"role": "user", "content": text},
+                            ],
+                            "temperature": 0.1,
+                        },
+                    )
+                    resp.raise_for_status()
+                    data = resp.json()
+                    translated = data["choices"][0]["message"]["content"].strip()
+
+                if not self._translation_output_matches_target(
+                    text,
+                    translated,
+                    source_lang=source,
+                    target_lang=target,
+                ):
+                    raise RuntimeError(
+                        f"Translation output did not match requested target language {target_name}"
+                    )
+
                 print(
                     f"[TRANSLATE] Translation success source_lang={source or 'unknown'} "
-                    f"target_lang={target} input_preview={text[:120]!r} output_preview={translated[:120]!r}"
+                    f"target_lang={target} attempt={attempt} "
+                    f"input_preview={text[:120]!r} output_preview={translated[:120]!r}"
                 )
                 return translated
-        except Exception as e:
-            print(
-                f"[TRANSLATE] FAILED source_lang={source or 'unknown'} "
-                f"target_lang={target}: {repr(e)} input_preview={text[:120]!r}. "
-                "Falling back to original text so page 1 narration is not blocked."
-            )
+            except Exception as e:
+                last_error = e
+                print(
+                    f"[TRANSLATE] Attempt {attempt}/2 failed source_lang={source or 'unknown'} "
+                    f"target_lang={target}: {repr(e)} input_preview={text[:120]!r}"
+                )
+
+        # Cross-language narration must fail closed. Returning the original source
+        # text here would create and cache audio under the wrong narration language.
+        raise RuntimeError(
+            f"Translation failed from {source_name} to {target_name} after 2 attempts: {last_error}"
+        )
+
+
+    def _story_world_pronunciation_provider(
+        self,
+        *,
+        voice_mode: str,
+    ) -> str:
+        """Map narration mode to pronunciation-provider configuration."""
+        return "elevenlabs" if voice_mode == "parent" else "openai"
+
+    def _apply_story_world_pronunciation(
+        self,
+        *,
+        text: str,
+        story_world_id: Optional[str],
+        language_code: str,
+        voice: str,
+        voice_mode: str,
+    ) -> str:
+        """Apply the shared verified pronunciation layer to narration-only text.
+
+        Despite the legacy method name, this now serves both ordinary PillowTales
+        bedtime stories and Story Worlds:
+        - ordinary story: global pronunciation rows only
+        - Story World: global rows + world-specific rows
+
+        The parent's explicit child-name pronunciation is applied before this
+        method, so it remains the highest-priority user override.
+
+        Pronunciation quality must never block Page 1 narration startup.
+        """
+        if not text or not self.story_world_pronunciation_service:
             return text
 
+        provider = self._story_world_pronunciation_provider(voice_mode=voice_mode)
+        try:
+            adjusted = self.story_world_pronunciation_service.apply(
+                text=text,
+                world_id=(str(story_world_id) if story_world_id else None),
+                language_code=language_code,
+                provider=provider,
+                voice=voice,
+            )
+            if adjusted != text:
+                scope = f"story_world:{story_world_id}" if story_world_id else "global"
+                print(
+                    f"[NARRATION] Applied shared pronunciation "
+                    f"scope={scope} provider={provider} voice={voice} "
+                    f"language={language_code}"
+                )
+            return adjusted
+        except Exception as exc:
+            # Non-blocking by design: never delay or fail Page 1 because a
+            # pronunciation lookup/override is unavailable.
+            print(
+                f"[NARRATION] Shared pronunciation skipped after error "
+                f"world_id={story_world_id} provider={provider} voice={voice}: {repr(exc)}"
+            )
+            return text
 
     async def _generate_page_audio(
         self,
@@ -962,6 +1146,8 @@ class NarrationService:
         child_name: Optional[str] = None,
         child_name_pronunciation: Optional[str] = None,
         story_language_code: Optional[str] = None,
+        story_world_id: Optional[str] = None,
+        story_world_slug: Optional[str] = None,
     ) -> tuple[str, str]:
         page_text = self._clean_page_text(page_text)
 
@@ -987,6 +1173,35 @@ class NarrationService:
         tts_text = clean_text_for_tts(translated)
         tts_text = apply_pronunciation(tts_text, child_name, child_name_pronunciation)
 
+        resolved_story_world_id = story_world_id
+        if (
+            not resolved_story_world_id
+            and story_world_slug
+            and self.story_world_pronunciation_service
+        ):
+            try:
+                resolved_story_world_id = self.story_world_pronunciation_service.resolve_world_id(
+                    story_world_slug
+                )
+                if resolved_story_world_id:
+                    print(
+                        f"[NARRATION] Resolved Story World pronunciation context "
+                        f"slug={story_world_slug} world_id={resolved_story_world_id}"
+                    )
+            except Exception as exc:
+                print(
+                    f"[NARRATION] Story World id resolution failed "
+                    f"slug={story_world_slug}: {repr(exc)}"
+                )
+
+        tts_text = self._apply_story_world_pronunciation(
+            text=tts_text,
+            story_world_id=resolved_story_world_id,
+            language_code=language_code,
+            voice=voice,
+            voice_mode=voice_mode,
+        )
+
         if voice_mode == "parent":
             # Parent Voice uses ElevenLabs and previously had good natural timing.
             # Keep it conservative, but preserve natural pauses after full stops
@@ -1007,6 +1222,15 @@ class NarrationService:
 
         if not tts_text:
             raise RuntimeError("Page has no text")
+
+        # DIAGNOSTIC ONLY:
+        # Log the exact final text that will be handed to the TTS provider.
+        # This is intentionally placed after Story World pronunciation handling
+        # and all narration-only text shaping, immediately before provider TTS.
+        print(
+            f"[NARRATION] Final TTS text preview page={page} voice={voice} "
+            f"language={language_code} text={tts_text[:300]!r}"
+        )
 
         used_mode = voice_mode
         if voice_mode == "parent" and parent_voice_id:
@@ -1107,10 +1331,11 @@ class NarrationService:
                             "audio_created_at": datetime.now(timezone.utc).isoformat(),
                             "audio_language_code": language_code,
                             "audio_voice_id": voice,
+                            "narration_language_code": language_code,
                         },
                     )
                 except Exception as update_err:
-                    print(f"[NARRATION] Page 1 ready metadata update failed story_id={current_story_id}: {repr(update_err)}")
+                    print(f"[NARRATION] Page 1 ready metadata update failed story_id={story_id}: {repr(update_err)}")
 
         try:
             story_id = story["id"]
@@ -1195,6 +1420,14 @@ class NarrationService:
                             or fresh_story.get("language_code")
                             or fresh_story.get("story_language")
                             or fresh_story.get("preferred_language"),
+                        ),
+                        story_world_id=(
+                            fresh_story.get("story_world_id")
+                            or fresh_story.get("storyWorldId")
+                        ),
+                        story_world_slug=(
+                            fresh_story.get("story_world_slug")
+                            or fresh_story.get("storyWorldSlug")
                         ),
                     )
                     await mark_ready(idx, storage_path, actual_mode)
