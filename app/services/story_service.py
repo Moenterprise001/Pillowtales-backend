@@ -910,7 +910,7 @@ class StoryService:
             f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
             f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
         )
-        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817")
+        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819")
 
     def _normalise_story_world_mode(self, request: GenerateStoryRequest) -> str:
         raw = str(getattr(request, 'storyWorldMode', '') or '').strip().lower()
@@ -2278,7 +2278,7 @@ ABSTRACT CONCEPT GUARD:
 - Keep the existing clear plot. Do not add complexity merely to sound polished.
 - Show important feelings through a visible action, body response, choice, or short line of dialogue.
 - Avoid repeatedly naming emotions with lines such as "felt brave", "felt proud", "felt happy", or "was very worried".
-- For younger children, use simple physical signs: a tummy fluttered, knees wobbled, a smile would not go away, hands held tight, feet began to skip.
+- For younger children, use simple concrete behaviour to show feeling, but vary it naturally. Do not default repeatedly to tummy flutters/flip-flops, widened eyes, gasps, smiles, warm feelings in the chest, heart-sinking, wobbling knees, or similar stock reactions.
 - Give the story one unforgettable child-friendly moment: a visual mishap, funny misunderstanding, odd habit, or magical detail that affects what happens next.
 - Give one important side character a recognisable behaviour that appears at least twice and influences the plot.
 - Vary sentence openings. Do not begin several consecutive sentences with the child's name or the same pronoun.
@@ -2408,7 +2408,9 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 - Do not repeatedly explain, name, or restate the moral after each event.
 - At least one meaningful choice in the middle and the decisive action near the ending must clearly demonstrate the moral.
 - Characters should not stop to explain what the reader has just seen.
+- Do not state the same discovery, interpretation, feeling, or moral twice in slightly different wording. Once the reader can infer it from action or dialogue, move the story forward.
 - Show the moral through choices, dialogue, consequences, changed behaviour, and the final resolution.
+- Conspicuous setup must pay off: if a detail is presented as unusual, important, magical, mysterious, promised, or memorable, make it useful later or do not emphasise it.
 - Trust children to understand an obvious moral from what happens, but do not allow the moral to disappear from the plot.
 - Do not make every encounter follow the same sequence of event, moral reminder, reward, and reset.
 - If the same scene pattern has appeared twice, the next page MUST use a different kind of event: dialogue, discovery, setback, surprise, cooperation, a difficult choice, or a quiet emotional turn.
@@ -2441,7 +2443,9 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
             4: """PAGE 4 ROLE — MIDPOINT TURN:
 - Change the direction or understanding of the story.
 - Reveal one unexpected, funny, magical, or emotional truth that makes the child rethink the plan.
-- The child must make a meaningful decision here.
+- The child must make a meaningful decision here that changes what happens next.
+- If a moral was requested, begin earning it through this decision or its consequence; do not merely mention the moral.
+- Bring forward an established clue, relationship, rule, promise, habit, or themed element rather than inventing a convenient solution.
 - Do not add another similar helper encounter, collection stop, or repeated version of the same problem.
 """,
             5: """PAGE 5 ROLE — STRONGEST SETBACK:
@@ -2449,14 +2453,17 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 - Success should briefly feel uncertain, but never frightening.
 - Do not solve the main problem on this page.
 - The child should pause, test an idea, or wonder what to do next before becoming ready to act.
-- Bring back one earlier clue, promise, habit, object, joke, or world rule and make it matter.
+- Bring back one earlier clue, promise, habit, object, joke, relationship, themed element, or world rule and make it matter.
+- If a moral was requested, the protagonist's response to this setback must set up the moral-in-action choice that will drive Page 6. Do not leave the moral for the ending to explain or repair.
 - Everything introduced here must already belong to the existing story.
 - Do not introduce another quest, helper, mystery, location, or magical rule.
 - End with the child ready to take the decisive action on Page 6.
 """,
             6: """PAGE 6 ROLE — DECISIVE ACTION AND CLIMAX:
 - The child must take the decisive action. Helpers may contribute, but they must not solve it for the child.
-- Resolve the main external problem through the requested moral in action.
+- If a moral was requested, the decisive action itself must demonstrate it through a real choice and consequence. Do not rely on another character performing the moral at the end.
+- If no moral was requested, resolve the problem through the protagonist's established choices, skills, relationships, clues, or story rules without inventing a lesson.
+- Resolve the main external problem here, or make the final consequence inevitable using only established material.
 - Include the story's most memorable moment: magical, funny, surprising, or emotional.
 - This page must feel like the peak of the adventure, not merely preparation or another attempt.
 - Leave Page 7 only for the completed result, emotional payoff, callback, and calm settling.
@@ -2535,13 +2542,90 @@ CANON NAME PROTECTION:
 - Avoid several consecutive sentences beginning with the same name or the same pronoun when natural sentence variation is possible.
 """ + canon_rules
 
+    def _children_author_voice_rules(self) -> str:
+        """Positive author-quality guidance for standard personalised stories.
+
+        Prompt-only. This does not imitate any named writer and does not touch
+        Story Worlds, narration, chunking, polling, reader state or storage.
+        """
+        return """CHILDREN'S AUTHOR VOICE — 9.8 QUALITY TARGET:
+- Write with the warmth, confidence, wit, rhythm and specificity of an experienced children's author, while remaining completely original. Do not imitate or mention any named author.
+- The prose must feel deliberately written for this particular story, not assembled from familiar children's-story phrases.
+- Give the protagonist and important side characters personality through what they say, notice, misunderstand, avoid, attempt and choose. Let them occasionally hesitate, guess wrongly, change their mind or make a small harmless mistake.
+- Prefer concrete, story-specific observations over generic fantasy decoration. One unusual detail that belongs to this adventure is better than several interchangeable glowing, sparkling or magical descriptions.
+- Vary sentence rhythm naturally. Mix short punchy lines, dialogue, and longer clear sentences appropriate to the child's reading age. Do not make every paragraph follow the same sentence pattern.
+- Dialogue should sound spoken. Characters may interrupt, disagree gently, joke, misread a situation, or answer imperfectly. Avoid dialogue whose only purpose is to explain the plot to the reader.
+- Trust the reader. If an action, pause, expression, consequence or line of dialogue already communicates the feeling or lesson, do not explain it again.
+- Let quiet moments count. Not every page needs a magical reveal, glowing object, new helper or spectacle. A choice, conversation, failed idea, observation or small act can carry a scene.
+- Hide the story framework. The reader must never feel an obvious template of setup, clue, helper, setback, climax and moral, even though the story remains structurally complete.
+- Include at least one memorable line, comic beat, behaviour, image or callback that could only belong to this story and that a child might repeat the next day.
+- Avoid formulaic generated-story commentary such as 'This was definitely...', 'This was going to be...', 'With a determined breath...', 'her eyes twinkled', 'a little flutter of excitement', 'she realised that...', or close equivalents unless the wording is genuinely necessary and fresh.
+- Never announce the child's numerical age in the story prose. Age is an internal writing calibration only.
+"""
+
+    def _standard_bedtime_first_page_quality_rules(self, request: GenerateStoryRequest) -> str:
+        """Compact quality guard for the speed-critical standard Page 1 call."""
+        moral_line = (
+            f"- Moral: {request.moral}. Set up a situation where the protagonist can demonstrate it later through a choice; do not explain it now."
+            if self._moral_requested(request)
+            else "- No moral was requested. Do not invent one."
+        )
+        return f"""PAGE 1 QUALITY GUARD:
+- The child's age is internal calibration only. Never state or hint at the numerical age in the story prose.
+- Treat the selected theme as a promise: introduce its central subject or a direct path to it now.
+- Establish one clear want, problem, question, opportunity or tension that can carry the story.
+- Plant one useful, story-specific detail that can pay off later; avoid conspicuous details with no purpose.
+- Keep the protagonist active. They should notice, decide, attempt, question or choose rather than simply being led from clue to clue.
+- Give Page 1 a natural human hook, not a generic magical-object reveal by default.
+{moral_line}
+- Use natural names/pronouns, plain prose only, and no Markdown or formatting symbols.
+- Avoid stock AI reactions, explanatory emotion, decorative simile overload and formulaic phrases such as 'This was going to be...' or 'With a determined breath...'.
+"""
+
+    def _standard_bedtime_elite_quality_rules(self, request: GenerateStoryRequest) -> str:
+        """Focused quality rules for standard personalised Bedtime Stories only.
+
+        Prompt-only. This deliberately does not touch Story Worlds, narration,
+        chunking, polling, page ownership, reader state, storage or subscriptions.
+        """
+        moral_rule = (
+            f"- Requested moral: {request.moral}. Build it into a meaningful choice by the protagonist before the final page; the ending must show the consequence, not explain the lesson."
+            if self._moral_requested(request)
+            else "- No moral was requested. Do not invent or force a lesson."
+        )
+        return f"""STANDARD BEDTIME STORY — ELITE QUALITY GUARD:
+- The child's numerical age must never appear in the story prose. Use it only to calibrate vocabulary, sentence rhythm, inference, emotional depth, humour and plot complexity.
+- The story must feel intentionally authored rather than generated. Use specific observations, natural rhythm, characterful dialogue and small human imperfections instead of polished generic storybook phrasing.
+- Do not make the world hand the protagonist every next clue. At least one important connection should be worked out, tested or inferred by the protagonist.
+- Allow a harmless wrong guess, hesitation, failed attempt or change of mind when it makes the protagonist feel more real and strengthens the eventual solution.
+- Not every page needs spectacle or a new magical element. Quiet conversation, observation, choice, embarrassment, humour or practical problem-solving can carry a scene.
+- Keep the seven-page architecture invisible. Do not use repeated transition language or narrator commentary that makes the structural role of each page obvious.
+- Deliver the child's selected theme as a real story promise, not decorative scenery. The central subject of the theme must materially affect the plot and interact meaningfully with the protagonist early enough to matter.
+- By the end of Page 2, the reader should understand what the protagonist wants, needs to solve, discover, help with, or decide. Keep that central question active until it is resolved.
+- Do not hand the solution to the protagonist through a convenient adult, magical object, sudden gift, or unexplained coincidence. Helpers may offer information or opportunities, but the protagonist must notice, choose, try, connect, share, create, persist, or otherwise materially influence the outcome.
+- Important setup must earn a payoff. A conspicuous smell, phrase, object, rule, mystery, promise, joke, clue, habit, or magical detail should either matter later or be removed. Do not create accidental mysteries that the story forgets.
+- Trust the reader. When dialogue, action, expression, or consequence already shows an emotion or meaning, do not immediately explain the same thing again. Do not state the same discovery twice in slightly different words.
+- Vary emotional reactions. Do not repeatedly use tummy flutters/flip-flops, widened or sparkling eyes, warm feelings in the chest, gasps, smiles, shoulder slumps, heart-sinking, or similar stock reactions as a default emotional vocabulary. Use dialogue, choices, pauses, movement, humour, and concrete behaviour instead.
+- Use imagery selectively. One memorable comparison is stronger than several decorative similes on every page. Avoid an AI-storybook rhythm of constant twinkling, dancing, glowing, sparkling, tiny, warm, magical descriptions.
+- Dialogue should sound like characters speaking to one another, not the narrator delivering instructions. Keep dialogue and its attribution together naturally; never split a speech from a short attribution in a way that reads like broken prose.
+- The protagonist must make at least one meaningful mid-story decision and must drive the decisive action near the ending. The resolution must not simply happen around them.
+{moral_rule}
+- Do not postpone a story-wide moral or character requirement until Page 7. Pages 4-6 must already contain the choice/action that earns the ending.
+- The final page completes the promise of the title/theme and the central story question. Do not introduce the most important themed character, relationship, destination, or activity only at the end.
+- The ending should let the characters briefly experience the result, then settle. Never end with 'the visit was just beginning', 'another adventure was waiting', or another opening disguised as a conclusion.
+
+PLAIN PROSE — NON-NEGOTIABLE:
+- Story text must be plain prose only. Never use Markdown or formatting notation inside story content.
+- Never use *emphasis*, **bold**, _formatting_, __formatting__, headings, bullet markers, code backticks, fenced code blocks, or other presentation markup.
+- Express emphasis through natural wording, punctuation, dialogue, or sentence rhythm instead.
+"""
+
     def _storycraft_rules(self) -> str:
         return """PILLOWTALES STORY VOICE:
-- You are one of the world's finest bedtime story authors for children.
-- Write stories children ask to hear again tomorrow night.
-- Parents should enjoy reading them aloud because they feel warm, playful, natural, and genuinely engaging.
-- The goal is not to sound clever. The goal is smiles, curiosity, wonder, and one story idea the child remembers tomorrow.
-- PillowTales stories should feel authored by a relaxed, funny, loving storyteller, not generated by a machine.
+- Write as a skilled children's storyteller with a confident, warm, playful and natural read-aloud voice.
+- Write stories children ask to hear again tomorrow night and parents enjoy reading aloud.
+- The goal is not decorative cleverness. The goal is curiosity, character, humour, feeling and one story idea the child remembers tomorrow.
+- Make the prose feel intentionally authored and story-specific, with natural rhythm and personality rather than generic storybook polish.
 
 CORE STORY PROMISE:
 - Tell a simple, warm, funny bedtime adventure that a child can understand and remember tomorrow.
@@ -2550,7 +2634,7 @@ CORE STORY PROMISE:
 - Prefer memorable characters over complicated plots.
 - Prefer a funny wish, mistake, job, fear, habit, or misunderstanding over epic danger.
 - Good story energy: a taxi-driver lion who wants to drive a bus; a pigeon who wants to be an eagle; a sparrow who thinks it can lead the winter flight; a dragon who sneezes bubbles; a pirate whose map always finds cake.
-- Harmless silliness is welcome. The story can be a bit stupid in a child-friendly way if it makes the child smile.
+- Harmless silliness is welcome when it grows naturally from character or situation and helps the child smile.
 - Do not try to impress adults. Do not write cinematic, epic, literary, poetic, grand, or fantasy-novel prose.
 
 SIGNATURE PILLOWTALES MAGIC:
@@ -2799,6 +2883,11 @@ ENGLISH STORY STYLE:
 
         language_style_block = self._language_style_block(request.storyLanguageCode)
         story_world_block = self._story_world_prompt_block(request)
+        standard_author_voice_block = (
+            self._children_author_voice_rules()
+            if not self._is_canon_request(request) and not self._is_folk_adventure_request(request)
+            else ""
+        )
 
         return f"""You are writing a PillowTales bedtime story.
 
@@ -2810,7 +2899,7 @@ LANGUAGE:
 
 STORY FACTS:
 - Child name: {request.childName}
-- Age: {request.age}
+- Internal reading age: {request.age}. Use this only for writing calibration; never state the numerical age in the story prose.
 - Theme: {effective_theme}
 - Moral: {request.moral}
 
@@ -2820,6 +2909,7 @@ STORY WORLD ISOLATION:
 
 {story_world_block}
 
+{standard_author_voice_block}
 {self._first_page_spine_setup_rules(request)}
 {self._natural_name_pronoun_rules(protect_canon_names=self._is_canon_request(request) or self._is_folk_adventure_request(request))}
 {self._storycraft_rules()}
@@ -3051,6 +3141,15 @@ OUTPUT RULES:
         # Story pages are prose, so remove only the stray escape before a
         # double quote. This keeps the visible text and narration text clean.
         cleaned = cleaned.replace('\\"', '"')
+
+        # Story prose is plain text. Remove common inline Markdown formatting
+        # markers if the model leaks them despite the prompt. This does not
+        # rewrite wording or story meaning; it only removes presentation markup.
+        cleaned = re.sub(r"\*{1,3}([^*\n]+?)\*{1,3}", r"\1", cleaned)
+        cleaned = re.sub(r"_{1,2}([^_\n]+?)_{1,2}", r"\1", cleaned)
+        cleaned = re.sub(r"`{1,3}([^`\n]+?)`{1,3}", r"\1", cleaned)
+        cleaned = re.sub(r"(?m)^\s{0,3}#{1,6}\s+", "", cleaned)
+        cleaned = re.sub(r"(?m)^\s*[-+*]\s+(?=\S)", "", cleaned)
 
         # Remove accidental single line wrapping inside paragraphs.
         cleaned = re.sub(r"(?<!\n)\n(?!\n)", " ", cleaned)
@@ -4571,7 +4670,8 @@ LANGUAGE:
 - {self._first_page_language_style_block(language_code)}
 
 STORY FACTS:
-- Child: {request.childName}, age {request.age}
+- Child: {request.childName}
+- Internal reading age: {request.age}. This controls writing level only. Never state the numerical age in the story prose.
 - Theme: {blocks['effective_theme']}
 - Moral: {request.moral}
 
@@ -4581,14 +4681,17 @@ STORY WORLD ISOLATION:
 
 {story_world_block}
 
+{self._children_author_voice_rules()}
 {self._first_page_spine_setup_rules(request)}
 {self._natural_name_pronoun_rules()}
+{self._standard_bedtime_first_page_quality_rules(request)}
 PAGE 1 JOB:
 - Write like a relaxed children's author starting a favourite bedtime adventure.
 - Start from this theme-matched opening idea, rewritten naturally: "{opening}"
 - Show who the story is about, where they are, and what makes today different.
 - Give the story one clear child-friendly hook: a funny wish, silly mistake, odd visitor, simple problem, useful mystery, or goal the child wants to achieve.
 - The hook should fit the chosen theme and make the child want to hear Page 2.
+- Treat the selected theme as a promise to the child. Introduce its central subject or a direct path to it now; do not save the main themed character or experience for the final page.
 - Give the hook real story value; do not rely only on a glowing object or unexplained magical light.
 - Include one small memorable detail a child might repeat tomorrow.
 - Keep one clear next step for Page 2.
@@ -4615,6 +4718,7 @@ CHARACTERS:
 - {blocks['character_instruction']}
 
 JSON ONLY:
+- Story text must be plain prose only: no Markdown, asterisks, underscores, headings, bullets, backticks, or formatting notation.
 {{"title":"The Sleepy Dragon","pages":["page 1 text"]}}
 - Replace "The Sleepy Dragon" with a real short title for this story.
 - Never return placeholder titles such as "Short title", "Title", or "Story Title".
@@ -5067,7 +5171,8 @@ LANGUAGE:
 
 STORY FACTS:
 - Title: {title}
-- Child: {request.childName}, age {request.age}
+- Child: {request.childName}
+- Internal reading age: {request.age}. Use it only for writing calibration; never state the numerical age in story prose.
 - {story_identity_line}
 - Moral: {request.moral}
 
@@ -5076,12 +5181,14 @@ STORY FACTS:
 {folk_adventure_continuity}
 
 {story_spine}
+{self._children_author_voice_rules() if not self._is_folk_adventure_request(request) else ''}
+{self._standard_bedtime_elite_quality_rules(request) if not self._is_folk_adventure_request(request) else ''}
 EXISTING PAGES:
 {existing_pages_text}
 
 AGE LOCK:
 {age_rules}
-- Keep every page suitable for age {request.age}.
+- Keep every page suitable for the internal reading age {request.age}, but never mention that number in the story itself.
 - For age 6 and under, use short plain sentences and everyday words.
 - Do not use adult, poetic, cinematic, symbolic, or fantasy-novel language.
 - If a sentence sounds impressive, simplify it.
@@ -5149,7 +5256,7 @@ OUTPUT FORMAT STRICT:
 Return ONLY valid JSON:
 {{{{"pages":["new page text","new page text"]}}}}
 - The pages array must contain exactly {remaining_page_count} strings.
-- No markdown, notes, explanations, or extra keys.
+- No markdown, notes, explanations, or extra keys. Story strings must be plain prose with no asterisks, underscores, headings, bullets, backticks, or formatting notation.
 - Silently check that every page progresses the story and feels fun, warm, and age-appropriate.
 """
 
