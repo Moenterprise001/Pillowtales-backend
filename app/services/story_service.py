@@ -2461,7 +2461,24 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 - A callback is not repetition when it returns with a new purpose: it solves something, changes a choice, deepens a relationship, pays off a joke, or completes an emotional thread.
 - Deliberate repetition is allowed for age-appropriate rhythm, humour, suspense, a refrain, or very young-child comprehension, but each repeated beat must have a clear storytelling purpose and must not replace forward movement.
 - For Canon, preserve distinct protected events even when they resemble one another. Never merge, omit, or rewrite separate canonical events just to avoid repetition; instead tell each once, clearly, then move on.
-- Before finishing each page, silently ask: "What is genuinely new on this page?" If the answer is only a restatement of what was already known, revise the page so the story advances.
+- Each page must advance the story to a new narrative state. Once a fact, emotion, motivation, obstacle, discovery, intention, or consequence has been clearly established, do not keep elaborating on that same state with additional descriptions, observations, dialogue, or near-duplicate wording. Move to the next meaningful beat.
+- Before writing each page, silently identify what must be meaningfully different by the end of that page. The page should begin from one story state and end in a changed one: a new action taken, consequence created, discovery made, decision reached, relationship shifted, obstacle changed, or understanding gained. Description and dialogue may enrich that movement, but must not delay it.
+- Before finishing each page, silently ask: "What changed on this page?" If the answer is only that an already-known fact, feeling, problem, intention, or discovery was described again, revise the page so the story advances to a genuinely new state.
+"""
+
+    def _bedtime_narrative_progression_rules(self) -> str:
+        """Bedtime-only scene progression guidance.
+
+        Prompt-only. This strengthens forward movement in standard Bedtime
+        Stories without changing Story Worlds/Canon generation or any runtime
+        narration, polling, storage, page-count, or playback behaviour.
+        """
+        return """BEDTIME STORY FORWARD PROGRESSION:
+- Build each new story beat from the result of the beat immediately before it: previous beat -> new action -> new consequence -> changed situation.
+- The changed situation must give the child, helper, or story world something meaningfully new to respond to next.
+- Do not reset the scene after a beat, repeat the same attempt with different wording, or return to the same unchanged problem merely to fill a page.
+- When an action succeeds or fails, carry that result forward. The next action should happen because of what just changed.
+- Across the seven pages, the child's choices and their consequences should create a visible chain of progress toward the ending rather than a collection of loosely related moments.
 """
 
     def _natural_read_aloud_cadence_rules(self) -> str:
@@ -2973,6 +2990,11 @@ ENGLISH STORY STYLE:
             if not self._is_canon_request(request) and not self._is_folk_adventure_request(request)
             else ""
         )
+        bedtime_progression_block = (
+            self._bedtime_narrative_progression_rules()
+            if not self._is_canon_request(request) and not self._is_folk_adventure_request(request)
+            else ""
+        )
 
         return f"""You are writing a PillowTales bedtime story.
 
@@ -2995,6 +3017,7 @@ STORY WORLD ISOLATION:
 {story_world_block}
 
 {standard_author_voice_block}
+{bedtime_progression_block}
 {self._first_page_spine_setup_rules(request)}
 {self._natural_name_pronoun_rules(protect_canon_names=self._is_canon_request(request) or self._is_folk_adventure_request(request))}
 {self._storycraft_rules()}
