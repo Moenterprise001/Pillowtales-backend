@@ -28,6 +28,7 @@ class GenerateStoryRequest(BaseModel):
     childNamePronunciation: Optional[str] = None
     gender: str = 'neutral'
     storyWorldSlug: Optional[str] = None
+    storyWorldAudience: Optional[Literal['child', 'teen', '16_plus']] = None
     storyWorldMode: Optional[Literal['traditional_folk_tale', 'pillowtales_folk_adventure']] = None
     storyWorldAnchorSlug: Optional[str] = None
 
