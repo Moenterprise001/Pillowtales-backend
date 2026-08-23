@@ -5573,17 +5573,16 @@ STRICT LANGUAGE CLEANUP:
 - Avoid advanced words unless they are truly age-suitable.
 - Avoid repeated sentence patterns such as the child looked, the child walked, the child found on every page.
 
-PAGE LENGTH AND SEVEN-PAGE BALANCE — STRICT:
-- Each continuation page must be a real story page, not a caption, summary, or mini-chapter.
-- For Page {next_page_number}, target {bedtime_budget['target_min']}-{bedtime_budget['target_max']} {bedtime_budget['unit_label']}.
+PAGE LENGTH:
+- Each continuation page must be a real story page, not a caption or summary.
+- For Page {next_page_number}, aim for {bedtime_budget['target_min']}-{bedtime_budget['target_max']} {bedtime_budget['unit_label']}.
 - HARD MAXIMUM for this page: {bedtime_budget['hard_max'] if bedtime_budget['hard_max'] is not None else 'follow the existing age-appropriate character guidance'} {bedtime_budget['unit_label'] if bedtime_budget['hard_max'] is not None else ''}.
-- PAGE BALANCE IS STRICT: distribute the seven-page story evenly. Do not create one very long page followed by thin pages.
-- This page has ONE main narrative beat. Complete that beat economically, then stop. Do not pull future-page events forward merely to make this page richer.
-- Preserve humour, character voice, useful callbacks and emotional purpose inside the budget; remove repetition and decorative elaboration before removing story meaning.
+- Keep the seven pages reasonably balanced. If this page approaches its maximum, remove repetition or unnecessary description before removing plot progression, character development, humour, complication, discovery, or emotional meaning.
+- Do not shrink a developing scene into a thin summary merely to stay concise. Let meaningful action and consequences unfold naturally within the page budget.
 - Never return a single-sentence page.
 - Each page should have exactly 2 short paragraphs.
 - Each page should contain about 5-7 read-aloud sentences.
-- Page 6 owns the decisive action/climax. Page 7 owns completed payoff, callback and calm settling; do not leave several unresolved beats for Page 7.
+- Final page may be slightly shorter if complete, satisfying, and naturally settled.
 
 COMPANION:
 - {blocks['companion_line']}
