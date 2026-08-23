@@ -53,31 +53,6 @@ class StoryWorldRepository:
         )
         return result.data[0] if result.data else None
 
-    def get_canon_story_artwork(self, world_slug: str, story_slug: str) -> Optional[dict]:
-        """Return artwork for one published Canon story.
-
-        This lookup is intentionally separate from the normal story GET path so
-        illustration delivery can never delay story text or narration readiness.
-        """
-        world = self.get_published_world(str(world_slug or '').strip().lower())
-        if not world:
-            return None
-
-        result = (
-            self.client.table('story_world_canon_stories')
-            .select('artwork')
-            .eq('story_world_id', str(world['id']))
-            .eq('slug', str(story_slug or '').strip().lower())
-            .eq('active', True)
-            .eq('published', True)
-            .limit(1)
-            .execute()
-        )
-        if not result.data:
-            return None
-        artwork = result.data[0].get('artwork')
-        return artwork if isinstance(artwork, dict) else None
-
     def get_translations(self, world_ids: Iterable[str]) -> list[dict]:
         ids = list(world_ids)
         if not ids:

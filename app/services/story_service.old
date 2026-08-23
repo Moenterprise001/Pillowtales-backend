@@ -919,7 +919,7 @@ class StoryService:
             f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
             f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
         )
-        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822")
+        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821")
 
     def _normalise_story_world_mode(self, request: GenerateStoryRequest) -> str:
         raw = str(getattr(request, 'storyWorldMode', '') or '').strip().lower()
@@ -1199,35 +1199,10 @@ SOURCE DEPENDENCY RULES:
         contract = self._canon_contract(request)
         if not contract:
             return ''
-
-        # Canon-only name cadence for stories where Fionn mac Cumhaill is the
-        # lead protected character. This preserves the established PillowTales
-        # rule without touching standard Bedtime Stories or other Canon names.
-        characters = contract.get('characters') or []
-        first_character_name = ''
-        if isinstance(characters, list) and characters:
-            first_character = characters[0]
-            if isinstance(first_character, dict):
-                first_character_name = str(first_character.get('name') or '').strip()
-            else:
-                first_character_name = str(first_character or '').strip()
-
-        fionn_name_usage = ''
-        if first_character_name == 'Fionn mac Cumhaill':
-            fionn_name_usage = """
-FIONN NAME CADENCE — CANON-SPECIFIC:
-- On Page 1, introduce him once as Fionn mac Cumhaill.
-- After that introduction, use Fionn or a natural pronoun through the middle pages whenever identity is clear.
-- Do not keep repeating Fionn mac Cumhaill in the body of the story.
-- On the final page, Fionn mac Cumhaill may be used once again for clear closing emphasis; otherwise Fionn is preferred.
-- Never use Finn or any other spelling/variant.
-"""
-
         payload = json.dumps(contract, ensure_ascii=False, separators=(',', ':'))
         return f"""CANON SOURCE OF TRUTH — AUTHORITATIVE:
 {payload}
 
-{fionn_name_usage}
 CANON AUTHORITY RULES:
 - Retell this record. Do not create a new plot inspired by it.
 - Preserve the exact canonical title, characters, locations, events, sequence and ending.
@@ -1401,24 +1376,6 @@ LIVING WORLD HARD RULES:
             ),
             'story_world_prompt_pack_version': prompt_pack.get('version'),
         }
-
-    def get_story_world_artwork_for_saved_story(self, story: dict) -> Optional[dict]:
-        """Resolve Canon artwork for an already-saved Story World story.
-
-        Called only by the dedicated artwork endpoint. It is deliberately kept
-        out of /stories/{id} and all narration/text polling paths.
-        """
-        if not self.story_world_repo or not isinstance(story, dict):
-            return None
-        if str(story.get('story_world_mode') or '').strip().lower() != 'canon':
-            return None
-
-        world_slug = str(story.get('story_world_slug') or '').strip().lower()
-        anchor_slug = str(story.get('story_world_anchor_slug') or '').strip().lower()
-        if not world_slug or not anchor_slug:
-            return None
-
-        return self.story_world_repo.get_canon_story_artwork(world_slug, anchor_slug)
 
     def _json_generation_config(
         self,
@@ -4375,29 +4332,6 @@ CANON AGE-ADAPTATION LAW — NON-NEGOTIABLE:
 - For younger children, simplify the same authentic scene rather than deleting it.
 """
 
-    def _canon_authorial_voice_rules(self) -> str:
-        """Canon-only prose guidance.
-
-        This changes HOW protected folklore is told, never WHAT happens.
-        It is intentionally separate from the standard Bedtime Story author
-        rules so Bedtime Story quality, cadence, seven-page structure and
-        generation behaviour remain untouched.
-        """
-        return """CANON AUTHORIAL VOICE — RETELL, NEVER REWRITE:
-- Tell the protected folklore like a skilled human storyteller who knows the traditional story well.
-- Canon controls every fact, event, relationship, motivation, cause, consequence, magical rule and ending. Authorial quality may improve only the expression of those protected facts.
-- Stay as close as practical to the source meaning and sequence. Never 'improve' the folklore by adding a better motive, stronger destiny, extra prophecy, new explanation, new symbolism, new emotion, new dialogue meaning, or a more dramatic ending.
-- Prefer direct, concrete, natural prose over grand, abstract or generic fantasy language.
-- Let the recorded event create its own wonder, tension, humour or sadness. Do not inflate it with stock phrases such as 'a profound understanding', 'an extraordinary surge', 'the weight of the revelation', 'changed everything forever', 'otherworldly glow', 'magnificent', or close equivalents unless that exact idea is genuinely required by the protected source.
-- When the Canon already makes the meaning clear through an action or consequence, do not explain the same meaning again in narration.
-- Do not turn a concise traditional event into an encyclopedia-style summary of why the character later became important.
-- Dialogue may make an authentic scene feel alive, but it must not invent information, motives, destiny, promises or interpretations absent from the protected Canon.
-- If the protected source supports a concept such as fate or destiny, preserve that concept accurately and simply; do not amplify it beyond the source.
-- Preserve unusual, abrupt or culturally specific traditional turns rather than smoothing them into a modern story formula.
-- Write for the ear: natural spoken rhythm, clean sentences, specific actions and restrained description.
-- The result should feel faithfully retold by an excellent children's/folklore author, not generated from a synopsis.
-"""
-
     def _build_canon_first_page_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         blocks = self._language_and_character_blocks(request, companion)
         contract = self._canon_contract(request)
@@ -4418,8 +4352,6 @@ LISTENER CALIBRATION ONLY:
 - Never add or address the listener in the canonical prose.
 
 {self._story_world_prompt_block(request)}
-
-{self._canon_authorial_voice_rules()}
 
 PAGE 1 CANON JOB:
 - Use the exact canon title: {title}
@@ -4543,8 +4475,6 @@ LANGUAGE:
 - Write only in {blocks['language_name']}.
 
 {self._story_world_prompt_block(request)}
-
-{self._canon_authorial_voice_rules()}
 
 {event_budget_block}
 

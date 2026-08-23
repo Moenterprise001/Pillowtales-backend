@@ -145,22 +145,6 @@ async def list_stories(user_id: str = Depends(get_current_user), story_repo: Sto
     return {'stories': stories}
 
 
-@router.get('/stories/{story_id}/artwork')
-async def get_story_artwork(
-    story_id: str,
-    user_id: str = Depends(get_current_user),
-    story_repo: StoryRepository = Depends(get_story_repo),
-    story_service: StoryService = Depends(get_story_service),
-) -> dict:
-    """Return optional Story World artwork without blocking the story GET path."""
-    story = story_repo.get(story_id, user_id)
-    if not story:
-        raise HTTPException(status_code=404, detail='Story not found')
-
-    artwork = story_service.get_story_world_artwork_for_saved_story(story)
-    return {'artwork': artwork}
-
-
 @router.get('/stories/{story_id}')
 async def get_story(story_id: str, user_id: str = Depends(get_current_user), story_repo: StoryRepository = Depends(get_story_repo)) -> dict:
     story = story_repo.get(story_id, user_id)
