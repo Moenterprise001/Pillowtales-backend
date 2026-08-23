@@ -919,7 +919,7 @@ class StoryService:
             f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
             f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
         )
-        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822")
+        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822 bedtime_page_budget_guard=20260823")
 
     def _normalise_story_world_mode(self, request: GenerateStoryRequest) -> str:
         raw = str(getattr(request, 'storyWorldMode', '') or '').strip().lower()
@@ -3335,7 +3335,58 @@ OUTPUT RULES:
             if (cleaned := self._sanitize_generated_page_text(page))
         ]
 
-    def _valid_generated_pages(self, pages: Any, expected_count: int, request: Optional[GenerateStoryRequest] = None) -> list[str]:
+    def _standard_bedtime_page_budget(self, age: Any, page_number: int, language_code: Optional[str] = "en") -> dict:
+        """Return age-aware page-size guidance for standard Bedtime Stories only.
+
+        This restores the seven-page balance guard without touching Story Worlds,
+        Canon, narration, polling, storage, subscriptions, Parent Voice, or the
+        Page-1-first architecture. Space-delimited languages use words. Japanese
+        keeps the existing character-oriented sizing model and is not hard-capped
+        here by an English-derived word conversion.
+        """
+        child_age = self._safe_child_age(age)
+        language = str(language_code or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+
+        if child_age <= 2:
+            first = (35, 60, 70)
+            middle = (45, 75, 85)
+            final = (45, 80, 90)
+        elif child_age <= 4:
+            first = (50, 80, 90)
+            middle = (60, 95, 105)
+            final = (60, 100, 110)
+        elif child_age <= 6:
+            first = (65, 95, 105)
+            middle = (80, 120, 130)
+            final = (85, 125, 135)
+        elif child_age <= 8:
+            first = (90, 120, 125)
+            middle = (105, 155, 155)
+            final = (110, 165, 165)
+        elif child_age <= 10:
+            first = (100, 135, 145)
+            middle = (120, 170, 180)
+            final = (125, 180, 190)
+        else:
+            first = (110, 145, 155)
+            middle = (130, 185, 195)
+            final = (135, 195, 205)
+
+        target_min, target_max, hard_max = first if page_number <= 1 else (final if page_number >= 7 else middle)
+        return {
+            "target_min": target_min,
+            "target_max": target_max,
+            "hard_max": None if language == "ja" else hard_max,
+            "unit_label": "characters" if language == "ja" else "words",
+        }
+
+    def _valid_generated_pages(
+        self,
+        pages: Any,
+        expected_count: int,
+        request: Optional[GenerateStoryRequest] = None,
+        start_page_number: Optional[int] = None,
+    ) -> list[str]:
         """Normalize and validate a generated continuation page batch.
 
         Phase 11 quality guard: pages 2+ must be real story pages, not
@@ -3399,10 +3450,31 @@ OUTPUT RULES:
                         f"sentences={sentence_count}/9 paragraphs={paragraph_count}/2"
                     )
 
+            bedtime_shape_ok = True
+            if (
+                request is not None
+                and not self._is_canon_request(request)
+                and not self._is_folk_adventure_request(request)
+            ):
+                page_number = (start_page_number or 2) + index - 1
+                budget = self._standard_bedtime_page_budget(
+                    request.age,
+                    page_number,
+                    request.storyLanguageCode,
+                )
+                hard_max = budget.get("hard_max")
+                if hard_max is not None and word_count > hard_max:
+                    bedtime_shape_ok = False
+                    print(
+                        f"[PERF] bedtime_page_length_rejected page={page_number} "
+                        f"words={word_count} hard_max={hard_max}"
+                    )
+
             if (
                 word_count >= min_words
                 and sentence_count >= min_sentences
                 and canon_shape_ok
+                and bedtime_shape_ok
             ):
                 valid_pages.append(text)
             else:
@@ -3897,6 +3969,29 @@ REQUIRED CHANGES — APPLY EVERY ONE:
                 next_page_number=next_page_number,
             )
             if (
+                not self._is_canon_request(request)
+                and not self._is_folk_adventure_request(request)
+                and generation_attempt > 1
+            ):
+                budget = self._standard_bedtime_page_budget(
+                    request.age,
+                    next_page_number,
+                    request.storyLanguageCode,
+                )
+                hard_max = budget.get("hard_max")
+                if hard_max is not None:
+                    prompt += f"""
+
+STANDARD BEDTIME PAGE-BUDGET REPAIR — ATTEMPT {generation_attempt}:
+- The previous Page {next_page_number} candidate was rejected or unusable.
+- Rewrite the SAME narrative beat; do not simplify the story, remove its humour, weaken characterisation, or invent new events.
+- Preserve the established event, choice, callback, dialogue purpose and emotional purpose, but compress repetition and unnecessary elaboration.
+- Target {budget['target_min']}-{budget['target_max']} words. HARD MAXIMUM: {hard_max} words.
+- Do not move later-page events forward just to fill space. Leave the remaining story beats for their proper pages.
+- Keep natural read-aloud cadence and age-appropriate prose.
+"""
+
+            if (
                 self._is_canon_request(request)
                 and not is_final_page_batch
                 and generation_attempt > 1
@@ -3980,7 +4075,7 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                 story_data = self._clean_json_response(response_text)
                 if not isinstance(story_data, dict) or 'pages' not in story_data:
                     raise ValueError("Invalid remaining-pages batch format returned by AI")
-                batch_pages = self._valid_generated_pages(story_data.get('pages', []), batch_count, request=request)
+                batch_pages = self._valid_generated_pages(story_data.get('pages', []), batch_count, request=request, start_page_number=next_page_number)
             except Exception as parse_exc:
                 print(
                     f"[PERF] remaining_pages_batch parse failed "
@@ -4022,6 +4117,7 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                         [cleaned_page],
                         1,
                         request=request,
+                        start_page_number=page_number,
                     )
                     if len(revalidated) != 1:
                         last_error = (
@@ -4869,6 +4965,11 @@ JSON ONLY:
         language_code = (request.storyLanguageCode or "en").lower()[:2]
         child_age = self._safe_child_age(request.age)
         story_world_block = self._story_world_prompt_block(request)
+        first_page_budget = self._standard_bedtime_page_budget(
+            request.age,
+            1,
+            request.storyLanguageCode,
+        )
 
         if child_age <= 2:
             age_contract = "Use baby/toddler read-aloud language: very short sentences, familiar words, one place, one tiny event."
@@ -4926,6 +5027,9 @@ AGE CONTRACT:
 
 STYLE LIMITS:
 - Maximum {max_chars} characters for page text.
+- Target {first_page_budget['target_min']}-{first_page_budget['target_max']} {first_page_budget['unit_label']} for Page 1.
+- Hard maximum: {first_page_budget['hard_max'] if first_page_budget['hard_max'] is not None else max_chars} {first_page_budget['unit_label'] if first_page_budget['hard_max'] is not None else 'characters'}.
+- Page 1 is an opening page, not a mini-chapter. Establish the hook economically and leave the next story beat for Page 2.
 - 4-6 read-aloud sentences.
 - Use simple words and concrete actions.
 - Make it sound like a parent reading a picture book, not an adult fantasy novel.
@@ -5330,6 +5434,11 @@ JSON ONLY:
         )
         final_page_number = next_page_number + remaining_page_count - 1
         intended_final_page = self._intended_page_count(request)
+        bedtime_budget = self._standard_bedtime_page_budget(
+            request.age,
+            next_page_number,
+            request.storyLanguageCode,
+        )
         page_role = self._page_narrative_role(next_page_number)
         page_tension = self._page_tension_rules(next_page_number)
         includes_final_page = next_page_number <= intended_final_page <= final_page_number
@@ -5464,14 +5573,17 @@ STRICT LANGUAGE CLEANUP:
 - Avoid advanced words unless they are truly age-suitable.
 - Avoid repeated sentence patterns such as the child looked, the child walked, the child found on every page.
 
-PAGE LENGTH:
-- Each continuation page must be a real story page, not a caption or summary.
-- Each page should be 105-155 words.
-- Minimum acceptable continuation page length is 80 words.
+PAGE LENGTH AND SEVEN-PAGE BALANCE — STRICT:
+- Each continuation page must be a real story page, not a caption, summary, or mini-chapter.
+- For Page {next_page_number}, target {bedtime_budget['target_min']}-{bedtime_budget['target_max']} {bedtime_budget['unit_label']}.
+- HARD MAXIMUM for this page: {bedtime_budget['hard_max'] if bedtime_budget['hard_max'] is not None else 'follow the existing age-appropriate character guidance'} {bedtime_budget['unit_label'] if bedtime_budget['hard_max'] is not None else ''}.
+- PAGE BALANCE IS STRICT: distribute the seven-page story evenly. Do not create one very long page followed by thin pages.
+- This page has ONE main narrative beat. Complete that beat economically, then stop. Do not pull future-page events forward merely to make this page richer.
+- Preserve humour, character voice, useful callbacks and emotional purpose inside the budget; remove repetition and decorative elaboration before removing story meaning.
 - Never return a single-sentence page.
 - Each page should have exactly 2 short paragraphs.
 - Each page should contain about 5-7 read-aloud sentences.
-- Final page may be slightly shorter if complete, satisfying, and naturally settled.
+- Page 6 owns the decisive action/climax. Page 7 owns completed payoff, callback and calm settling; do not leave several unresolved beats for Page 7.
 
 COMPANION:
 - {blocks['companion_line']}
@@ -5834,11 +5946,35 @@ Return ONLY valid JSON:
             if remaining_timeout <= 0.25:
                 break
 
+            attempt_prompt = prompt
+            if (
+                attempt > 1
+                and not self._is_canon_request(request)
+                and not self._is_folk_adventure_request(request)
+                and last_error is not None
+            ):
+                budget = self._standard_bedtime_page_budget(
+                    request.age,
+                    1,
+                    request.storyLanguageCode,
+                )
+                hard_max = budget.get("hard_max")
+                if hard_max is not None:
+                    attempt_prompt += f"""
+
+PAGE 1 BUDGET REPAIR:
+- The previous Page 1 candidate exceeded or failed the production guard.
+- Keep the same quality target: natural cadence, character voice, humour, hook and story promise.
+- Compress repetition and decorative elaboration rather than flattening the prose.
+- Target {budget['target_min']}-{budget['target_max']} words. HARD MAXIMUM: {hard_max} words.
+- Establish only the opening beat and one clear next step; leave Page 2 material for Page 2.
+"""
+
             t_attempt = time.time()
             response = await asyncio.wait_for(
                 asyncio.to_thread(
                     self._generate_content_sync,
-                    prompt,
+                    attempt_prompt,
                     response_schema,
                     2048,
                 ),
@@ -5890,6 +6026,30 @@ Return ONLY valid JSON:
                         f"error={str(reason)[:300]}"
                     )
                     raise ValueError(reason)
+            else:
+                standard_pages = self._sanitize_generated_pages(
+                    postprocess_story_pages(story_data.get("pages", []))
+                )[:1]
+                if not standard_pages:
+                    last_error = ValueError("standard_page_1_missing")
+                    continue
+                budget = self._standard_bedtime_page_budget(
+                    request.age,
+                    1,
+                    request.storyLanguageCode,
+                )
+                hard_max = budget.get("hard_max")
+                if hard_max is not None:
+                    page_units = self._story_text_units(standard_pages[0], request.storyLanguageCode)
+                    if page_units > hard_max:
+                        last_error = ValueError(
+                            f"standard_page_1_too_long_{page_units}_words_max_{hard_max}"
+                        )
+                        print(
+                            f"[PERF] bedtime_page1_length_rejected attempt={attempt} "
+                            f"words={page_units} hard_max={hard_max}"
+                        )
+                        continue
 
             return story_data
 
