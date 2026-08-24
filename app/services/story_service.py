@@ -2606,6 +2606,7 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 """,
             6: """PAGE 6 ROLE — DECISIVE ACTION AND CLIMAX:
 - The child must take the decisive action. Helpers may contribute, but they must not solve it for the child.
+- The decisive solution must come from something the protagonist notices, remembers, chooses, tries, creates, or connects from earlier in the story. Do not let the final route, answer, or solution simply appear conveniently.
 - If a moral was requested, the decisive action itself must demonstrate it through a real choice and consequence. Do not rely on another character performing the moral at the end.
 - If no moral was requested, resolve the problem through the protagonist's established choices, skills, relationships, clues, or story rules without inventing a lesson.
 - Resolve the main external problem here, or make the final consequence inevitable using only established material.
@@ -2616,6 +2617,7 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
             7: """PAGE 7 ROLE — PAYOFF AND BEDTIME LANDING:
 - Begin after the decisive action, with the main problem already resolved or visibly completing.
 - Show the emotional and relationship payoff through action or dialogue.
+- Make the payoff visibly result from the protagonist's earlier decisive action or earned choice, rather than simply happening around them.
 - Reuse one earned callback from Pages 1-6.
 - Let the characters briefly enjoy the result, then slow the pace and settle safely.
 - Do not add a new surprise, task, character, object, place, or problem.
