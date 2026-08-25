@@ -3774,8 +3774,14 @@ REVIEW RULES:
         This is background-only and does not change Page-1-first generation.
         The existing Canon semantic reviewer remains the authority.
         """
-        if not self._is_canon_request(request) or len(pages) < 2:
+        # Story Worlds Canon must never complete with fewer than four real
+        # story pages. This is a completion gate only: Page 1 still returns
+        # immediately and Pages 2+ continue generating in the existing
+        # background path.
+        if not self._is_canon_request(request):
             return False, "not_applicable"
+        if len(pages) < 4:
+            return False, "canon_minimum_four_pages_not_reached"
 
         semantic_valid, semantic_reason, _, check_results = await self._review_canon_final_page_semantics(
             request=request,
