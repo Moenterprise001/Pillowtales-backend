@@ -6112,9 +6112,9 @@ PAGE 1 BUDGET REPAIR:
         companion = self._select_companion(request, subscription)
 
         # Fixed Story Worlds are stored editorial content, not runtime AI
-        # generation. Return Page 1 immediately from the published translation
-        # and let the existing background task publish the remaining stored
-        # pages. Standard Bedtime Stories remain on the existing Gemini path.
+        # generation. Return the complete published translation immediately so
+        # the Reader receives the true final page count without an artificial
+        # partial state. Standard Bedtime Stories remain on the existing Gemini path.
         fixed_canon = self._fixed_canon_story(request)
         if fixed_canon:
             fixed_pages = fixed_canon['pages']
@@ -6130,10 +6130,10 @@ PAGE 1 BUDGET REPAIR:
             print("[PERF] ========================================")
             return {
                 'title': fixed_canon['title'],
-                'pages': fixed_pages[:1],
+                'pages': fixed_pages,
                 'companion': None,
                 'expected_pages': expected_pages,
-                'generation_status': 'partial',
+                'generation_status': 'complete',
                 'first_page_generation_source': 'fixed_canon_db',
             }
 
