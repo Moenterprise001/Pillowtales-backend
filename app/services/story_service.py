@@ -919,7 +919,7 @@ class StoryService:
             f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
             f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
         )
-        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822 bedtime_page_budget_guard=20260823")
+        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822 bedtime_page_budget_guard=20260823 fixed_canon_pages_pilot=20260828")
 
     def _normalise_story_world_mode(self, request: GenerateStoryRequest) -> str:
         raw = str(getattr(request, 'storyWorldMode', '') or '').strip().lower()
@@ -1121,6 +1121,46 @@ class StoryService:
                 default='Original Folk Story',
             )
         )
+
+    def _fixed_canon_story(self, request: GenerateStoryRequest) -> Optional[dict]:
+        """Return stored immutable Canon pages for a migrated Story World story.
+
+        During the migration, only Canon translations with a non-empty ``pages``
+        array use this fixed-content path. Other Canon stories continue through
+        the legacy generator until their approved retellings are migrated.
+
+        Once the catalogue migration is complete, the legacy Canon fallback can
+        be removed and missing fixed pages should fail closed.
+        """
+        context = self._resolve_story_world_context(request)
+        if not context or context.get('mode') != 'canon':
+            return None
+
+        anchor = context.get('anchor') or {}
+        translation = anchor.get('_story_translation')
+        if not isinstance(translation, dict):
+            return None
+
+        stored_pages = translation.get('pages')
+        if not isinstance(stored_pages, list) or not stored_pages:
+            return None
+
+        pages: list[str] = []
+        for page in stored_pages:
+            if not isinstance(page, str) or not page.strip():
+                raise HTTPException(
+                    status_code=500,
+                    detail='Published canonical story contains invalid fixed pages',
+                )
+            pages.append(page.strip())
+
+        return {
+            'title': self._canon_display_title(anchor),
+            'pages': pages,
+            'anchor_slug': str(anchor.get('slug') or '').strip().lower(),
+            'version': translation.get('version'),
+            'language_code': translation.get('language_code'),
+        }
 
     def _canon_contract(self, request: GenerateStoryRequest) -> dict:
         context = self._resolve_story_world_context(request)
@@ -6070,6 +6110,33 @@ PAGE 1 BUDGET REPAIR:
         print(f"[PERF] generate_story_first_page START lang={request.storyLanguageCode} duration={request.durationMin}")
 
         companion = self._select_companion(request, subscription)
+
+        # Fixed Story Worlds are stored editorial content, not runtime AI
+        # generation. Return Page 1 immediately from the published translation
+        # and let the existing background task publish the remaining stored
+        # pages. Standard Bedtime Stories remain on the existing Gemini path.
+        fixed_canon = self._fixed_canon_story(request)
+        if fixed_canon:
+            fixed_pages = fixed_canon['pages']
+            expected_pages = len(fixed_pages)
+            print(
+                "[PERF] fixed_canon_first_page "
+                f"slug={fixed_canon['anchor_slug']} "
+                f"language={fixed_canon['language_code']} "
+                f"version={fixed_canon['version']} "
+                f"pages={expected_pages}"
+            )
+            print(f"[PERF] generate_story_first_page DONE fixed_canon total={time.time() - start_total:.2f}s")
+            print("[PERF] ========================================")
+            return {
+                'title': fixed_canon['title'],
+                'pages': fixed_pages[:1],
+                'companion': None,
+                'expected_pages': expected_pages,
+                'generation_status': 'partial',
+                'first_page_generation_source': 'fixed_canon_db',
+            }
+
         expected_pages = self._intended_page_count(request)
 
         if not self.model:
@@ -6185,6 +6252,39 @@ PAGE 1 BUDGET REPAIR:
     ) -> None:
         start_total = time.time()
         print(f"[PERF] complete_story_background START story_id={story_id}")
+
+        # Migrated Canon stories are already complete editorial content. Publish
+        # the stored pages directly and return before any Gemini continuation or
+        # semantic completion/metadata calls can run.
+        fixed_canon = self._fixed_canon_story(request)
+        if fixed_canon:
+            all_pages = fixed_canon['pages']
+            fixed_expected_pages = len(all_pages)
+            full_text = '\n\n'.join(all_pages)
+
+            self.story_repo.update(
+                story_id,
+                user_id,
+                {
+                    'pages': all_pages,
+                    'full_text': full_text,
+                    'generation_status': 'complete',
+                    'expected_pages': fixed_expected_pages,
+                    'generation_error': None,
+                },
+            )
+
+            print(
+                "[PERF] fixed_canon_story_complete "
+                f"story_id={story_id} "
+                f"slug={fixed_canon['anchor_slug']} "
+                f"language={fixed_canon['language_code']} "
+                f"version={fixed_canon['version']} "
+                f"pages={fixed_expected_pages} "
+                f"total={time.time() - start_total:.2f}s"
+            )
+            return
+
         is_dynamic_canon = self._is_canon_request(request)
         try:
             if not self.model:
