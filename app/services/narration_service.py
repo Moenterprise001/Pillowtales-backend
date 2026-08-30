@@ -1194,6 +1194,7 @@ class NarrationService:
                     f"slug={story_world_slug}: {repr(exc)}"
                 )
 
+        pronunciation_input_text = tts_text
         tts_text = self._apply_story_world_pronunciation(
             text=tts_text,
             story_world_id=resolved_story_world_id,
@@ -1201,6 +1202,24 @@ class NarrationService:
             voice=voice,
             voice_mode=voice_mode,
         )
+
+        # TEMPORARY PRONUNCIATION QA DIAGNOSTIC:
+        # Keep this narrow and cheap. It proves whether the Ireland Fionn rules
+        # were applied before OpenAI/ElevenLabs receives the page.
+        fionn_before = len(re.findall(r"(?i)(?<!\\w)Fionn(?!\\w)", pronunciation_input_text))
+        fionn_after = len(re.findall(r"(?i)(?<!\\w)Fionn(?!\\w)", tts_text))
+        fyunn_after = len(re.findall(r"(?i)(?<!\\w)fyunn(?!\\w)", tts_text))
+        full_before = len(re.findall(r"(?i)(?<!\\w)Fionn\\s+mac\\s+Cumhaill(?!\\w)", pronunciation_input_text))
+        full_after = len(re.findall(r"(?i)(?<!\\w)fyunn\\s+mak\\s+koo['’]l(?!\\w)", tts_text))
+        if fionn_before or fionn_after or fyunn_after or full_before or full_after:
+            print(
+                f"[PRONUNCIATION_QA] page={page} world_id={resolved_story_world_id} "
+                f"provider={self._story_world_pronunciation_provider(voice_mode=voice_mode)} "
+                f"voice={voice} "
+                f"Fionn_before={fionn_before} Fionn_after={fionn_after} "
+                f"fyunn_after={fyunn_after} "
+                f"full_name_before={full_before} full_name_after={full_after}"
+            )
 
         if voice_mode == "parent":
             # Parent Voice uses ElevenLabs and previously had good natural timing.
