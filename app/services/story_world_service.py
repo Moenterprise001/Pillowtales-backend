@@ -82,6 +82,16 @@ class StoryWorldService:
             str(item['name']).strip().casefold(): item
             for item in world_countries
         }
+        country_sort_order = {
+            str(item['name']).strip().casefold(): (index + 1) * 10
+            for index, item in enumerate(world_countries)
+        }
+        # The deployed catalogue already groups stories by the public
+        # `collection` field. For genuinely multi-country worlds, expose the
+        # configured country through that existing presentation contract rather
+        # than requiring a new frontend grouping implementation. The canonical
+        # thematic collection remains untouched in Supabase/repository data.
+        present_country_as_collection = len(world_countries) > 1
 
         stories: list[StoryWorldCanonStorySource] = []
         for row in rows:
@@ -182,6 +192,26 @@ class StoryWorldService:
                 if country_data
                 else None
             )
+
+            if present_country_as_collection and country_data:
+                country_code = str(country_data.get('code') or '').strip().lower()
+                country_title = str(country_data.get('name') or country_name).strip()
+                country_hero = (
+                    str(country_data.get('hero_url'))
+                    if country_data.get('hero_url')
+                    else None
+                )
+                collection_model = StoryWorldCanonCollection(
+                    slug=country_code or country_title.casefold().replace(' ', '-'),
+                    title=country_title,
+                    description=None,
+                    sortOrder=country_sort_order.get(country_title.casefold(), 100),
+                    artwork=StoryWorldArtwork(
+                        coverUrl=country_hero,
+                        thumbnailUrl=None,
+                        iconUrl=None,
+                    ),
+                )
 
             stories.append(
                 StoryWorldCanonStorySource(
