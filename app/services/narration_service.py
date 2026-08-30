@@ -31,8 +31,8 @@ WISE_OWL_AUDIO_CACHE_VERSION = "v8"
 STANDARD_LANGUAGE_AUDIO_CACHE_VERSION = {
     # Separate English locale caches so US Night Owl and UK Wise Owl never
     # replay audio generated through the previous single-English narrator path.
-    "en-US": "v7",
-    "en-GB": "v7",
+    "en-US": "v8",
+    "en-GB": "v8",
     "es": "v10",
     "fr": "v10",
     "de": "v10",
