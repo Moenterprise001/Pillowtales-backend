@@ -13,6 +13,7 @@ class StoryWorldRegion(BaseModel):
 class StoryWorldCountry(BaseModel):
     code: str
     name: str
+    heroUrl: Optional[str] = None
 
 
 class StoryWorldArtwork(BaseModel):
@@ -95,6 +96,7 @@ class StoryWorldCanonStorySource(BaseModel):
     ageRange: StoryWorldAgeRange
     artwork: StoryWorldArtwork
     coreValues: List[str] = Field(default_factory=list)
+    country: Optional[StoryWorldCountry] = None
 
     collection: Optional[StoryWorldCanonCollection] = None
     series: Optional[StoryWorldCanonSeries] = None
@@ -106,9 +108,19 @@ class StoryWorldCanonStorySource(BaseModel):
     chronologyOrder: Optional[int] = None
 
 
+class StoryWorldCanonCountry(BaseModel):
+    """Country grouping for Story Worlds that organise Canon by country."""
+    code: str
+    name: str
+    heroUrl: Optional[str] = None
+    stories: List[StoryWorldCanonStorySource] = Field(default_factory=list)
+    count: int = 0
+
+
 class StoryWorldCanonStoryListResponse(BaseModel):
     storyWorldSlug: str
     stories: List[StoryWorldCanonStorySource]
+    countries: List[StoryWorldCanonCountry] = Field(default_factory=list)
     count: int
 
 

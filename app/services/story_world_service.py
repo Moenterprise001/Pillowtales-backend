@@ -12,6 +12,7 @@ from app.models.story_world import (
     StoryWorldAdventureSource,
     StoryWorldArtwork,
     StoryWorldCanonCollection,
+    StoryWorldCanonCountry,
     StoryWorldCanonSeries,
     StoryWorldCanonStoryListResponse,
     StoryWorldCanonStorySource,
@@ -70,6 +71,17 @@ class StoryWorldService:
         )
         if not world:
             raise HTTPException(status_code=404, detail='Story World not found')
+
+        # Country metadata is optional and data-driven. Worlds without country
+        # grouping keep the existing flat catalogue behaviour unchanged.
+        world_countries = [
+            item for item in (world.get('countries') or [])
+            if isinstance(item, dict) and item.get('code') and item.get('name')
+        ]
+        country_by_name = {
+            str(item['name']).strip().casefold(): item
+            for item in world_countries
+        }
 
         stories: list[StoryWorldCanonStorySource] = []
         for row in rows:
@@ -150,6 +162,27 @@ class StoryWorldService:
                     ),
                 )
 
+            generation_rules = row.get('generation_rules') or {}
+            country_name = (
+                str(generation_rules.get('country') or '').strip()
+                if isinstance(generation_rules, dict)
+                else ''
+            )
+            country_data = country_by_name.get(country_name.casefold()) if country_name else None
+            country_model = (
+                StoryWorldCountry(
+                    code=str(country_data.get('code') or ''),
+                    name=str(country_data.get('name') or country_name),
+                    heroUrl=(
+                        str(country_data.get('hero_url'))
+                        if country_data.get('hero_url')
+                        else None
+                    ),
+                )
+                if country_data
+                else None
+            )
+
             stories.append(
                 StoryWorldCanonStorySource(
                     slug=str(row['slug']),
@@ -162,6 +195,7 @@ class StoryWorldService:
                         iconUrl=artwork_data.get('icon_url'),
                     ),
                     coreValues=[str(item) for item in (row.get('core_values') or [])],
+                    country=country_model,
                     collection=collection_model,
                     series=series_model,
                     partNumber=(
@@ -188,9 +222,35 @@ class StoryWorldService:
                 )
             )
 
+        stories_by_country: dict[str, list[StoryWorldCanonStorySource]] = defaultdict(list)
+        for story in stories:
+            if story.country and story.country.name:
+                stories_by_country[story.country.name.casefold()].append(story)
+
+        country_groups: list[StoryWorldCanonCountry] = []
+        for country_data in world_countries:
+            country_name = str(country_data.get('name') or '').strip()
+            grouped_stories = stories_by_country.get(country_name.casefold(), [])
+            if not grouped_stories:
+                continue
+            country_groups.append(
+                StoryWorldCanonCountry(
+                    code=str(country_data.get('code') or ''),
+                    name=country_name,
+                    heroUrl=(
+                        str(country_data.get('hero_url'))
+                        if country_data.get('hero_url')
+                        else None
+                    ),
+                    stories=grouped_stories,
+                    count=len(grouped_stories),
+                )
+            )
+
         return StoryWorldCanonStoryListResponse(
             storyWorldSlug=str(world['slug']),
             stories=stories,
+            countries=country_groups,
             count=len(stories),
         )
 
@@ -322,7 +382,11 @@ class StoryWorldService:
         supported_languages: list[str],
     ) -> StoryWorldPublic:
         countries = [
-            StoryWorldCountry(code=str(item.get('code', '')), name=str(item.get('name', '')))
+            StoryWorldCountry(
+                code=str(item.get('code', '')),
+                name=str(item.get('name', '')),
+                heroUrl=(str(item.get('hero_url')) if item.get('hero_url') else None),
+            )
             for item in (world.get('countries') or [])
             if isinstance(item, dict) and item.get('code') and item.get('name')
         ]
