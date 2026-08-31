@@ -919,7 +919,7 @@ class StoryService:
             f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
             f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
         )
-        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822 bedtime_page_budget_guard=20260823 fixed_canon_pages_pilot=20260828")
+        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822 bedtime_page_budget_guard=20260823 fixed_canon_pages_pilot=20260828 fixed_canon_runtime_bypass_disabled=20260830 canon_progression_review=20260830 canon_early_completion_review=20260830 canon_three_page_completion_floor=20260830 canon_narrative_breadth_floor=20260830 frozen_canon_master_foundation=20260830")
 
     def _normalise_story_world_mode(self, request: GenerateStoryRequest) -> str:
         raw = str(getattr(request, 'storyWorldMode', '') or '').strip().lower()
@@ -1123,14 +1123,19 @@ class StoryService:
         )
 
     def _fixed_canon_story(self, request: GenerateStoryRequest) -> Optional[dict]:
-        """Return stored immutable Canon pages for a migrated Story World story.
+        """Return stored immutable Canon pages when a frozen master is present.
 
-        During the migration, only Canon translations with a non-empty ``pages``
-        array use this fixed-content path. Other Canon stories continue through
-        the legacy generator until their approved retellings are migrated.
+        Story World originals are editorial content, not plots to reconstruct at
+        runtime. The selected published translation already arrives on the Canon
+        anchor as ``_story_translation``. When that translation contains a
+        non-empty ``pages`` array, return those pages exactly and let the existing
+        fixed-Canon caller deliver the complete story immediately.
 
-        Once the catalogue migration is complete, the legacy Canon fallback can
-        be removed and missing fixed pages should fail closed.
+        During migration, Canon records without approved stored pages deliberately
+        fall through to the existing dynamic path. Once every Story World has an
+        approved frozen master/adaptation set, that legacy fallback can be removed
+        and missing fixed content should fail closed. Standard Bedtime Stories are
+        unaffected because this helper only handles Canon Story World requests.
         """
         context = self._resolve_story_world_context(request)
         if not context or context.get('mode') != 'canon':
@@ -1152,6 +1157,8 @@ class StoryService:
                     status_code=500,
                     detail='Published canonical story contains invalid fixed pages',
                 )
+            # Do not post-process or rewrite frozen Canon prose here. The stored
+            # editorial text is authoritative; only trim transport whitespace.
             pages.append(page.strip())
 
         return {
@@ -1524,6 +1531,31 @@ LIVING WORLD HARD RULES:
                 "setting": {"type": "string"},
             },
             "required": ["summary", "characters", "setting"],
+        }
+
+    def _canon_continuation_review_response_schema(self) -> dict:
+        """Structured Canon-only review for one continuation page."""
+        boolean_fields = {
+            "advances_canon": {"type": "boolean"},
+            "next_required_event_respected": {"type": "boolean"},
+            "no_completed_event_repeated": {"type": "boolean"},
+            "no_semantic_recap": {"type": "boolean"},
+            "required_event_order_preserved": {"type": "boolean"},
+            "no_invented_canon": {"type": "boolean"},
+            "narrative_pacing_preserved": {"type": "boolean"},
+        }
+        return {
+            "type": "object",
+            "properties": {
+                **boolean_fields,
+                "reason": {"type": "string"},
+                "required_changes": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "maxItems": 6,
+                },
+            },
+            "required": [*boolean_fields.keys(), "reason", "required_changes"],
         }
 
     def _ending_review_response_schema(self, include_moral: bool = True) -> dict:
@@ -3712,6 +3744,153 @@ OUTPUT RULES:
 
         return True, "ok"
 
+    def _canon_exact_sentence_duplicate_reason(
+        self,
+        page: str,
+        language_code: Optional[str] = "en",
+    ) -> Optional[str]:
+        """Reject substantial exact sentence duplication inside one Canon page."""
+        seen: set[str] = set()
+        base_lang = str(language_code or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+        for _, _, sentence in self._story_sentence_spans(page):
+            normalized = self._normalise_boundary_overlap_text(sentence)
+            if not normalized:
+                continue
+            substantial = (
+                len(re.findall(r'[\u3040-\u30ff\u3400-\u9fff々〆ヵヶA-Za-z0-9]', normalized)) >= 20
+                if base_lang == "ja"
+                else len(normalized.split()) >= 6
+            )
+            if not substantial:
+                continue
+            if normalized in seen:
+                return "canon_exact_sentence_repeated_within_page"
+            seen.add(normalized)
+        return None
+
+    def _canon_minimum_narrative_pages(self, request: GenerateStoryRequest) -> int:
+        """Return a Canon-only minimum breadth floor derived from protected events.
+
+        This is not a fixed final page count. It prevents a multi-event folklore
+        source being collapsed into a synopsis-sized telling before the normal
+        progression reviewer has had room to develop the protected sequence.
+        Short Canon records may still finish in four pages; denser records get a
+        proportionally wider floor, capped well below the abnormal 12-page guard.
+        """
+        if not self._is_canon_request(request):
+            return 0
+
+        contract = self._canon_contract(request)
+        events = contract.get("required_events") or []
+        if not isinstance(events, list):
+            return 4
+
+        event_count = len([event for event in events if str(event).strip()])
+        if event_count <= 0:
+            return 4
+
+        # Page 1 is already constrained to the first required event. Thereafter,
+        # roughly two consecutive protected events per page is a reasonable
+        # maximum narrative density for a readable scene-led retelling. Very
+        # large source records are capped so this remains a minimum breadth
+        # floor, never an instruction to generate an excessively long story.
+        derived_floor = (event_count + 2) // 2  # ceil((event_count + 1) / 2)
+        return max(4, min(8, derived_floor))
+
+    async def _review_canon_continuation_progression(
+        self,
+        request: GenerateStoryRequest,
+        title: str,
+        existing_pages: list[str],
+        candidate_page: str,
+    ) -> tuple[bool, str, list[str]]:
+        """Reject Canon continuations that retell covered material instead of advancing."""
+        if not self.model:
+            return True, "review_skipped_no_model", []
+
+        contract = self._canon_contract(request)
+        existing_text = "\n\n".join(
+            f"Page {index + 1}: {page}" for index, page in enumerate(existing_pages)
+        )
+        candidate_number = len(existing_pages) + 1
+        minimum_narrative_pages = self._canon_minimum_narrative_pages(request)
+        prompt = f"""Review one proposed continuation page of a canonical folklore retelling.
+Return only JSON matching the supplied schema. Use the Canon record as the authority.
+This is a progression review, not a writing review: determine whether the proposed new page genuinely advances the protected Canon instead of retelling material already covered.
+
+EXACT STORY TITLE:
+{title}
+
+CANON RECORD:
+{json.dumps(contract, ensure_ascii=False, separators=(',', ':'))}
+
+ALREADY PUBLISHED PAGES:
+{existing_text}
+
+PROPOSED PAGE {candidate_number}:
+{candidate_page}
+
+REVIEW RULES:
+- advances_canon: true only if the proposed page completes an unfinished required event or tells at least one genuinely new consecutive required event. More description of an already-complete event is not advancement.
+- next_required_event_respected: compare ALREADY PUBLISHED PAGES with required_events from the beginning. Identify the earliest event absent or only partly told. The proposed page must continue that obligation before moving later.
+- no_completed_event_repeated: false if the proposed page re-narrates, paraphrases, or stages again a required event already complete in the published pages, except for a very brief necessary callback that immediately advances to new material.
+- no_semantic_recap: false if a substantial part of the proposed page merely re-explains an already-known action, conflict, consequence, landscape explanation, motivation, or ending in new wording.
+- required_event_order_preserved: no protected event is moved earlier/later, skipped, merged away, or retrospectively implied.
+- no_invented_canon: no new cause, action, helper, object, motive, resolution, or folklore explanation is introduced beyond the protected record and allowed embellishments.
+- narrative_pacing_preserved: the protected sequence is told as readable scenes rather than compressed into a synopsis. The Canon-only minimum narrative breadth for this source is {minimum_narrative_pages} pages. If proposed Page {candidate_number} is BEFORE that floor, return false when this page rushes through so many consecutive required events that the remaining Canon would be exhausted, or nearly exhausted, before Page {minimum_narrative_pages}. Brief directly-connected events may share a page, but defining actions and consequences need enough narrative space to be understood on first read-aloud.
+- A proposed ending is allowed only when every required event and the required ending are genuinely complete AND the minimum narrative breadth has been reached.
+- required_changes: when rejecting, state precisely which already-covered event must NOT be repeated, which earliest unfinished required event must be told next, and when relevant which later events must be left for subsequent pages instead of being compressed into this one.
+"""
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._generate_content_sync,
+                    prompt,
+                    self._canon_continuation_review_response_schema(),
+                    1200,
+                ),
+                timeout=BACKGROUND_PAGE_TIMEOUT_SECONDS,
+            )
+            response_text = getattr(response, "text", None)
+            if not response_text or not isinstance(response_text, str):
+                return False, "canon_progression_review_empty_response", [
+                    "Continue from the earliest unfinished required Canon event without retelling completed events."
+                ]
+            result = self._clean_json_response(response_text)
+            checks = (
+                "advances_canon",
+                "next_required_event_respected",
+                "no_completed_event_repeated",
+                "no_semantic_recap",
+                "required_event_order_preserved",
+                "no_invented_canon",
+                "narrative_pacing_preserved",
+            )
+            failed = [key for key in checks if result.get(key) is not True]
+            required_changes = [
+                str(item).strip()
+                for item in (result.get("required_changes") or [])
+                if str(item).strip()
+            ][:6]
+            if failed:
+                if not required_changes:
+                    required_changes = [
+                        "Do not retell any required event already complete in the published pages.",
+                        "Continue from the earliest required Canon event that is absent or only partly told.",
+                        "Advance the Canon in recorded order and stop once the new event material for this page is complete.",
+                    ]
+                reason = str(result.get("reason") or "").strip()
+                return False, f"canon_progression_review_failed:{','.join(failed)}:{reason}"[:700], required_changes
+            return True, "ok", []
+        except Exception as exc:
+            # Progression assurance is Canon-specific. Fail closed for this
+            # candidate so a transient reviewer failure cannot publish a known
+            # repetition-prone continuation unchecked.
+            print(f"[PERF] canon_continuation_progression_review_unavailable error={str(exc)[:300]}")
+            return False, "canon_progression_review_unavailable", [
+                "Regenerate the same next Canon page and continue from the earliest unfinished required event."
+            ]
+
     async def _review_canon_final_page_semantics(
         self,
         request: GenerateStoryRequest,
@@ -3814,14 +3993,16 @@ REVIEW RULES:
         This is background-only and does not change Page-1-first generation.
         The existing Canon semantic reviewer remains the authority.
         """
-        # Story Worlds Canon must never complete with fewer than four real
-        # story pages. This is a completion gate only: Page 1 still returns
-        # immediately and Pages 2+ continue generating in the existing
-        # background path.
+        # Canon completion requires both semantic completeness and enough
+        # narrative breadth for the protected event sequence. The floor is
+        # derived from required-event density, not hardcoded per story, and is
+        # only a minimum: Canon may continue beyond it whenever events remain.
+        # This remains background-only; Page-1-first delivery is unchanged.
         if not self._is_canon_request(request):
             return False, "not_applicable"
-        if len(pages) < 4:
-            return False, "canon_minimum_four_pages_not_reached"
+        minimum_narrative_pages = self._canon_minimum_narrative_pages(request)
+        if len(pages) < minimum_narrative_pages:
+            return False, f"canon_minimum_narrative_pages_not_reached:{minimum_narrative_pages}"
 
         semantic_valid, semantic_reason, _, check_results = await self._review_canon_final_page_semantics(
             request=request,
@@ -4046,7 +4227,8 @@ STANDARD BEDTIME PAGE-BUDGET REPAIR — ATTEMPT {generation_attempt}:
             ):
                 prompt += f"""
 CANON CONTINUATION PAGE REPAIR — ATTEMPT {generation_attempt}:
-- The previous continuation candidate was rejected as too thin or incomplete.
+- The previous continuation candidate was rejected: {last_error or 'too thin, repetitive, or incomplete'}.
+- Reviewer-required progression repairs: {json.dumps(last_required_changes, ensure_ascii=False)}
 - Rewrite Page {next_page_number} as a complete story page.
 - Use about 90-140 words, normally 5-7 read-aloud sentences, and exactly 2 short paragraphs.
 - Keep the page under 160 words.
@@ -4191,6 +4373,53 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                 continue
 
             sanitized = boundary_cleaned
+
+            if self._is_canon_request(request):
+                # Canon-only progression gate. Prompt instructions alone are not
+                # sufficient: reject exact within-page duplication and semantic
+                # re-telling of already-completed Canon before publishing it.
+                progression_rejected = False
+                review_existing_pages = list(working_pages)
+                for offset, candidate_page in enumerate(sanitized):
+                    page_number = next_page_number + offset
+                    duplicate_reason = self._canon_exact_sentence_duplicate_reason(
+                        candidate_page,
+                        request.storyLanguageCode,
+                    )
+                    if duplicate_reason:
+                        last_error = duplicate_reason
+                        last_required_changes = [
+                            f"Rewrite Page {page_number} without repeating any sentence within the page.",
+                            "Continue from the earliest unfinished required Canon event instead of adding repeated explanation.",
+                        ]
+                        print(
+                            f"[PERF] canon_continuation_exact_duplicate_rejected "
+                            f"page={page_number} reason={duplicate_reason}"
+                        )
+                        progression_rejected = True
+                        break
+
+                    progression_valid, progression_reason, progression_changes = await self._review_canon_continuation_progression(
+                        request=request,
+                        title=title,
+                        existing_pages=review_existing_pages,
+                        candidate_page=candidate_page,
+                    )
+                    if not progression_valid:
+                        last_error = progression_reason
+                        last_required_changes = progression_changes
+                        print(
+                            f"[PERF] canon_continuation_progression_rejected "
+                            f"page={page_number} reason={progression_reason[:300]!r} "
+                            f"required_changes={progression_changes}"
+                        )
+                        progression_rejected = True
+                        break
+                    review_existing_pages.append(candidate_page)
+
+                if progression_rejected:
+                    continue
+
             if is_final_page_batch:
                 is_canon = self._is_canon_request(request)
                 valid, reason = self._validate_final_page(sanitized[0], working_pages, request.storyLanguageCode)
@@ -4606,21 +4835,24 @@ JSON ONLY:
         clean_events = [str(event).strip() for event in events if str(event).strip()]
         if not clean_events:
             return ""
+        minimum_narrative_pages = self._canon_minimum_narrative_pages(request)
         return f"""CANON EVENT PROGRESSION — PAGE {next_page_number}:
 - The protected record contains {len(clean_events)} ordered required Canon events.
+- The minimum narrative breadth for this source is {minimum_narrative_pages} pages. This is a floor, NOT the final target: continue longer whenever Canon requires it.
+- Before Page {minimum_narrative_pages}, do not rush through the whole remaining sequence or reach the protected ending early. Preserve enough consecutive Canon material for later pages so the story reads as scenes rather than a synopsis.
 - Before writing, compare the EXISTING PAGES against required_events from the first event onward. Identify the earliest event that is missing or only partly told. That exact event is the next Canon obligation.
 - Never infer that an event happened merely because a later consequence appears. A required event counts as complete only when its defining action and consequence are actually present in the prose.
 - Continue with that earliest unfinished required event and then move into the next consecutive required event when the first one is naturally complete.
-- A page may cover more than one consecutive Canon event when those events are brief or directly connected. Do not force one event per page.
+- A page may cover more than one consecutive Canon event when those events are brief or directly connected, but before the minimum breadth floor do not consume the remaining sequence so quickly that later pages would have nothing new to tell.
 - Preserve every defining event in substance and in order. Never omit, reorder, replace or summarise away a protected event merely to shorten the story.
 - For a 16+ audience, if the next required event includes killing, death, betrayal, punishment, cannibalism, frightening supernatural action or another difficult defining act, state what actually happens plainly enough to preserve its cause and consequence. Keep it non-gratuitous, but never replace it with vague harm, sadness, cruelty or wrongdoing.
 - Be concise: once an event is clear and complete, move forward. Do not add extra dialogue, reactions, atmosphere or description merely to make the event longer.
-- The preferred result is the shortest natural faithful telling, not the longest possible telling.
-- When every required event and the protected ending have genuinely been completed, end that natural final page exactly with The End.
+- Prefer a natural faithful telling with enough scene development for first-listen comprehension; do not optimise for the fewest possible pages.
+- When every required event and the protected ending have genuinely been completed AND the minimum narrative breadth has been reached, end that natural final page exactly with The End.
 - If Canon still remains, stop at a natural scene boundary without The End and continue on the next page.
 """
 
-    def _canon_page_pacing_block(self, next_page_number: int) -> str:
+    def _canon_page_pacing_block(self, request: GenerateStoryRequest, next_page_number: int) -> str:
         """Preserve page-level pacing while allowing Canon to choose its length."""
         if next_page_number == 2:
             stage = "Continue the early canonical sequence without rushing past defining setup."
@@ -4628,17 +4860,19 @@ JSON ONLY:
             stage = "Move naturally through the next canonical scene or consequence in recorded order."
         else:
             stage = "Continue from the exact next unfinished canonical scene or consequence in recorded order."
+        minimum_narrative_pages = self._canon_minimum_narrative_pages(request)
         return f"""CANON PAGE {next_page_number} PACING — SOURCE-LED, CONCISE:
 - {stage}
+- This source has a Canon minimum narrative breadth of {minimum_narrative_pages} pages. Before that floor, do not finish the whole protected sequence or compress several substantial events merely to reach the ending sooner.
 - Treat this as one clean reader page, not as a synopsis and not as an expanded chapter.
 - Tell each required action clearly, then move forward as soon as that action is complete.
 - Use only enough dialogue, reaction and setting detail to make the Canon easy to follow. Do not pad a simple event.
-- If the next consecutive required event naturally fits on the same page, continue into it rather than manufacturing another page.
+- If the next consecutive required event naturally fits on the same page, it may begin or continue, but before the minimum breadth floor leave later protected events for later pages rather than collapsing the sequence into summary.
 - Do not rush, omit or soften protected Canon merely because the page is becoming full.
-- Do not hold back a completed ending to manufacture another page.
-- Canon, not page count, determines when the story ends.
-- The preferred telling is complete and economical: faithful enough to preserve every defining event, concise enough for comfortable read-aloud narration.
-- If all required Canon material is now complete, close naturally inside the canonical narrative and end exactly with The End.
+- Once the minimum breadth floor has been reached, do not hold back a genuinely completed ending to manufacture another page.
+- Canon completeness plus narrative breadth determines when the story ends; the floor never forces omission or a fixed final count.
+- The preferred telling is complete and economical without being compressed: faithful enough to preserve every defining event, spacious enough to understand on first read-aloud, concise enough for comfortable narration.
+- If all required Canon material is now complete AND Page {next_page_number} is at or beyond the minimum breadth floor, close naturally inside the canonical narrative and end exactly with The End.
 - If required Canon material remains, do not write The End.
 """
 
@@ -4679,7 +4913,7 @@ JSON ONLY:
             f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or [])
         )
         final_page_number = next_page_number + remaining_page_count - 1
-        pacing_block = self._canon_page_pacing_block(next_page_number)
+        pacing_block = self._canon_page_pacing_block(request, next_page_number)
         event_budget_block = self._canon_event_budget_block(request, next_page_number)
         return f"""Continue a faithful canonical folklore retelling. Return only JSON.
 
@@ -4729,8 +4963,10 @@ CANON CONTINUATION JOB:
 
 CANON COMPLETION RULES:
 - There is no fixed total page count for Story Worlds Canon.
+- The source-derived minimum narrative breadth is {self._canon_minimum_narrative_pages(request)} pages; this is a floor only, never a forced final count.
 - Do not omit, merge, compress or summarise away protected Canon material to fit a page number.
-- If every required Canon event and the protected ending are fully complete on this page, end naturally inside the canonical narrative and then write exactly: The End.
+- Before the minimum breadth floor, do not write The End and do not consume the whole remaining Canon sequence merely because it can be summarised compactly.
+- At or beyond the minimum breadth floor, if every required Canon event and the protected ending are fully complete on this page, end naturally inside the canonical narrative and then write exactly: The End.
 - If required Canon material remains after this page, do NOT write The End and do NOT add a bedtime conclusion, epilogue or listener frame.
 
 OUTPUT JSON:
@@ -6479,10 +6715,15 @@ PAGE 1 BUDGET REPAIR:
                         # duplicate continuation page before finality is recognised.
                         # This remains background-only and does not affect Page 1
                         # generation or early narration startup.
-                        periodic_completion_check = (
-                            page_count_now >= CANON_DYNAMIC_COMPLETION_REVIEW_START_PAGE
-                        )
-                        should_review_completion = candidate_has_end or periodic_completion_check
+                        # Review semantic Canon completion after every newly accepted
+                        # dynamic Canon continuation page. A short protected folktale
+                        # can legitimately complete before the old Page-6 review window.
+                        # Delaying completion review caused the backend to request a
+                        # non-existent next page even when all required events and the
+                        # required ending were already complete. This remains Canon-only;
+                        # fixed seven-page Bedtime Stories do not use this branch.
+                        periodic_completion_check = True
+                        should_review_completion = True
 
                         if should_review_completion:
                             canon_complete, canon_reason = await self._canon_can_finish_on_current_page(
