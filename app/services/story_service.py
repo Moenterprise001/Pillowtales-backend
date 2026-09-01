@@ -4466,11 +4466,38 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
             previous_for_boundary = working_pages[-1] if working_pages else ""
             boundary_rejected = False
             for offset, candidate_page in enumerate(sanitized):
-                cleaned_page, changed, overlap_reason = self._remove_page_boundary_duplicate(
-                    previous_for_boundary,
-                    candidate_page,
-                    request.storyLanguageCode,
+                # Surgical Spanish Bedtime safeguard:
+                # the generic sentence-boundary de-duplication can split
+                # Spanish dialogue at the closing guillemet before a comma
+                # attribution (for example: «¿Y ahora qué?», pensó...), then
+                # remove only the quoted portion as a false boundary overlap.
+                #
+                # Bypass that mutating de-duplication ONLY for standard
+                # Spanish Bedtime Stories. English, other Bedtime languages,
+                # Canon Story Worlds, and Folk Adventures keep the existing
+                # behaviour unchanged.
+                base_language = (
+                    str(request.storyLanguageCode or "en")
+                    .strip()
+                    .lower()
+                    .replace("_", "-")
+                    .split("-", 1)[0]
                 )
+                spanish_standard_bedtime = (
+                    base_language == "es"
+                    and not self._is_canon_request(request)
+                    and not self._is_folk_adventure_request(request)
+                )
+                if spanish_standard_bedtime:
+                    cleaned_page = candidate_page
+                    changed = False
+                    overlap_reason = "spanish_bedtime_boundary_dedupe_bypassed"
+                else:
+                    cleaned_page, changed, overlap_reason = self._remove_page_boundary_duplicate(
+                        previous_for_boundary,
+                        candidate_page,
+                        request.storyLanguageCode,
+                    )
                 page_number = next_page_number + offset
 
                 if changed:
