@@ -3103,34 +3103,29 @@ ENGLISH STORY STYLE:
 
         compact_rules = {
             "es": (
-                "Before returning the page, silently reread it as a native children's editor in Spain. "
-                "Rewrite any literal-English phrasing, malformed dialogue, odd semantic choice, or non-Spain wording. "
-                "Use complete grammatical sentences and consistent Spanish punctuation."
+                "Before returning the page, silently edit it as a native children's editor in Spain. "
+                "Keep the story event and page role unchanged, but rewrite translated-sounding, abstract, dubbed, or unnatural phrasing into concrete idiomatic peninsular Spanish. "
+                "Use Spanish guillemets «…» consistently for dialogue and quoted sound effects, never straight ASCII double quotes; never put a space before commas, full stops, colons, semicolons, question marks or exclamation marks; and never produce malformed dialogue attribution."
             ),
             "fr": (
-                "Before returning the page, silently reread it as a native French children's editor. "
-                "Rewrite any literal-English phrasing, unnatural syntax, malformed dialogue, or non-native expression. "
-                "Use complete grammatical sentences and natural French punctuation."
+                "Before returning the page, silently edit it as a native French children's editor. "
+                "Keep the story event and page role unchanged. Rewrite English-shaped syntax, calques, unnatural dialogue or over-explanation into concrete child-natural French, with correct French punctuation, spacing, agreement and references."
             ),
             "de": (
-                "Before returning the page, silently reread it as a native German children's editor. "
-                "Rewrite any literal-English phrasing, unnatural word order, malformed dialogue, or stiff translated expression. "
-                "Use complete grammatical sentences and natural German punctuation."
+                "Before returning the page, silently edit it as a native German children's editor. "
+                "Keep the story event and page role unchanged. Rewrite English-shaped syntax, unnatural word order, calques or malformed dialogue into natural child-friendly German, with correct verb placement, case, agreement and punctuation."
             ),
             "it": (
-                "Before returning the page, silently reread it as a native Italian children's editor. "
-                "Rewrite any literal-English phrasing, unnatural syntax, malformed dialogue, or stiff translated expression. "
-                "Use complete grammatical sentences and natural Italian punctuation."
+                "Before returning the page, silently edit it as a native Italian children's editor. "
+                "Keep the story event and page role unchanged. Rewrite English-shaped syntax, calques, stiff phrasing or malformed dialogue into natural child-friendly Italian, with correct agreement, references and punctuation."
             ),
             "ja": (
-                "Before returning the page, silently reread it as a native Japanese children's editor. "
-                "Rewrite any English-shaped syntax, literal idiom, unnatural dialogue, or translated-sounding expression. "
-                "Use complete natural Japanese sentences and punctuation."
+                "Before returning the page, silently edit it as a native Japanese children's editor. "
+                "Keep the story event and page role unchanged. Rewrite English-shaped information order, literal idioms, over-explicit subjects or unnatural dialogue into natural child-friendly Japanese, using native particles, sentence endings, subject omission and Japanese quotation/punctuation conventions."
             ),
             "ar": (
-                "Before returning the page, silently reread it as a native Arabic children's editor. "
-                "Rewrite any English-shaped syntax, literal idiom, agreement error, malformed dialogue, or translated-sounding expression. "
-                "Use complete natural child-friendly Arabic sentences and punctuation."
+                "Before returning the page, silently edit it as a native Arabic children's editor in clear Modern Standard Arabic. "
+                "Keep the story event and page role unchanged. Rewrite English-shaped syntax, literal calques, stiff textbook phrasing or malformed dialogue into natural child-friendly Arabic, with correct gender, number, definiteness, agreement, references and punctuation."
             ),
         }
         if compact:
@@ -3138,64 +3133,73 @@ ENGLISH STORY STYLE:
 
         full_rules = {
             "es": """SPANISH (SPAIN) BEDTIME EDITORIAL GATE:
-- Write idiomatic peninsular Spanish as if the story were originally authored in Spain. Never translate English phrasing literally.
-- Preserve the intended meaning rather than the English wording. Do not force English idioms, interjections, metaphors, emotional labels or adjective choices into Spanish.
-- Keep semantic distinctions precise: for example, use "la verdadera corona" for the actual/true crown and "la corona real" only when royal is intended.
-- Do not misuse "amable" to mean sentimental attachment, appreciation of objects, affection for possessions, or reluctance to throw something away.
-- Dialogue must be complete and grammatical. Never leave an orphaned attribution such as ", exclamó." or ", dijo." with the speaker missing.
-- Use Spanish dialogue punctuation consistently and naturally; do not mix English quotation habits into the prose.
-- Avoid calques and dubbed-sounding reactions. If an expression sounds translated, replace it with what a parent in Spain would naturally say.
+- This is a surface-language editorial gate only. Do not change the plot, page role, story structure, characters, theme, moral, age calibration, outcome, or intended story event.
+- Write idiomatic peninsular Spanish as if the story were originally authored for a child in Spain, never as wording translated from English.
+- Prefer concrete, child-natural phrasing over abstract, literary, explanatory or dubbed-sounding narration.
+- If an action, thought or line of dialogue already shows a motive, feeling or moral, do not explain the same point again in narrator language.
+- Preserve the intended meaning, not the source-language form. Replace English-shaped idioms, interjections, metaphors, emotional labels and sentence structures with what a native parent in Spain would naturally say aloud.
+- Avoid awkward possession language around magical beings, objects or experiences. Describe what the child wants to do, understand, share, keep safe or enjoy rather than forcing abstract ideas such as possession when they are not natural in Spanish.
+- DIALOGUE TYPOGRAPHY IS NON-NEGOTIABLE: use Spanish guillemets «…» consistently for dialogue and quoted sound effects/playful utterances. Do not use straight ASCII double quotation marks for them.
+- Never write malformed attribution such as «…» , dijo, "…" , pensó, or an orphaned attribution such as ", exclamó." The dialogue and attribution must form one grammatical Spanish sentence.
+- Never insert a space before a comma, full stop, colon, semicolon, closing question mark or closing exclamation mark.
+- Use opening and closing Spanish marks correctly: ¿…? and ¡…!.
+- Keep quoted sound effects and playful words typographically consistent with the rest of the Spanish prose.
+- Keep semantic distinctions precise. Do not misuse "amable" for attachment to possessions, appreciation of an object, or reluctance to discard something.
+- Avoid calques, dubbed reactions and phrases that a native parent would mentally rewrite while reading aloud.
+- Prefer simple action, thought or dialogue to abstract narrator phrasing when both express the same meaning.
 - Keep names, pronouns, tense, gender and number consistent.
-- Silently proofread every page before returning it: no broken fragments, malformed dialogue, mistranslated idioms, odd semantic choices, or phrases a native parent would stop to correct aloud.
+- Silently perform one final native-Spanish editorial read before returning every page. Fix unnatural wording, repeated explanation, malformed dialogue, inconsistent quotation marks, punctuation spacing, agreement and semantic imprecision without changing what happens.
 """,
             "fr": """FRENCH BEDTIME EDITORIAL GATE:
-- Write idiomatic native French as if the story were originally authored in French, not translated from English.
-- Preserve intended meaning rather than English wording; replace literal idioms, metaphors, reactions and sentence structures with natural French.
-- Use age-appropriate spoken/read-aloud syntax rather than formal, academic or over-literary prose.
-- Dialogue must be complete, grammatical and naturally punctuated in French.
-- Keep articles, gender, number, tense, pronouns and references consistent.
-- Respect natural French punctuation conventions rather than applying English punctuation mechanically.
-- Avoid explanatory calques and expressions that sound like dubbing or machine translation.
-- Silently proofread every page before returning it: no fragments, malformed dialogue, agreement errors, English-shaped syntax, or phrasing a native parent would stop to correct aloud.
+- This is a surface-language editorial gate only. Do not change plot, page role, story structure, characters, theme, moral, age calibration or outcome.
+- Write idiomatic native French as if originally authored for a child in French, not translated from English.
+- Prefer concrete child-natural phrasing over abstract, over-literary or explanatory narration.
+- Preserve meaning rather than English wording; remove calques, English information order, dubbed reactions and unnecessary repeated explanation.
+- Use natural French dialogue conventions and French punctuation/spacing rather than mechanically importing English punctuation.
+- Keep articles, gender, number, tense, agreement, pronouns and references consistent.
+- Silently reread each page as a native children's editor and repair unnatural syntax, malformed dialogue, agreement errors, calques and phrasing a parent would stop to correct aloud.
 """,
             "de": """GERMAN BEDTIME EDITORIAL GATE:
-- Write idiomatic native German as if the story were originally authored in German, not translated from English.
-- Use natural German word order, clause structure and verb placement; never preserve English syntax merely because the meaning is understandable.
-- Prefer age-appropriate everyday German over stiff compounds, formal wording or translated idioms.
-- Dialogue must be complete, grammatical and naturally punctuated.
-- Keep case, gender, number, tense, pronouns and references consistent.
-- Avoid English-shaped metaphors, reactions, adjective patterns and explanatory phrasing.
-- Silently proofread every page before returning it: no fragments, malformed dialogue, case/agreement problems, awkward word order, or phrasing a native parent would stop to correct aloud.
+- This is a surface-language editorial gate only. Do not change plot, page role, story structure, characters, theme, moral, age calibration or outcome.
+- Write idiomatic child-friendly German as if originally authored in German, not translated from English.
+- Prefer concrete read-aloud phrasing over abstract, stiff or explanatory narration.
+- Preserve meaning rather than English wording; remove calques and English-shaped syntax.
+- Keep German word order and verb placement natural, including subordinate clauses.
+- Keep case, gender, number, tense, articles, pronouns and agreement correct and consistent.
+- Use natural German dialogue and punctuation conventions.
+- Silently reread each page as a native children's editor and repair unnatural syntax, malformed dialogue, agreement/case errors and translated-sounding phrasing.
 """,
             "it": """ITALIAN BEDTIME EDITORIAL GATE:
-- Write idiomatic native Italian as if the story were originally authored in Italian, not translated from English.
-- Preserve intended meaning rather than English wording; replace literal idioms, metaphors, reactions and sentence structures with natural Italian.
-- Use warm, age-appropriate read-aloud prose rather than stiff, formal or over-literary language.
-- Dialogue must be complete, grammatical and naturally punctuated.
-- Keep articles, gender, number, tense, pronouns and references consistent.
-- Avoid English-shaped syntax, unnecessary subject repetition and translated-sounding emotional phrases.
-- Silently proofread every page before returning it: no fragments, malformed dialogue, agreement errors, literal calques, or phrasing a native parent would stop to correct aloud.
+- This is a surface-language editorial gate only. Do not change plot, page role, story structure, characters, theme, moral, age calibration or outcome.
+- Write idiomatic child-friendly Italian as if originally authored in Italian, not translated from English.
+- Prefer concrete natural phrasing over abstract, stiff, over-literary or explanatory narration.
+- Preserve meaning rather than English wording; remove calques, English-shaped syntax, dubbed reactions and unnecessary subject repetition.
+- Keep gender, number, tense, articles, pronouns, agreement and references consistent.
+- Use natural Italian dialogue and punctuation conventions.
+- Silently reread each page as a native children's editor and repair unnatural syntax, malformed dialogue, agreement errors and translated-sounding phrasing.
 """,
             "ja": """JAPANESE BEDTIME EDITORIAL GATE:
-- Write idiomatic native Japanese as if the story were originally authored in Japanese, not translated from English.
-- Use natural Japanese information order, particles, subject omission, reference and sentence endings appropriate to children's narration.
-- Preserve intended meaning rather than mirroring English syntax, idioms, metaphors or emotional labels.
-- Dialogue must sound naturally spoken by the characters and use consistent Japanese punctuation/quotation conventions.
-- Keep character references, politeness level and tense/aspect coherent.
-- Avoid over-explaining subjects or feelings simply because English would state them explicitly.
-- Silently proofread every page before returning it: no English-shaped syntax, unnatural literal translation, broken dialogue, reference ambiguity, or phrasing a native parent would stop to correct aloud.
+- This is a surface-language editorial gate only. Do not change plot, page role, story structure, characters, theme, moral, age calibration or outcome.
+- Write natural child-friendly Japanese as if originally authored in Japanese, not translated from English.
+- Use natural Japanese information order, particles, subject omission and age-appropriate sentence endings.
+- Do not reproduce English subject repetition, syntax, idioms, emotional labels or explanatory phrasing.
+- Prefer concrete action, thought and dialogue over abstract explanation.
+- Use Japanese quotation and punctuation conventions consistently.
+- Keep references and character relationships clear without unnecessary explicit pronouns.
+- Silently reread each page as a native children's editor and repair translated-sounding syntax, unnatural dialogue, particles, references and over-explicit phrasing.
 """,
             "ar": """ARABIC BEDTIME EDITORIAL GATE:
-- Write idiomatic child-friendly Modern Standard Arabic as if the story were originally authored in Arabic, not translated from English.
-- Use natural Arabic word order and phrasing; preserve intended meaning rather than mirroring English syntax, idioms, metaphors or emotional labels.
-- Keep gender, number, definiteness, agreement, tense/aspect, pronouns and references consistent.
-- Dialogue must be complete, grammatical and naturally punctuated.
-- Prefer clear warm read-aloud Arabic over stiff textbook language or unnecessarily ornate literary wording.
-- Avoid literal calques and English-shaped explanatory sentences.
-- Silently proofread every page before returning it: no fragments, malformed dialogue, agreement errors, reference ambiguity, literal translation, or phrasing a native parent would stop to correct aloud.
+- This is a surface-language editorial gate only. Do not change plot, page role, story structure, characters, theme, moral, age calibration or outcome.
+- Write clear, child-friendly Modern Standard Arabic as if originally authored in Arabic, not translated from English.
+- Use natural Arabic syntax and information order; avoid stiff textbook language and literal English calques.
+- Prefer concrete action, thought and dialogue over abstract or over-explanatory narration.
+- Keep gender, number, definiteness, tense, pronouns, references and agreement correct and consistent.
+- Use natural Arabic dialogue and punctuation conventions.
+- Silently reread each page as a native children's editor and repair translated-sounding syntax, malformed dialogue, agreement errors, unclear references and stiff phrasing.
 """,
         }
-        return full_rules.get(language_code, compact_rules.get(language_code, ""))
+        return full_rules.get(language_code, "")
+
 
     def _build_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
