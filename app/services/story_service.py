@@ -3038,6 +3038,26 @@ GERMAN STORY STYLE:
 - Use gentle bedtime rhythm, cozy imagery, and emotionally comforting language.
 - The story should feel soft, magical, reassuring, read-aloud friendly, and originally written in German.
 """
+        if language_code == "ja":
+            return """
+JAPANESE STORY STYLE:
+- Write as a native Japanese children's storyteller, not as a translation from English.
+- Use natural Japanese word order, particles, ellipsis, dialogue and sentence rhythm appropriate to the selected child age.
+- Keep the prose warm, clear and easy to read aloud. Prefer concrete child-friendly expressions over literal English metaphors or abstract translated phrasing.
+- Use Japanese punctuation and quotation conventions naturally and consistently.
+- Do not import English sentence structure, idioms, emotional labels, or explanatory phrasing into Japanese.
+- The story should feel originally written in Japanese and remain calm, warm and bedtime-safe.
+"""
+        if language_code == "ar":
+            return """
+ARABIC STORY STYLE:
+- Write as a native Arabic children's storyteller in clear, child-friendly Modern Standard Arabic, not as a translation from English.
+- Use natural Arabic sentence structure, agreement, pronouns, dialogue and punctuation appropriate to the selected child age.
+- Keep the prose warm, fluent and easy to read aloud. Prefer concrete natural Arabic expressions over literal English idioms or calques.
+- Keep gender, number, tense and reference consistent throughout the story.
+- Avoid stiff textbook Arabic, translated English syntax, and unnecessarily ornate literary phrasing.
+- The story should feel originally written in Arabic and remain calm, warm and bedtime-safe.
+"""
         return """
 ENGLISH STORY STYLE:
 - Use warm British bedtime storytelling with clear emotion, simple wonder, and child-friendly magic.
@@ -3065,6 +3085,117 @@ ENGLISH STORY STYLE:
         if language_code == "ar":
             return "Write natural Arabic bedtime prose for a young child. Use clear child-friendly Arabic, short age-appropriate sentences, natural dialogue, and a warm read-aloud rhythm. Avoid stiff or literal translated phrasing."
         return "Write warm, clear, read-aloud English bedtime prose. Keep sentences direct and child-friendly."
+
+    def _bedtime_native_editorial_block(
+        self,
+        language_code: Optional[str],
+        compact: bool = False,
+    ) -> str:
+        """Native-language editorial guard for standard Bedtime Stories.
+
+        Prompt-only. This adds no provider call and does not change Page-1-first
+        delivery, narration, polling, storage, page count, subscriptions,
+        English generation, or Story Worlds.
+        """
+        language_code = (language_code or "en").lower()[:2]
+        if language_code == "en":
+            return ""
+
+        compact_rules = {
+            "es": (
+                "Before returning the page, silently reread it as a native children's editor in Spain. "
+                "Rewrite any literal-English phrasing, malformed dialogue, odd semantic choice, or non-Spain wording. "
+                "Use complete grammatical sentences and consistent Spanish punctuation."
+            ),
+            "fr": (
+                "Before returning the page, silently reread it as a native French children's editor. "
+                "Rewrite any literal-English phrasing, unnatural syntax, malformed dialogue, or non-native expression. "
+                "Use complete grammatical sentences and natural French punctuation."
+            ),
+            "de": (
+                "Before returning the page, silently reread it as a native German children's editor. "
+                "Rewrite any literal-English phrasing, unnatural word order, malformed dialogue, or stiff translated expression. "
+                "Use complete grammatical sentences and natural German punctuation."
+            ),
+            "it": (
+                "Before returning the page, silently reread it as a native Italian children's editor. "
+                "Rewrite any literal-English phrasing, unnatural syntax, malformed dialogue, or stiff translated expression. "
+                "Use complete grammatical sentences and natural Italian punctuation."
+            ),
+            "ja": (
+                "Before returning the page, silently reread it as a native Japanese children's editor. "
+                "Rewrite any English-shaped syntax, literal idiom, unnatural dialogue, or translated-sounding expression. "
+                "Use complete natural Japanese sentences and punctuation."
+            ),
+            "ar": (
+                "Before returning the page, silently reread it as a native Arabic children's editor. "
+                "Rewrite any English-shaped syntax, literal idiom, agreement error, malformed dialogue, or translated-sounding expression. "
+                "Use complete natural child-friendly Arabic sentences and punctuation."
+            ),
+        }
+        if compact:
+            return compact_rules.get(language_code, "")
+
+        full_rules = {
+            "es": """SPANISH (SPAIN) BEDTIME EDITORIAL GATE:
+- Write idiomatic peninsular Spanish as if the story were originally authored in Spain. Never translate English phrasing literally.
+- Preserve the intended meaning rather than the English wording. Do not force English idioms, interjections, metaphors, emotional labels or adjective choices into Spanish.
+- Keep semantic distinctions precise: for example, use "la verdadera corona" for the actual/true crown and "la corona real" only when royal is intended.
+- Do not misuse "amable" to mean sentimental attachment, appreciation of objects, affection for possessions, or reluctance to throw something away.
+- Dialogue must be complete and grammatical. Never leave an orphaned attribution such as ", exclamó." or ", dijo." with the speaker missing.
+- Use Spanish dialogue punctuation consistently and naturally; do not mix English quotation habits into the prose.
+- Avoid calques and dubbed-sounding reactions. If an expression sounds translated, replace it with what a parent in Spain would naturally say.
+- Keep names, pronouns, tense, gender and number consistent.
+- Silently proofread every page before returning it: no broken fragments, malformed dialogue, mistranslated idioms, odd semantic choices, or phrases a native parent would stop to correct aloud.
+""",
+            "fr": """FRENCH BEDTIME EDITORIAL GATE:
+- Write idiomatic native French as if the story were originally authored in French, not translated from English.
+- Preserve intended meaning rather than English wording; replace literal idioms, metaphors, reactions and sentence structures with natural French.
+- Use age-appropriate spoken/read-aloud syntax rather than formal, academic or over-literary prose.
+- Dialogue must be complete, grammatical and naturally punctuated in French.
+- Keep articles, gender, number, tense, pronouns and references consistent.
+- Respect natural French punctuation conventions rather than applying English punctuation mechanically.
+- Avoid explanatory calques and expressions that sound like dubbing or machine translation.
+- Silently proofread every page before returning it: no fragments, malformed dialogue, agreement errors, English-shaped syntax, or phrasing a native parent would stop to correct aloud.
+""",
+            "de": """GERMAN BEDTIME EDITORIAL GATE:
+- Write idiomatic native German as if the story were originally authored in German, not translated from English.
+- Use natural German word order, clause structure and verb placement; never preserve English syntax merely because the meaning is understandable.
+- Prefer age-appropriate everyday German over stiff compounds, formal wording or translated idioms.
+- Dialogue must be complete, grammatical and naturally punctuated.
+- Keep case, gender, number, tense, pronouns and references consistent.
+- Avoid English-shaped metaphors, reactions, adjective patterns and explanatory phrasing.
+- Silently proofread every page before returning it: no fragments, malformed dialogue, case/agreement problems, awkward word order, or phrasing a native parent would stop to correct aloud.
+""",
+            "it": """ITALIAN BEDTIME EDITORIAL GATE:
+- Write idiomatic native Italian as if the story were originally authored in Italian, not translated from English.
+- Preserve intended meaning rather than English wording; replace literal idioms, metaphors, reactions and sentence structures with natural Italian.
+- Use warm, age-appropriate read-aloud prose rather than stiff, formal or over-literary language.
+- Dialogue must be complete, grammatical and naturally punctuated.
+- Keep articles, gender, number, tense, pronouns and references consistent.
+- Avoid English-shaped syntax, unnecessary subject repetition and translated-sounding emotional phrases.
+- Silently proofread every page before returning it: no fragments, malformed dialogue, agreement errors, literal calques, or phrasing a native parent would stop to correct aloud.
+""",
+            "ja": """JAPANESE BEDTIME EDITORIAL GATE:
+- Write idiomatic native Japanese as if the story were originally authored in Japanese, not translated from English.
+- Use natural Japanese information order, particles, subject omission, reference and sentence endings appropriate to children's narration.
+- Preserve intended meaning rather than mirroring English syntax, idioms, metaphors or emotional labels.
+- Dialogue must sound naturally spoken by the characters and use consistent Japanese punctuation/quotation conventions.
+- Keep character references, politeness level and tense/aspect coherent.
+- Avoid over-explaining subjects or feelings simply because English would state them explicitly.
+- Silently proofread every page before returning it: no English-shaped syntax, unnatural literal translation, broken dialogue, reference ambiguity, or phrasing a native parent would stop to correct aloud.
+""",
+            "ar": """ARABIC BEDTIME EDITORIAL GATE:
+- Write idiomatic child-friendly Modern Standard Arabic as if the story were originally authored in Arabic, not translated from English.
+- Use natural Arabic word order and phrasing; preserve intended meaning rather than mirroring English syntax, idioms, metaphors or emotional labels.
+- Keep gender, number, definiteness, agreement, tense/aspect, pronouns and references consistent.
+- Dialogue must be complete, grammatical and naturally punctuated.
+- Prefer clear warm read-aloud Arabic over stiff textbook language or unnecessarily ornate literary wording.
+- Avoid literal calques and English-shaped explanatory sentences.
+- Silently proofread every page before returning it: no fragments, malformed dialogue, agreement errors, reference ambiguity, literal translation, or phrasing a native parent would stop to correct aloud.
+""",
+        }
+        return full_rules.get(language_code, compact_rules.get(language_code, ""))
 
     def _build_prompt(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
         language_name = SUPPORTED_LANGUAGES.get(request.storyLanguageCode, 'English')
@@ -5276,6 +5407,7 @@ JSON ONLY:
 LANGUAGE:
 - Write only in {blocks['language_name']}.
 - {self._first_page_language_style_block(language_code)}
+{self._bedtime_native_editorial_block(language_code, compact=True)}
 
 STORY FACTS:
 - Child: {request.childName}
@@ -5707,6 +5839,8 @@ JSON ONLY:
         """
         blocks = self._language_and_character_blocks(request, companion)
         age_rules = self._first_page_age_prompt_rules(request.age)
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
+        native_editorial_block = self._bedtime_native_editorial_block(language_code)
         existing_pages_text = "\n\n".join(
             f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or [])
         )
@@ -5785,6 +5919,7 @@ LANGUAGE:
 - Do not mix languages.
 - Use natural read-aloud bedtime language.
 - Sound like a relaxed, funny, warm children's storyteller who knows how to hold a child's attention, not an AI.
+{native_editorial_block}
 
 STORY FACTS:
 - Title: {title}
