@@ -919,7 +919,7 @@ class StoryService:
             f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
             f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
         )
-        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822 bedtime_page_budget_guard=20260823 fixed_canon_pages_pilot=20260828 fixed_canon_runtime_bypass_disabled=20260830 canon_progression_review=20260830 canon_early_completion_review=20260830 canon_three_page_completion_floor=20260830 canon_narrative_breadth_floor=20260830 frozen_canon_master_foundation=20260830")
+        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822 bedtime_page_budget_guard=20260823 fixed_canon_pages_pilot=20260828 fixed_canon_runtime_bypass_disabled=20260830 canon_progression_review=20260830 canon_early_completion_review=20260830 canon_three_page_completion_floor=20260830 canon_narrative_breadth_floor=20260830 frozen_canon_master_foundation=20260830 bedtime_age_0_1_2_calibration=20260902 spanish_bedtime_dialogue_guard=20260902")
 
     def _normalise_story_world_mode(self, request: GenerateStoryRequest) -> str:
         raw = str(getattr(request, 'storyWorldMode', '') or '').strip().lower()
@@ -2697,6 +2697,76 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
         }
         return roles.get(page_number, "")
 
+    def _very_young_bedtime_page_role(self, age: Any, page_number: int) -> str:
+        """Simplified standard-Bedtime progression for ages 0, 1 and 2 only.
+
+        Keeps the seven-page architecture while removing older-child midpoint,
+        setback, clue and climax requirements that conflict with toddler
+        comprehension. Ages 3+ keep the existing page-role engine unchanged.
+        """
+        child_age = self._safe_child_age(age)
+        if child_age >= 3:
+            return self._page_narrative_role(page_number)
+
+        if child_age == 0:
+            roles = {
+                2: "AGE 0 PAGE 2: Repeat the familiar sound, object or action from Page 1 with one tiny variation.",
+                3: "AGE 0 PAGE 3: Add one familiar animal, sound or movement. Keep the same place.",
+                4: "AGE 0 PAGE 4: Repeat the favourite sound or action. No problem or decision.",
+                5: "AGE 0 PAGE 5: Move gently toward comfort: cuddle, blanket, quiet animal, soft light or familiar bedtime action.",
+                6: "AGE 0 PAGE 6: Slow the rhythm. Repeat one comforting word, sound or action already used.",
+                7: "AGE 0 PAGE 7: Calm bedtime landing. One familiar callback, one safe image, and a simple night-night ending.",
+            }
+        elif child_age == 1:
+            roles = {
+                2: "AGE 1 PAGE 2: Repeat the Page 1 action with one simple animal, sound or movement.",
+                3: "AGE 1 PAGE 3: Let Emily and the helper do one tiny action together. Keep cause and effect immediate.",
+                4: "AGE 1 PAGE 4: Add one tiny obstacle such as something being out of reach, sleepy, stuck or missing nearby. No reasoning chain.",
+                5: "AGE 1 PAGE 5: Try one obvious action. Use repetition or a sound the child can anticipate.",
+                6: "AGE 1 PAGE 6: Solve the tiny problem directly through one concrete action.",
+                7: "AGE 1 PAGE 7: Share, cuddle, wave, rest or go home. Repeat one earlier sound/action and settle for sleep.",
+            }
+        else:
+            roles = {
+                2: "AGE 2 PAGE 2: Deepen the one simple goal with one helper or repeated action.",
+                3: "AGE 2 PAGE 3: Show one obvious small problem. Keep one place and one main goal.",
+                4: "AGE 2 PAGE 4: Try one simple idea. If it does not work, show that immediately and gently.",
+                5: "AGE 2 PAGE 5: Try one second simple action using something already introduced.",
+                6: "AGE 2 PAGE 6: Solve the tiny problem clearly and concretely.",
+                7: "AGE 2 PAGE 7: Enjoy the result, repeat one earlier detail, and settle into a calm ending.",
+            }
+        return roles.get(page_number, "")
+
+    def _very_young_bedtime_override(self, age: Any) -> str:
+        """Late prompt override for standard Bedtime ages 0-2.
+
+        It intentionally wins over generic older-child storycraft requirements
+        without touching Story Worlds, Canon, Folk Adventures or reader timing.
+        """
+        child_age = self._safe_child_age(age)
+        if child_age == 0:
+            return """AGE 0 OVERRIDE — HIGHEST PRIORITY FOR THIS PAGE:
+- This is a baby listening experience, not a conventional adventure.
+- Use real familiar words plus rhythm/sounds; never sounds alone.
+- Tiny phrases only. One place. One comforting action.
+- No clue, mystery, plan, helper chain, setback, decision, climax, abstract moral or problem-solving.
+- Repetition is desirable when soothing and easy to anticipate.
+- Prefer name + action + sound: "Emily taps. Tap, tap." """
+        if child_age == 1:
+            return """AGE 1 OVERRIDE — HIGHEST PRIORITY FOR THIS PAGE:
+- Use only very simple words and visible actions a one-year-old can hear and picture.
+- One place, one tiny action, at most one helper/animal at a time.
+- No multi-step reasoning, inferred motives, pretend explanations, clue chains, plans, choices, complex magic or abstract moral.
+- Repetition, animal sounds and movement sounds are desirable.
+- If a sentence contains more than one idea, split it or simplify it."""
+        if child_age == 2:
+            return """AGE 2 OVERRIDE — HIGHEST PRIORITY FOR THIS PAGE:
+- Tell one very simple picture-book story.
+- One main goal, one helper, one tiny obstacle and obvious cause/effect.
+- Use short concrete sentences, repetition, simple dialogue and visible actions.
+- No layered mystery, several clues, complex choice, subplot, abstract lesson or multi-step strategy."""
+        return ""
+
     def _page_tension_rules(self, page_number: int) -> str:
         """Control narrative escalation without changing the selected plot."""
         rules = {
@@ -3556,10 +3626,18 @@ OUTPUT RULES:
         child_age = self._safe_child_age(age)
         language = str(language_code or "en").strip().lower().replace("_", "-").split("-", 1)[0]
 
-        if child_age <= 2:
-            first = (35, 60, 70)
-            middle = (45, 75, 85)
-            final = (45, 80, 90)
+        if child_age == 0:
+            first = (12, 24, 32)
+            middle = (15, 28, 36)
+            final = (15, 30, 38)
+        elif child_age == 1:
+            first = (18, 32, 42)
+            middle = (22, 38, 48)
+            final = (22, 42, 52)
+        elif child_age == 2:
+            first = (25, 42, 55)
+            middle = (30, 50, 62)
+            final = (30, 55, 68)
         elif child_age <= 4:
             first = (50, 80, 90)
             middle = (60, 95, 105)
@@ -3622,12 +3700,44 @@ OUTPUT RULES:
                     )
                     continue
 
-            # Keep the legacy floor for standard/Canon stories. Living World
-            # has a stronger age-aware floor so synopsis-sized pages cannot pass
-            # while still allowing natural variation below the preferred target.
+            # Keep the legacy floor for Canon. Standard Bedtime uses an
+            # age-aware floor so genuine toddler pages are not rejected for being
+            # appropriately short. Living World retains its existing age floors.
             base_language = str(language or "en").strip().lower().replace("_", "-").split("-", 1)[0]
+
+            # Surgical Spanish standard-Bedtime dialogue integrity guard.
+            # Reject malformed attribution rather than rewriting generated prose.
+            if (
+                request is not None
+                and base_language == "es"
+                and not self._is_canon_request(request)
+                and not self._is_folk_adventure_request(request)
+                and re.search(r"»\s+,", text)
+            ):
+                page_number = (start_page_number or 2) + index - 1
+                print(
+                    f"[PERF] spanish_bedtime_dialogue_attribution_rejected "
+                    f"page={page_number} index={index} "
+                    f"reason=space_or_break_before_attribution_comma"
+                )
+                continue
+
             min_words = 80 if base_language == "ja" else 50
             min_sentences = 3
+            if (
+                request is not None
+                and not self._is_canon_request(request)
+                and not self._is_folk_adventure_request(request)
+            ):
+                child_age = self._safe_child_age(request.age)
+                if base_language != "ja":
+                    if child_age == 0:
+                        min_words, min_sentences = 10, 2
+                    elif child_age == 1:
+                        min_words, min_sentences = 15, 3
+                    elif child_age == 2:
+                        min_words, min_sentences = 20, 3
+
             if request is not None and self._is_folk_adventure_request(request):
                 child_age = self._safe_child_age(request.age)
                 if child_age <= 4:
@@ -4783,14 +4893,34 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
         rules still apply to the background continuation/full-story prompts.
         """
         child_age = self._safe_child_age(age)
-        if child_age <= 2:
-            return """AGE-SPECIFIC PAGE 1 RULES — 0-2:
-- Write for a baby or toddler being read to.
-- Use very short, soothing sentences of about 3-8 words.
-- Use familiar concrete words, soft sounds, bedtime objects, animals, colours, cuddles, and simple feelings.
-- Use one familiar place, one tiny discovery, and at most one helper.
-- Do not use mysteries, clues, choices, busy worlds, abstract lessons, or complex magic.
-- The page should feel calm, sensory, repetitive, and easy to follow."""
+        if child_age == 0:
+            return """AGE-SPECIFIC PAGE 1 RULES — AGE 0:
+- Write for a baby listening to rhythm and familiar sounds, not for a child following a conventional plot.
+- Use tiny spoken phrases, usually 1-5 words.
+- Use familiar concrete words: name, mum/dad/family when provided, bed, moon, star, bear, dog, cat, bird, ball, cup, blanket, up, down, hello, night-night.
+- Use repeated sound or movement patterns such as pat-pat, tap-tap, hop-hop, tweet-tweet, hush-hush.
+- Keep one familiar place and one comforting sensory action.
+- No problem-solving, mystery, clue, choice, quest, explanation, or abstract lesson.
+- Real words must remain present; do not make the page sound-effects only.
+- The page should feel like a personalised nursery read-aloud."""
+        if child_age == 1:
+            return """AGE-SPECIFIC PAGE 1 RULES — AGE 1:
+- Write for a one-year-old listening with an adult.
+- Use very short concrete sentences, usually 2-6 words.
+- Use familiar nouns, simple verbs, repetition, animal sounds, movement sounds, colours, cuddles and simple actions.
+- Keep one place, one tiny action, and at most one helper or animal.
+- No reasoning chain, mystery, clue, choice, quest, multi-step plan, abstract feeling, or explanation.
+- Prefer repeatable lines such as "Hop, hop, hop!" or "Hello, bunny!"
+- The page should be easy to understand from sound and action alone."""
+        if child_age == 2:
+            return """AGE-SPECIFIC PAGE 1 RULES — AGE 2:
+- Write a very simple toddler story with one tiny beginning-to-end idea.
+- Use short concrete sentences, usually 3-8 words.
+- Use familiar words, repetition, simple dialogue, sounds, colours and visible actions.
+- One place, one tiny problem or wish, and at most one helper.
+- Cause and effect must be immediate and obvious.
+- No mystery, layered clue, complex choice, multi-step plan, abstract lesson, or busy magical world.
+- The page should feel like a simple picture-book read-aloud."""
         if child_age <= 5:
             return """AGE-SPECIFIC PAGE 1 RULES — 3-5:
 - Use clear early-childhood bedtime language.
@@ -5417,9 +5547,25 @@ JSON ONLY:
             request.storyLanguageCode,
         )
 
-        if child_age <= 2:
-            age_contract = "Use baby/toddler read-aloud language: very short sentences, familiar words, one place, one tiny event."
-            max_chars = "420"
+        if child_age == 0:
+            age_contract = (
+                "AGE 0 OVERRIDES the generic hook rules above: this is a baby listening/rhythm page, not a conventional plot. "
+                "Use real familiar words plus repeated sounds, 1-5 word phrases, one place and one comforting action. "
+                "No mystery, problem-solving, plan, choice, clue, quest or abstract moral."
+            )
+            max_chars = "240"
+        elif child_age == 1:
+            age_contract = (
+                "AGE 1 OVERRIDES the generic hook rules above: use 2-6 word concrete sentences, repetition, animal/movement sounds, "
+                "one place and one tiny action. At most one helper/animal. No reasoning chain, mystery, clue, plan, choice, quest or abstract explanation."
+            )
+            max_chars = "320"
+        elif child_age == 2:
+            age_contract = (
+                "AGE 2 OVERRIDES the generic hook rules above: tell one very simple picture-book idea with 3-8 word sentences, "
+                "one place, one tiny problem or wish, at most one helper, obvious cause/effect and no layered mystery or multi-step plan."
+            )
+            max_chars = "380"
         elif child_age <= 5:
             age_contract = "Use preschool bedtime language: short clear sentences, one place, one small funny or curious problem, obvious cause and effect."
             max_chars = "520"
@@ -5477,7 +5623,10 @@ STYLE LIMITS:
 - Target {first_page_budget['target_min']}-{first_page_budget['target_max']} {first_page_budget['unit_label']} for Page 1.
 - Hard maximum: {first_page_budget['hard_max'] if first_page_budget['hard_max'] is not None else max_chars} {first_page_budget['unit_label'] if first_page_budget['hard_max'] is not None else 'characters'}.
 - Page 1 is an opening page, not a mini-chapter. Establish the hook economically and leave the next story beat for Page 2.
-- 4-6 read-aloud sentences.
+- Age 0: 2-5 tiny read-aloud sentences.
+- Age 1: 3-6 very short read-aloud sentences.
+- Age 2: 3-6 short read-aloud sentences.
+- Age 3+: 4-6 read-aloud sentences.
 - Use simple words and concrete actions.
 - Make it sound like a parent reading a picture book, not an adult fantasy novel.
 - Harmless silliness is welcome if it fits the story.
@@ -5888,8 +6037,13 @@ JSON ONLY:
             next_page_number,
             request.storyLanguageCode,
         )
-        page_role = self._page_narrative_role(next_page_number)
-        page_tension = self._page_tension_rules(next_page_number)
+        page_role = self._very_young_bedtime_page_role(request.age, next_page_number)
+        page_tension = (
+            ""
+            if self._safe_child_age(request.age) <= 2
+            else self._page_tension_rules(next_page_number)
+        )
+        very_young_override = self._very_young_bedtime_override(request.age)
         includes_final_page = next_page_number <= intended_final_page <= final_page_number
         if includes_final_page:
             ending_job = f"""FINAL PAGE MODE — THIS STORY ENDS NOW:
@@ -6015,6 +6169,8 @@ CONTINUATION JOB:
 ENDING JOB FOR THIS BATCH:
 {ending_job}
 
+{very_young_override}
+
 STRICT LANGUAGE CLEANUP:
 - Avoid overusing: tiny, little, small, soft, gentle, golden, silver, shimmering, glowing, sparkling, moonlit, sleepy, softly, slowly.
 - Do not describe the child as little, small, tiny, young, or physically childlike.
@@ -6030,8 +6186,10 @@ PAGE LENGTH:
 - Keep the seven pages reasonably balanced. If this page approaches its maximum, remove repetition or unnecessary description before removing plot progression, character development, humour, complication, discovery, or emotional meaning.
 - Do not shrink a developing scene into a thin summary merely to stay concise. Let meaningful action and consequences unfold naturally within the page budget.
 - Never return a single-sentence page.
-- Each page should have exactly 2 short paragraphs.
-- Each page should contain about 5-7 read-aloud sentences.
+- For Age 0: use 2-5 tiny read-aloud sentences and 1-2 short paragraphs.
+- For Age 1: use 3-6 very short read-aloud sentences and 1-2 short paragraphs.
+- For Age 2: use 3-6 short read-aloud sentences and 1-2 short paragraphs.
+- For Age 3+: keep exactly 2 short paragraphs and about 5-7 read-aloud sentences.
 - Final page may be slightly shorter if complete, satisfying, and naturally settled.
 
 COMPANION:
@@ -6482,6 +6640,25 @@ PAGE 1 BUDGET REPAIR:
                 if not standard_pages:
                     last_error = ValueError("standard_page_1_missing")
                     continue
+
+                base_language = (
+                    str(request.storyLanguageCode or "en")
+                    .strip()
+                    .lower()
+                    .replace("_", "-")
+                    .split("-", 1)[0]
+                )
+                if base_language == "es" and re.search(r"»\s+,", standard_pages[0]):
+                    last_error = ValueError(
+                        "spanish_bedtime_page1_dialogue_attribution_invalid"
+                    )
+                    print(
+                        f"[PERF] spanish_bedtime_dialogue_attribution_rejected "
+                        f"page=1 attempt={attempt} "
+                        f"reason=space_or_break_before_attribution_comma"
+                    )
+                    continue
+
                 budget = self._standard_bedtime_page_budget(
                     request.age,
                     1,
