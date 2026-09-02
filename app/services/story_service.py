@@ -3915,16 +3915,33 @@ OUTPUT RULES:
         page: str,
         existing_pages: list[str],
         language_code: Optional[str] = "en",
+        request: Optional[GenerateStoryRequest] = None,
     ) -> tuple[bool, str]:
         """Reject obvious mid-story, repeated, or open-ended final pages.
 
         Japanese does not delimit words with spaces, so the historical 45-word
         check must use the existing language-safe story-unit counter instead.
+        Standard Bedtime ages 0-2 use their existing age-aware final-page floor
+        so toddler endings are not rejected for being appropriately short.
         """
         body = self._ending_text_without_marker(page)
         language = str(language_code or "en").strip().lower().replace("_", "-").split("-", 1)[0]
         content_units = self._story_text_units(body, language)
         minimum_units = 80 if language == "ja" else 45
+        if (
+            request is not None
+            and language != "ja"
+            and not self._is_canon_request(request)
+            and not self._is_folk_adventure_request(request)
+            and self._safe_child_age(request.age) <= 2
+        ):
+            # Ages 0-2 already use lower continuation validation floors because
+            # their pages are intentionally very short. The final-page validator
+            # must use the same acceptance floor rather than the writing target
+            # minimum, otherwise a valid toddler ending can be rejected solely
+            # for being shorter than the preferred target range.
+            child_age = self._safe_child_age(request.age)
+            minimum_units = 10 if child_age == 0 else 15 if child_age == 1 else 20
         if content_units < minimum_units:
             return False, "final_page_too_short"
         if self._count_story_sentences(body) < 3:
@@ -4282,6 +4299,20 @@ REVIEW RULES:
         """Review whether Page 7 genuinely completes the story."""
         if not self.model:
             return True, "review_skipped_no_model", [], {}
+
+        # Standard Bedtime ages 0-2 use a deliberately tiny, concrete story
+        # structure. The general semantic ending reviewer evaluates richer
+        # seven-page storycraft (opening promise, earned callback, causal moral,
+        # etc.) and can reject an otherwise correct toddler landing for not
+        # behaving like an older-child story. Keep deterministic final-page
+        # validation and the age-specific Page-7 prompt, but do not apply the
+        # older semantic reviewer to these very-young standard Bedtime stories.
+        if (
+            not self._is_canon_request(request)
+            and not self._is_folk_adventure_request(request)
+            and self._safe_child_age(request.age) <= 2
+        ):
+            return True, "very_young_bedtime_semantic_review_not_applicable", [], {}
 
         moral_required = self._moral_requested(request) and not self._is_folk_adventure_request(request)
         story_text = "\n\n".join(
@@ -4704,7 +4735,12 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
 
             if is_final_page_batch:
                 is_canon = self._is_canon_request(request)
-                valid, reason = self._validate_final_page(sanitized[0], working_pages, request.storyLanguageCode)
+                valid, reason = self._validate_final_page(
+                    sanitized[0],
+                    working_pages,
+                    request.storyLanguageCode,
+                    request=request,
+                )
                 repetition_only = reason.startswith("final_page_repeats_previous_content_")
                 if not valid and not (is_canon and repetition_only):
                     last_error = reason
