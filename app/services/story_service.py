@@ -4557,7 +4557,17 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                     f"next_page={next_page_number} count={batch_count} "
                     f"attempt={generation_attempt}: {parse_exc}"
                 )
-                batch_pages = self._salvage_pages_from_response_text(response_text, batch_count)
+                salvaged_pages = self._salvage_pages_from_response_text(response_text, batch_count)
+                # Salvaged continuation pages must pass the same validation as
+                # normally parsed pages before they can be published. This is
+                # especially important for the Spanish standard-Bedtime
+                # dialogue-attribution guard in _valid_generated_pages().
+                batch_pages = self._valid_generated_pages(
+                    salvaged_pages,
+                    batch_count,
+                    request=request,
+                    start_page_number=next_page_number,
+                )
 
             if len(batch_pages) < batch_count:
                 last_error = (
