@@ -4,7 +4,7 @@ import re
 from typing import List
 
 
-_SENTENCE_ENDINGS = ('.', '!', '?', '."', '!"', '?"', ".'", "!'", "?'", '.”', '!”', '?”', ".’", "!’", "?’")
+_SENTENCE_ENDINGS = ('.', '!', '?', '。', '！', '？', '؟', '."', '!"', '?"', '。」', '！」', '？」', '؟"', ".'", "!'", "?'", '.”', '!”', '?”', ".’", "!’", "?’")
 _FRAGMENT_STARTERS = {
     "and",
     "but",
@@ -130,7 +130,7 @@ def postprocess_story_pages(pages: List[str], source: str = "story") -> List[str
         return pages
     cleaned_pages = [clean_story_text(page) for page in pages]
     final_page = cleaned_pages[-1].strip()
-    if final_page and not final_page.endswith(('.', '!', '?')):
+    if final_page and not final_page.endswith(_SENTENCE_ENDINGS):
         final_page += '.'
     cleaned_pages[-1] = final_page
 

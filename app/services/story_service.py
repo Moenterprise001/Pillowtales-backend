@@ -3614,6 +3614,51 @@ OUTPUT RULES:
             if (cleaned := self._sanitize_generated_page_text(page))
         ]
 
+    def _sanitize_standard_bedtime_language_page(
+        self,
+        request: Optional[GenerateStoryRequest],
+        text: Any,
+    ) -> str:
+        """Apply language-only cleanup to standard Bedtime Story prose.
+
+        This is deliberately excluded from Canon and Folk Adventure so Story
+        Worlds remain untouched. Japanese generation can occasionally return
+        duplicated sentence-ending full stops (``。。``); collapsing only that
+        exact punctuation run preserves the wording, page structure, story
+        length, narration text, and Page-1-first flow.
+        """
+        cleaned = self._sanitize_generated_page_text(text)
+        if not cleaned or request is None:
+            return cleaned
+
+        base_language = (
+            str(request.storyLanguageCode or "en")
+            .strip()
+            .lower()
+            .replace("_", "-")
+            .split("-", 1)[0]
+        )
+        if (
+            base_language == "ja"
+            and not self._is_canon_request(request)
+            and not self._is_folk_adventure_request(request)
+        ):
+            cleaned = re.sub(r"。{2,}", "。", cleaned)
+        return cleaned
+
+    def _sanitize_standard_bedtime_language_pages(
+        self,
+        request: Optional[GenerateStoryRequest],
+        pages: Any,
+    ) -> list[str]:
+        if not isinstance(pages, list):
+            return []
+        return [
+            cleaned
+            for page in pages
+            if (cleaned := self._sanitize_standard_bedtime_language_page(request, page))
+        ]
+
     def _standard_bedtime_page_budget(self, age: Any, page_number: int, language_code: Optional[str] = "en") -> dict:
         """Return age-aware page-size guidance for standard Bedtime Stories only.
 
@@ -3638,28 +3683,36 @@ OUTPUT RULES:
             first = (25, 42, 55)
             middle = (30, 50, 62)
             final = (30, 55, 68)
-        elif child_age <= 4:
-            first = (50, 80, 90)
-            middle = (60, 95, 105)
-            final = (60, 100, 110)
-        elif child_age <= 6:
-            first = (65, 95, 105)
-            middle = (80, 120, 130)
-            final = (85, 125, 135)
-        elif child_age <= 8:
-            first = (90, 120, 125)
-            middle = (105, 155, 155)
-            final = (110, 165, 165)
-        elif child_age <= 10:
-            first = (100, 135, 145)
-            middle = (120, 170, 180)
-            final = (125, 180, 190)
         else:
-            first = (110, 145, 155)
-            middle = (130, 185, 195)
-            final = (135, 195, 205)
+            # Ages 3-12: reading age changes HOW the story is written, not how
+            # much story the child receives. Keep a substantial seven-page
+            # bedtime-story experience while the age readability/vocabulary
+            # blocks continue to control sentence length, vocabulary and
+            # cognitive complexity.
+            #
+            # Page 1 remains slightly lighter to protect Page-1-first latency.
+            # Pages 2-7 return to the production story contract's established
+            # 115-155-word narrative depth.
+            first = (100, 130, 145)
+            middle = (115, 155, 170)
+            final = (115, 155, 170)
 
         target_min, target_max, hard_max = first if page_number <= 1 else (final if page_number >= 7 else middle)
+
+        if language == "ja" and child_age >= 3:
+            # Japanese does not have a reliable space-delimited word count.
+            # Do not reuse English word numbers as literal Japanese character
+            # targets: that was materially shortening Japanese stories.
+            # The prompt will express the target as English-equivalent narrative
+            # substance/listening duration instead of imposing a guessed
+            # character conversion.
+            return {
+                "target_min": target_min,
+                "target_max": target_max,
+                "hard_max": None,
+                "unit_label": "English-equivalent words of narrative substance",
+            }
+
         return {
             "target_min": target_min,
             "target_max": target_max,
@@ -3683,6 +3736,8 @@ OUTPUT RULES:
         if not isinstance(pages, list):
             return []
         processed = self._sanitize_generated_pages(postprocess_story_pages(pages))[:expected_count]
+        if request is not None:
+            processed = self._sanitize_standard_bedtime_language_pages(request, processed)[:expected_count]
         valid_pages: list[str] = []
         for index, page in enumerate(processed, start=1):
             text = str(page or "").strip()
@@ -3737,6 +3792,11 @@ OUTPUT RULES:
                         min_words, min_sentences = 15, 3
                     elif child_age == 2:
                         min_words, min_sentences = 20, 3
+                    else:
+                        # Ages 3-12 should not pass as thin caption-like pages.
+                        # Keep this below the 115-word writing target so normal
+                        # model variance does not cause unnecessary retries.
+                        min_words, min_sentences = 90, 4
 
             if request is not None and self._is_folk_adventure_request(request):
                 child_age = self._safe_child_age(request.age)
@@ -4815,12 +4875,27 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                     critical_pass = bool(check_results) and all(
                         check_results.get(key) is True for key in critical_checks
                     )
-                    if generation_attempt < max_attempts or not critical_pass:
+                    # Standard Bedtime completion guarantee:
+                    # after four semantic-repair attempts, the fifth attempt is
+                    # already generated with COMPLETION-FIRST instructions and
+                    # has passed all deterministic final-page validation above.
+                    # A model-based semantic reviewer must not permanently strand
+                    # an otherwise usable Bedtime Story at 6/7. Keep Canon strict.
+                    if generation_attempt < max_attempts:
                         continue
-                    print(
-                        f"[PERF] final_page_completion_validated_with_secondary_warnings "
-                        f"story_title={title!r} checks={check_results}"
-                    )
+                    if self._is_canon_request(request) and not critical_pass:
+                        continue
+                    if self._is_canon_request(request):
+                        print(
+                            f"[PERF] final_page_completion_validated_with_secondary_warnings "
+                            f"story_title={title!r} checks={check_results}"
+                        )
+                    else:
+                        print(
+                            f"[PERF] standard_bedtime_final_page_completion_fallback "
+                            f"story_title={title!r} reason={semantic_reason!r} "
+                            f"checks={check_results}"
+                        )
 
                 if is_canon and repetition_only:
                     # Even if the full Canon story is semantically complete, do
@@ -6683,9 +6758,15 @@ PAGE 1 BUDGET REPAIR:
                 standard_pages = self._sanitize_generated_pages(
                     postprocess_story_pages(story_data.get("pages", []))
                 )[:1]
+                standard_pages = self._sanitize_standard_bedtime_language_pages(
+                    request, standard_pages
+                )[:1]
                 if not standard_pages:
                     last_error = ValueError("standard_page_1_missing")
                     continue
+                # Persist the already-sanitized standard Bedtime Page 1 rather
+                # than returning the raw model page and losing language cleanup.
+                story_data["pages"] = standard_pages
 
                 base_language = (
                     str(request.storyLanguageCode or "en")
