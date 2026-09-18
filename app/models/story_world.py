@@ -88,6 +88,24 @@ class StoryWorldCanonSeries(BaseModel):
     artwork: StoryWorldArtwork
 
 
+class StoryWorldCanonProvenanceDisplay(BaseModel):
+    """Customer-facing provenance metadata for a Canon folklore story."""
+    tradition: Optional[str] = None
+    originalTitle: Optional[str] = None
+    authorship: Optional[str] = None
+    originPeriod: Optional[str] = None
+    originPlace: Optional[str] = None
+    sourceTradition: Optional[str] = None
+    earliestKnownSource: Optional[str] = None
+    notableSource: Optional[str] = None
+    notableSourceDate: Optional[str] = None
+
+
+class StoryWorldCanonProvenance(BaseModel):
+    """Public provenance wrapper. Internal verification metadata is never exposed."""
+    display: StoryWorldCanonProvenanceDisplay
+
+
 class StoryWorldCanonStorySource(BaseModel):
     """Public original folklore story available for a protected Canon retelling."""
     slug: str
@@ -96,6 +114,7 @@ class StoryWorldCanonStorySource(BaseModel):
     ageRange: StoryWorldAgeRange
     artwork: StoryWorldArtwork
     coreValues: List[str] = Field(default_factory=list)
+    provenance: Optional[StoryWorldCanonProvenance] = None
     country: Optional[StoryWorldCountry] = None
 
     collection: Optional[StoryWorldCanonCollection] = None

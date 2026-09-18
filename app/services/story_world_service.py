@@ -14,6 +14,8 @@ from app.models.story_world import (
     StoryWorldCanonCollection,
     StoryWorldCanonCountry,
     StoryWorldCanonSeries,
+    StoryWorldCanonProvenance,
+    StoryWorldCanonProvenanceDisplay,
     StoryWorldCanonStoryListResponse,
     StoryWorldCanonStorySource,
     StoryWorldAvailability,
@@ -182,6 +184,25 @@ class StoryWorldService:
                 else None
             )
 
+            provenance_model = None
+            provenance = row.get('provenance') or {}
+            if isinstance(provenance, dict):
+                provenance_display = provenance.get('display') or {}
+                if isinstance(provenance_display, dict) and provenance_display:
+                    provenance_model = StoryWorldCanonProvenance(
+                        display=StoryWorldCanonProvenanceDisplay(
+                            tradition=provenance_display.get('tradition'),
+                            originalTitle=provenance_display.get('original_title'),
+                            authorship=provenance_display.get('authorship'),
+                            originPeriod=provenance_display.get('origin_period'),
+                            originPlace=provenance_display.get('origin_place'),
+                            sourceTradition=provenance_display.get('source_tradition'),
+                            earliestKnownSource=provenance_display.get('earliest_known_source'),
+                            notableSource=provenance_display.get('notable_source'),
+                            notableSourceDate=provenance_display.get('notable_source_date'),
+                        )
+                    )
+
             stories.append(
                 StoryWorldCanonStorySource(
                     slug=str(row['slug']),
@@ -194,6 +215,7 @@ class StoryWorldService:
                         iconUrl=artwork_data.get('icon_url'),
                     ),
                     coreValues=[str(item) for item in (row.get('core_values') or [])],
+                    provenance=provenance_model,
                     country=country_model,
                     collection=collection_model,
                     series=series_model,

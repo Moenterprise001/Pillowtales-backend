@@ -919,7 +919,7 @@ class StoryService:
             f"settings_key_loaded={bool(getattr(settings, 'gemini_api_key', ''))} "
             f"env_key_loaded={bool(os.getenv('GEMINI_API_KEY'))}"
         )
-        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822 bedtime_page_budget_guard=20260823 fixed_canon_pages_pilot=20260828 fixed_canon_runtime_bypass_disabled=20260830 canon_progression_review=20260830 canon_early_completion_review=20260830 canon_three_page_completion_floor=20260830 canon_narrative_breadth_floor=20260830 frozen_canon_master_foundation=20260830 bedtime_age_0_1_2_calibration=20260902 spanish_bedtime_dialogue_guard=20260902")
+        print("[BUILD] StoryService canon_release_hardened continuation_recovery=20260814 multilingual_canon_validation=20260814 multilingual_canon_scene_fallback=20260814 multilingual_final_page_validation=20260814 canon_instruction_leak_guard=20260816 bedtime_quality_restore=20260816 canon_event_budget=20260816 canon_oxford_storytelling=20260816 canon_age_safety_law=20260816 natural_name_pronouns=20260816 page_boundary_dedupe=20260817 bedtime_elite_quality=20260819 plain_prose_guard=20260819 bedtime_author_voice_98=20260819 hidden_child_age=20260819 canon_page1_soft_pacing=20260820 canon_first_event_fidelity=20260820 canon_dynamic_pacing_cost_guard=20260820 narrative_progression_repetition=20260821 canon_full_event_completeness=20260821 natural_read_aloud_cadence=20260821 canon_fionn_name_cadence=20260822 canon_authorial_voice=20260822 bedtime_page_budget_guard=20260823 fixed_canon_pages_pilot=20260828 fixed_canon_runtime_bypass_disabled=20260830 canon_progression_review=20260830 canon_early_completion_review=20260830 canon_three_page_completion_floor=20260830 canon_narrative_breadth_floor=20260830 frozen_canon_master_foundation=20260830 story_world_canon_fail_closed=20260915 bedtime_age_0_1_2_calibration=20260902 spanish_bedtime_dialogue_guard=20260902")
 
     def _normalise_story_world_mode(self, request: GenerateStoryRequest) -> str:
         raw = str(getattr(request, 'storyWorldMode', '') or '').strip().lower()
@@ -6843,6 +6843,16 @@ PAGE 1 BUDGET REPAIR:
                 'first_page_generation_source': 'fixed_canon_db',
             }
 
+        # Story Worlds Canon is frozen editorial content. If the selected
+        # published story/language has no stored approved pages, fail closed.
+        # Never reconstruct, condense, summarise, or continue folklore with AI
+        # at runtime. Standard Bedtime Stories are unaffected.
+        if self._is_canon_request(request):
+            raise HTTPException(
+                status_code=503,
+                detail='This Story World story is not available because its approved frozen master is missing.',
+            )
+
         expected_pages = self._intended_page_count(request)
 
         if not self.model:
@@ -6991,7 +7001,26 @@ PAGE 1 BUDGET REPAIR:
             )
             return
 
-        is_dynamic_canon = self._is_canon_request(request)
+        # Canon Story Worlds must never fall through to Gemini continuation.
+        # Missing fixed production data is an editorial/release failure, not a
+        # prompt-generation opportunity. Mark the persisted story failed and
+        # stop. Bedtime Stories continue through the existing background path.
+        if self._is_canon_request(request):
+            self.story_repo.update(
+                story_id,
+                user_id,
+                {
+                    'generation_status': 'failed',
+                    'generation_error': 'missing_approved_frozen_canon_master',
+                },
+            )
+            print(
+                '[STORY_WORLD_CANON_FAIL_CLOSED] '
+                f'story_id={story_id} reason=missing_approved_frozen_canon_master'
+            )
+            return
+
+        is_dynamic_canon = False
         try:
             if not self.model:
                 if self._is_canon_request(request):
