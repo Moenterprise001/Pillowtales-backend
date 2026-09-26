@@ -1004,6 +1004,7 @@ class StoryService:
             language_code=request.storyLanguageCode,
             age=self._safe_child_age(request.age),
             mode=mode,
+            audience=self._story_world_audience(request),
         )
         if not context or not context.get('prompt_pack'):
             raise HTTPException(status_code=404, detail='Published Story World prompt pack not found')
@@ -1142,11 +1143,26 @@ class StoryService:
             return None
 
         anchor = context.get('anchor') or {}
-        translation = anchor.get('_story_translation')
-        if not isinstance(translation, dict):
-            return None
+        generation_rules = anchor.get('generation_rules') or {}
+        governed_frozen_master = (
+            isinstance(generation_rules, dict)
+            and generation_rules.get('canon_frozen') is True
+            and generation_rules.get('master_status') == 'approved_frozen_master'
+            and generation_rules.get('runtime_story_generation_allowed') is False
+        )
 
-        stored_pages = translation.get('pages')
+        if governed_frozen_master:
+            adaptation = anchor.get('_story_adaptation')
+            if anchor.get('_story_adaptation_match_count') != 1 or not isinstance(adaptation, dict):
+                return None
+            delivery = adaptation
+        else:
+            translation = anchor.get('_story_translation')
+            if not isinstance(translation, dict):
+                return None
+            delivery = translation
+
+        stored_pages = delivery.get('pages')
         if not isinstance(stored_pages, list) or not stored_pages:
             return None
 
@@ -1165,8 +1181,8 @@ class StoryService:
             'title': self._canon_display_title(anchor),
             'pages': pages,
             'anchor_slug': str(anchor.get('slug') or '').strip().lower(),
-            'version': translation.get('version'),
-            'language_code': translation.get('language_code'),
+            'version': delivery.get('version'),
+            'language_code': delivery.get('language_code'),
         }
 
     def _canon_contract(self, request: GenerateStoryRequest) -> dict:

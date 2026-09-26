@@ -390,7 +390,7 @@ class StoryWorldRepository:
             eligible.append(row)
         return world, eligible
 
-    def get_generation_context(self, slug: str, language_code: str, age: int, mode: str) -> Optional[dict]:
+    def get_generation_context(self, slug: str, language_code: str, age: int, mode: str, audience: str = 'child') -> Optional[dict]:
         """Resolve backend-only Story World generation data.
 
         Returns published world metadata plus the active prompt pack, Story DNA,
@@ -519,6 +519,36 @@ class StoryWorldRepository:
                     by_language.get(language)
                     or by_language.get('en')
                 )
+
+                generation_rules = row.get('generation_rules') or {}
+                approved_frozen_master = (
+                    isinstance(generation_rules, dict)
+                    and generation_rules.get('canon_frozen') is True
+                    and generation_rules.get('master_status') == 'approved_frozen_master'
+                    and generation_rules.get('runtime_story_generation_allowed') is False
+                )
+                if approved_frozen_master and story_id:
+                    adaptation_query = (
+                        self.client.table('story_world_canon_story_adaptations')
+                        .select('*')
+                        .eq('canon_story_id', story_id)
+                        .eq('language_code', language)
+                        .eq('audience', audience)
+                        .eq('published', True)
+                    )
+                    if audience == 'child':
+                        adaptation_query = adaptation_query.eq('listener_age', age)
+                    else:
+                        adaptation_query = adaptation_query.is_('listener_age', 'null')
+
+                    adaptation_rows = adaptation_query.execute().data or []
+                    item['_story_adaptation'] = (
+                        adaptation_rows[0]
+                        if len(adaptation_rows) == 1
+                        else None
+                    )
+                    item['_story_adaptation_match_count'] = len(adaptation_rows)
+
                 enriched_canon_rows.append(item)
 
             canon_rows = enriched_canon_rows
