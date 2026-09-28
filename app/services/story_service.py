@@ -945,6 +945,48 @@ class StoryService:
         raw = str(getattr(request, 'moral', '') or '').strip().lower()
         return raw not in {'', 'none', 'no moral', 'no_moral', 'null', 'undefined'}
 
+    def _standard_bedtime_moral_leak_reason(
+        self,
+        request: GenerateStoryRequest,
+        *,
+        title: str = "",
+        pages: Optional[list[str]] = None,
+    ) -> Optional[str]:
+        """Reject direct selected-moral vocabulary in standard Bedtime prose.
+
+        This is deliberately narrow and deterministic: it catches the exact
+        selected moral supplied by the product (for example ``patience``)
+        without trying to delete or rewrite prose after generation. The model
+        must regenerate the affected page instead. Story Worlds / Living Worlds
+        are intentionally untouched.
+        """
+        if (
+            self._is_canon_request(request)
+            or self._is_folk_adventure_request(request)
+            or not self._moral_requested(request)
+        ):
+            return None
+
+        moral = str(getattr(request, "moral", "") or "").strip().casefold()
+        if not moral:
+            return None
+
+        # Product morals are short labels. Match the complete label so a moral
+        # such as "patience" cannot leak into "Patience Petal" or explanatory
+        # prose, while avoiding dangerous broad synonym deletion.
+        escaped = re.escape(moral)
+        if moral[0].isalnum() and moral[-1].isalnum():
+            pattern = re.compile(rf"(?<!\w){escaped}(?!\w)", re.IGNORECASE)
+        else:
+            pattern = re.compile(escaped, re.IGNORECASE)
+
+        if title and pattern.search(str(title)):
+            return "moral_leak_in_title"
+        for index, page in enumerate(pages or [], start=1):
+            if pattern.search(str(page or "")):
+                return f"moral_leak_in_page_{index}"
+        return None
+
     def _select_living_world_episode_seed(self, request: GenerateStoryRequest, context: Optional[dict] = None) -> Optional[dict]:
         """Select and cache one continuity seed locally for the full request.
 
@@ -1579,6 +1621,7 @@ LIVING WORLD HARD RULES:
         boolean_fields = {
             "resolves_opening_promise": {"type": "boolean"},
             "resolves_main_problem": {"type": "boolean"},
+            "closes_meaningful_open_threads": {"type": "boolean"},
             "emotional_payoff_complete": {"type": "boolean"},
             "callback_earned": {"type": "boolean"},
             "no_new_plot": {"type": "boolean"},
@@ -1587,6 +1630,7 @@ LIVING WORLD HARD RULES:
         }
         if include_moral:
             boolean_fields["moral_visible_through_action"] = {"type": "boolean"}
+            boolean_fields["moral_not_explained"] = {"type": "boolean"}
         return {
             "type": "object",
             "properties": {
@@ -2481,6 +2525,13 @@ ABSTRACT CONCEPT GUARD:
 - After the resolution, slow the pace with simple actions and fewer details.
 - Use one fitting bedtime image only when it belongs naturally in this story.
 - Do not explain the moral. Never write that the child learned, realised, understood, or remembered the lesson.
+- A bedtime story does not end when the problem stops. It ends when the child has landed: RESOLVE the central story question, REFLECT by showing the consequence/change, then SETTLE with a brief safe low-energy afterglow.
+- The decisive resolution must be underway by Page 6. Do not spend Page 7 discovering the entire solution and leave no room for consequence and settling.
+- Do not state, paraphrase, define, interpret, summarise, or explain the selected moral in dialogue, narration, internal thought, reflection, or the final sentences. The reader should infer it from choices and consequences.
+- Elegant moral commentary still counts as explanation. Do not say that a virtue was the secret, key, answer, magic, or thing that made the solution work after the action has already shown it.
+- The settling phase must use concrete story-specific aftermath, sensory detail, action, sound, or callback rather than interpreting what the protagonist learned.
+- Do not engineer an obviously instructional final-page event solely to demonstrate the moral. The ending must grow from story material already established.
+- CLOSE WHAT YOU OPEN: before settling, give an outcome to every meaningful thread the story deliberately raised — an ownership question, promise, missing person/object, explicit question, relationship need, or wider stake. Harmless speculative colour does not need an answer, but a setup presented as important must not simply disappear.
 - Do not introduce a new character, location, task, conflict, clue, magical object, mystery, or promise.
 - Never finish with another adventure waiting, a door opening, a clue appearing, a sound in the distance, a character promising to return, or any invitation to continue.
 - The final story sentence must be specific to this story, easy to read aloud, emotionally complete, and impossible to mistake for a mid-story sentence.
@@ -2585,6 +2636,7 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
         return """NARRATIVE PROGRESSION & REPETITION — GLOBAL:
 - Every paragraph must earn its place by adding at least one new action, consequence, discovery, decision, dialogue beat, relationship change, useful reaction, or piece of story information.
 - Do not restate an event, feeling, intention, problem, discovery, consequence, description, or explanation the reader already understands merely to add emphasis, atmosphere, length, or a transition.
+- SHOW ONCE, THEN ADVANCE: when an action, gesture, sensory detail, consequence, or line of dialogue already makes a fact, feeling, intention, or problem clear, do not follow it with narrator commentary that translates the same beat for the reader. Let the next sentence add a new action, consequence, question, or discovery instead.
 - Do not recap the previous page at the start of the next page. Re-anchor only when clarity genuinely requires it, and then use the fewest words needed before advancing.
 - Do not describe one developing action across several paragraphs by repeating the same change in slightly different words. Once the result of an action is clear, move to its next consequence.
 - Do not let the middle or late story stall by summarising progress already made. A setback must create a genuinely new obstacle, consequence, choice, or understanding.
@@ -2607,6 +2659,12 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
         return """BEDTIME STORY FORWARD PROGRESSION:
 - Build each new story beat from the result of the beat immediately before it: previous beat -> new action -> new consequence -> changed situation.
 - The changed situation must give the child, helper, or story world something meaningfully new to respond to next.
+- SHOW ONCE, THEN ADVANCE: when an action, expression, dialogue line, sensory detail, or consequence has already made a fact, emotion, failed attempt, intention, or realisation sufficiently clear, do not immediately restate, interpret, translate, or explain the same information. Trust the reader to understand what has been shown. Use the next sentence or paragraph to advance the action, reveal genuinely new information, deepen the scene, or add new sensory or settling value.
+- Several different descriptions that communicate the same fact still count as repetition. Do not stack action -> reaction -> narrator interpretation when the action and reaction already make the meaning clear. Do not follow a visibly failed attempt with commentary that merely says it did not work. Do not let the protagonist realise something, then have the narrator explain that realisation, then have dialogue explain it again. One clear beat is enough before the next meaningful action.
+- MORAL IS STRUCTURE, NOT COMMENTARY: let a requested moral shape the protagonist's choices, actions, consequences, relationships, and resolution, but do not repeatedly discuss, label, analyse, paraphrase, or explain it. Once the protagonist understands enough to make the next meaningful choice, move to action. One insight is enough.
+- Preserve age-appropriate causal clarity. Younger children may need explicit information when a cause, consequence, motive, or transition has NOT already been made clear. This rule removes redundant explanation; it does not remove explanation the reader genuinely needs.
+- Preserve purposeful repetition: later callbacks, recurring motifs, refrains, humour, suspense, soothing rhythm, and very-young-child repetition are welcome when they add new narrative, emotional, sensory, or settling value. A later return with a new purpose is cohesion, not redundancy.
+- Bedtime settling does not need to advance plot. On the final page, quiet sensory detail, restored surroundings, relaxation, and story-specific callbacks may slow the pace as long as each sentence adds new settling or emotional value rather than re-explaining what is already clear.
 - Do not reset the scene after a beat, repeat the same attempt with different wording, or return to the same unchanged problem merely to fill a page.
 - When an action succeeds or fails, carry that result forward. The next action should happen because of what just changed.
 - Across the seven pages, the child's choices and their consequences should create a visible chain of progress toward the ending rather than a collection of loosely related moments.
@@ -2635,11 +2693,13 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
     def _story_flow_rules(self) -> str:
         """Surgical anti-repetition guidance with persistent moral visibility."""
         return """STORY FLOW AND MORAL RESTRAINT:
-- Keep the opening promise and requested moral active from Page 1 to Page 7.
+- Keep the opening promise active from Page 1 to Page 7. Treat any requested moral as a hidden design constraint rather than words the story needs to say.
 - The requested moral must remain recognisable through the protagonist's choices, consequences, relationships, and final resolution.
-- Do not repeatedly explain, name, or restate the moral after each event.
+- Do not name, paraphrase, define, interpret, summarise, or explain the moral in dialogue, narration, internal thought, reflection, or the final lines.
+- Use a clean reasoning progression when the protagonist must work something out: TRY -> NOTICE -> ADJUST -> ACT. Do not spend several paragraphs or adjacent pages circling the same insight before acting.
+- Allow at most one short realisation or decision beat before the action that demonstrates it. If the reader can infer the idea from behaviour and consequence, delete the explanatory sentence.
 - At least one meaningful choice in the middle and the decisive action near the ending must clearly demonstrate the moral.
-- Characters should not stop to explain what the reader has just seen.
+- Characters should not stop to explain what the reader has just seen. The narrator must not do so either: avoid an immediate explanatory echo after a clear action, expression, sound, or line of dialogue.
 - Do not state the same discovery, interpretation, feeling, or moral twice in slightly different wording. Once the reader can infer it from action or dialogue, move the story forward.
 - Show the moral through choices, dialogue, consequences, changed behaviour, and the final resolution.
 - Conspicuous setup must pay off: if a detail is presented as unusual, important, magical, mysterious, promised, or memorable, make it useful later or do not emphasise it.
@@ -2707,6 +2767,7 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 - Show the emotional and relationship payoff through action or dialogue.
 - Make the payoff visibly result from the protagonist's earlier decisive action or earned choice, rather than simply happening around them.
 - Reuse one earned callback from Pages 1-6.
+- Close any meaningful thread deliberately opened earlier: ownership, promise, missing person/object, explicit question, relationship need, or wider stake. Do not leave an important Page 1-6 setup hanging merely because the local obstacle is solved.
 - Let the characters briefly enjoy the result, then slow the pace and settle safely.
 - Do not add a new surprise, task, character, object, place, or problem.
 """,
@@ -2871,7 +2932,7 @@ CANON NAME PROTECTION:
     def _standard_bedtime_first_page_quality_rules(self, request: GenerateStoryRequest) -> str:
         """Compact quality guard for the speed-critical standard Page 1 call."""
         moral_line = (
-            f"- Moral: {request.moral}. Set up a situation where the protagonist can demonstrate it later through a choice; do not explain it now."
+            f"- Internal moral target: {request.moral}. This label is PRIVATE PLANNING METADATA, not story vocabulary. Do not use the selected moral label in the title or Page 1 prose. Set up a concrete desire, obstacle or temptation so the protagonist can demonstrate the idea later through action and consequence; do not announce, define, teach or foreshadow the lesson."
             if self._moral_requested(request)
             else "- No moral was requested. Do not invent one."
         )
@@ -2894,7 +2955,7 @@ CANON NAME PROTECTION:
         chunking, polling, page ownership, reader state, storage or subscriptions.
         """
         moral_rule = (
-            f"- Requested moral: {request.moral}. Build it into a meaningful choice by the protagonist before the final page; the ending must show the consequence, not explain the lesson."
+            f"- Requested moral: {request.moral}. Treat it as PRIVATE HIDDEN DESIGN METADATA, not story vocabulary. NEVER use the selected moral label itself in the title or story prose. Build the idea into a concrete desire/temptation, one meaningful choice, and its natural consequence before the final page. Do not name, paraphrase, define, interpret, summarise, or explain the moral in dialogue, narration, internal thought, reflection, or final lines. MORAL REMOVAL TEST: if the moral label and lesson commentary vanished, the protagonist's actions and consequences must still make the intended idea inferable. Once action makes the meaning inferable, move on; do not restate the insight in different words."
             if self._moral_requested(request)
             else "- No moral was requested. Do not invent or force a lesson."
         )
@@ -2913,6 +2974,8 @@ CANON NAME PROTECTION:
 - Vary emotional reactions. Do not repeatedly use tummy flutters/flip-flops, widened or sparkling eyes, warm feelings in the chest, gasps, smiles, shoulder slumps, heart-sinking, or similar stock reactions as a default emotional vocabulary. Use dialogue, choices, pauses, movement, humour, and concrete behaviour instead.
 - Use imagery selectively. One memorable comparison is stronger than several decorative similes on every page. Avoid an AI-storybook rhythm of constant twinkling, dancing, glowing, sparkling, tiny, warm, magical descriptions.
 - Dialogue should sound like characters speaking to one another, not the narrator delivering instructions. Keep dialogue and its attribution together naturally; never split a speech from a short attribution in a way that reads like broken prose.
+- Quoted speech or thought and its grammatical attribution are ONE prose beat: write “Where is it?” she wondered, not “Where is it?” followed by a new paragraph beginning “she wondered”. The same applies to tags such as said, asked, whispered, replied, thought, breathed, murmured and cried.
+- For standard Bedtime Stories, paragraphing serves the parent reading aloud: never start a new paragraph with a short speech tag or reaction that grammatically belongs to the line immediately before it. Natural spoken flow takes priority over symmetrical paragraph shape.
 - The protagonist must make at least one meaningful mid-story decision and must drive the decisive action near the ending. The resolution must not simply happen around them.
 {moral_rule}
 - Do not postpone a story-wide moral or character requirement until Page 7. Pages 4-6 must already contain the choice/action that earns the ending.
@@ -3370,7 +3433,8 @@ STORY WORLD ISOLATION:
 
 PRODUCTION STORY CONTRACT:
 - Create exactly 7 pages.
-- Each page should have exactly 2 short paragraphs.
+- Each page should use natural read-aloud paragraphs, normally 2-3. Never force a paragraph break merely to meet a paragraph count.
+- Keep dialogue, its attribution, and any immediately attached reaction/action together when they form one spoken beat. Never orphan a tag such as "she whispered", "he said", or "Emily asked" into a new paragraph.
 - Each page should contain about 5-7 read-aloud sentences.
 - Each page should normally be 115-155 words.
 - Use a clear beginning, middle, and ending.
@@ -3660,7 +3724,52 @@ OUTPUT RULES:
             and not self._is_folk_adventure_request(request)
         ):
             cleaned = re.sub(r"。{2,}", "。", cleaned)
+
+        # Standard Bedtime only: deterministically repair a model-created
+        # paragraph break that orphans a short English dialogue/thought
+        # attribution from the quotation it grammatically belongs to. This is
+        # deliberately narrow: only known attribution verbs are joined, so a
+        # genuine new speaker or separate narrative action remains untouched.
+        if (
+            base_language == "en"
+            and not self._is_canon_request(request)
+            and not self._is_folk_adventure_request(request)
+        ):
+            cleaned = self._repair_english_orphaned_dialogue_attribution(cleaned)
+
         return cleaned
+
+    @staticmethod
+    def _repair_english_orphaned_dialogue_attribution(text: Any) -> str:
+        """Join only clear quote + orphaned attribution paragraph splits.
+
+        Examples repaired:
+          "Oh!"\n\nshe breathed. -> "Oh!" she breathed.
+          "Where is it?"\n\nEmily asked. -> "Where is it?" Emily asked.
+
+        A new speaker ("No," Pip said.) or a separate action paragraph is not
+        matched because the following paragraph must begin with a pronoun/name
+        immediately followed by a known speech/thought attribution verb.
+        """
+        cleaned = str(text or "")
+        if not cleaned:
+            return cleaned
+
+        attribution_verbs = (
+            r"said|asked|whispered|wondered|replied|thought|breathed|"
+            r"murmured|muttered|called|cried|shouted|sighed|added|"
+            r"answered|explained|promised|admitted|suggested|began|"
+            r"exclaimed|remarked|continued|agreed|protested|stammered"
+        )
+        speaker = r"(?:she|he|they|[A-Z][A-Za-z’'\-]+)"
+        # Accept straight/curly closing double quotes. Punctuation normally sits
+        # inside the quote, but keep it optional so malformed model paragraphing
+        # can still be repaired without rewriting any words.
+        pattern = (
+            rf'([.!?]?[\"”])\s*\n\s*\n\s*'
+            rf'({speaker}\s+(?:{attribution_verbs})\b)'
+        )
+        return re.sub(pattern, r"\1 \2", cleaned, flags=re.IGNORECASE)
 
     def _sanitize_standard_bedtime_language_pages(
         self,
@@ -4396,7 +4505,8 @@ REVIEW RULES:
         )
         spine = self._story_spine_block(request=request, title=title, first_page=(existing_pages or [""])[0])
         moral_rule = (
-            "- moral_visible_through_action: the requested moral is demonstrated by a meaningful choice or consequence, not merely stated."
+            "- moral_visible_through_action: the requested moral is demonstrated by a meaningful choice or consequence.\n"
+            "- moral_not_explained: the story does NOT name, paraphrase, define, interpret, summarise, or explain the requested moral as a lesson in dialogue, narration, internal thought, reflection, or the final lines. Reject elegant moral commentary too, including lines that explain success by saying a virtue was the secret, key, answer, magic, or thing the protagonist learned."
             if moral_required else
             "- No moral was requested. Do not assess, request or repair a moral."
         )
@@ -4410,10 +4520,13 @@ REVIEW RULES:
             """STANDARD BEDTIME STORY ENDING REVIEW:
 - Judge this as a complete seven-page children's story, not merely as a locally valid final paragraph.
 - Page 7 must answer or fulfil the wish, question, promise, relationship need, or problem introduced on Page 1.
+- CLOSE WHAT YOU OPEN: if the story established a meaningful owner, home, recipient, destination, promise, duty to return something, missing person/object, or wider stake, Page 7 must explicitly account for that thread before reward, celebration, or settling. Merely finding or recovering an object is not enough when the story established that it belongs somewhere or to someone. The owner does not need to appear: an established character may return it, restore it to its established place, or clearly confirm the handoff.
 - The decisive result must be earned by the child's earlier actions, choices, relationships, clues, habits, or established story rules.
 - A generic celebration, generic praise, sudden gift, unexplained magical fix, or interchangeable bedtime paragraph is not a satisfying ending.
 - If the ending could be swapped into another story with only names changed, reject it.
-- The final callback should come from something established earlier and create recognition rather than summarising the lesson."""
+- The final callback should come from something established earlier and create recognition rather than summarising the lesson.
+- After the decisive action demonstrates the moral, the final settling lines must show concrete story-specific aftermath or sensory callback, not interpret what the protagonist learned or why the solution worked.
+- Reject an ending that both demonstrates the moral through action and then explains that same moral in polished or metaphorical language."""
         )
         prompt = f"""Review the ending of this children's bedtime story.
 Return only JSON matching the supplied schema. Be demanding about story quality but do not invent extra plot when repairing.
@@ -4428,6 +4541,7 @@ FULL STORY INCLUDING CANDIDATE FINAL PAGE:
 REVIEW RULES:
 - resolves_opening_promise: the Page 1 wish, question, promise, relationship need, or problem is genuinely answered or fulfilled by the end.
 - resolves_main_problem: the central external problem is actually completed, not merely beginning to complete.
+- closes_meaningful_open_threads: every meaningful ownership, return/handoff, recipient/destination, promise, missing person/object, explicit question, relationship need, or wider-stake thread deliberately raised earlier has an outcome. If a recovered object was established as belonging to someone or somewhere, reject the ending when it is only found/held and never returned, restored, handed off, or clearly accounted for.
 {moral_rule}
 - emotional_payoff_complete: the promised relationship or emotional change is shown through action or dialogue.
 - callback_earned: at least one earlier detail returns with purpose.
@@ -4448,11 +4562,11 @@ REVIEW RULES:
                 return False, "semantic_review_empty_response", ["Complete the original opening promise and main problem."], {}
             result = self._clean_json_response(response_text)
             checks = [
-                "resolves_opening_promise", "resolves_main_problem", "emotional_payoff_complete",
-                "callback_earned", "no_new_plot", "ending_feels_earned", "satisfying_ending",
+                "resolves_opening_promise", "resolves_main_problem", "closes_meaningful_open_threads",
+                "emotional_payoff_complete", "callback_earned", "no_new_plot", "ending_feels_earned", "satisfying_ending",
             ]
             if moral_required:
-                checks.append("moral_visible_through_action")
+                checks.extend(["moral_visible_through_action", "moral_not_explained"])
             check_results = {key: result.get(key) is True for key in checks}
             failed = [key for key, passed in check_results.items() if not passed]
             required_changes = [str(item).strip() for item in (result.get("required_changes") or []) if str(item).strip()][:6]
@@ -4461,6 +4575,7 @@ REVIEW RULES:
                 if not required_changes:
                     required_changes = [
                         "Complete the original opening promise and main problem on Page 7.",
+                        "Close every meaningful ownership, return/handoff, promise, missing-object, or wider-stake thread already established.",
                         "Show the emotional result through action or dialogue.",
                         "End with an established story-specific callback and a settled final image.",
                     ]
@@ -4468,6 +4583,14 @@ REVIEW RULES:
             return True, "ok", [], check_results
         except Exception as exc:
             print(f"[PERF] final_page_semantic_review_skipped error={str(exc)[:300]}")
+            # Standard Bedtime quality is fail-closed: an unavailable semantic
+            # reviewer is not editorial approval. Retry the final page instead.
+            # Folk Adventure / Story Worlds behaviour is intentionally unchanged.
+            if not self._is_folk_adventure_request(request):
+                return False, "semantic_review_unavailable", [
+                    "Regenerate Page 7 and complete the original opening promise and main problem.",
+                    "Show the consequence and emotional payoff before the calm bedtime landing.",
+                ], {}
             return True, "semantic_review_unavailable", [], {}
 
     def _final_page_repair_block(
@@ -4480,6 +4603,7 @@ REVIEW RULES:
         """Build targeted Page 7 repair instructions from the reviewer output."""
         changes = required_changes or [
             "Complete the original opening promise and main problem.",
+            "Close every meaningful ownership, return/handoff, promise, missing-object, or wider-stake thread already established.",
             "Show the emotional payoff through action or dialogue.",
             "Use an earlier story detail as the final callback.",
         ]
@@ -4502,6 +4626,7 @@ REQUIRED CHANGES — APPLY EVERY ONE:
 
 - Rewrite Page 7 from scratch; do not merely edit its final sentence.
 - Resolve the exact promise and problem established by Pages 1-6.
+- Before reward, celebration, or settling, explicitly account for every meaningful owner/home/recipient/destination, return duty, promise, missing person/object, or wider stake already established. Finding an owned object is not complete until its return, restoration, handoff, or safe destination is clear. Do not introduce a new character to do this.
 - The decisive solution must come from the established protagonist or from consequences already earned in the story.
 - Show the completed result, then a brief emotional afterglow, then a safe settled final image.
 - Do not introduce a new method, character, object, clue, sound, task, place, or surprise.
@@ -4549,6 +4674,15 @@ REQUIRED CHANGES — APPLY EVERY ONE:
                 remaining_page_count=batch_count,
                 next_page_number=next_page_number,
             )
+            if generation_attempt > 1 and str(last_error or "").startswith("moral_leak_"):
+                prompt += f"""
+
+MORAL LEAK REPAIR — NON-NEGOTIABLE:
+- The previous continuation exposed the private moral label {request.moral!r}.
+- Rewrite this batch without using that label anywhere.
+- Do not substitute a direct synonym or explanatory lesson sentence.
+- Let the protagonist's concrete choice and its consequence carry the meaning, then move the plot forward.
+"""
             if (
                 not self._is_canon_request(request)
                 and not self._is_folk_adventure_request(request)
@@ -4681,7 +4815,7 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                     f"Remaining generation produced only {len(batch_pages)} "
                     f"of {batch_count} pages in batch"
                 )
-                last_required_changes = ["Return one complete final page with 5-7 sentences and two short paragraphs."]
+                last_required_changes = ["Return one complete final page with 5-7 sentences in natural read-aloud paragraphs; do not split dialogue from its attribution or attached reaction."]
                 continue
 
             sanitized = self._sanitize_generated_pages(batch_pages[:batch_count])
@@ -4762,6 +4896,22 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                 continue
 
             sanitized = boundary_cleaned
+
+            moral_leak = self._standard_bedtime_moral_leak_reason(
+                request,
+                pages=sanitized,
+            )
+            if moral_leak:
+                last_error = moral_leak
+                last_required_changes = [
+                    f"Rewrite without using the selected moral label {request.moral!r}.",
+                    "Show the idea only through concrete choice and consequence; do not explain the lesson.",
+                ]
+                print(
+                    f"[PERF] bedtime_moral_leak_rejected "
+                    f"page={next_page_number} attempt={generation_attempt} reason={moral_leak}"
+                )
+                continue
 
             if self._is_canon_request(request):
                 # Canon-only progression gate. Prompt instructions alone are not
@@ -4883,6 +5033,7 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                         else (
                             "resolves_opening_promise",
                             "resolves_main_problem",
+                            "closes_meaningful_open_threads",
                             "emotional_payoff_complete",
                             "no_new_plot",
                             "satisfying_ending",
@@ -4901,12 +5052,37 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                         continue
                     if self._is_canon_request(request) and not critical_pass:
                         continue
+                    if (
+                        not self._is_canon_request(request)
+                        and not self._is_folk_adventure_request(request)
+                        and not critical_pass
+                    ):
+                        # Completion guarantee for Standard Bedtime: this is the
+                        # final completion-first attempt and the candidate has
+                        # already passed deterministic final-page validation. A
+                        # model reviewer may keep flagging subjective semantic
+                        # criteria, but it must never strand the child at 6/7.
+                        # Publish this structurally complete Page 7 with an
+                        # explicit warning in logs. Canon remains fail-closed.
+                        print(
+                            f"[PERF] standard_bedtime_final_page_forced_completion "
+                            f"story_title={title!r} reason={semantic_reason!r} "
+                            f"checks={check_results}"
+                        )
                     if self._is_canon_request(request):
                         print(
                             f"[PERF] final_page_completion_validated_with_secondary_warnings "
                             f"story_title={title!r} checks={check_results}"
                         )
+                    elif not self._is_folk_adventure_request(request):
+                        print(
+                            f"[PERF] standard_bedtime_final_page_completion_validated_with_secondary_warnings "
+                            f"story_title={title!r} reason={semantic_reason!r} "
+                            f"checks={check_results}"
+                        )
                     else:
+                        # Preserve the existing Living World / Folk Adventure
+                        # final-page fallback semantics.
                         print(
                             f"[PERF] standard_bedtime_final_page_completion_fallback "
                             f"story_title={title!r} reason={semantic_reason!r} "
@@ -6217,6 +6393,11 @@ JSON ONLY:
             if self._is_folk_adventure_request(request)
             else f"Theme: {blocks['effective_theme']}"
         )
+        bedtime_progression_block = (
+            self._bedtime_narrative_progression_rules()
+            if not self._is_canon_request(request) and not self._is_folk_adventure_request(request)
+            else ""
+        )
 
         folk_adventure_continuity = (
             """FOLK ADVENTURE CONTINUITY — NON-NEGOTIABLE:
@@ -6269,6 +6450,7 @@ AGE LOCK:
 
 STORY FLOW:
 {self._story_flow_rules()}
+{bedtime_progression_block}
 
 {self._narrative_progression_repetition_rules()}
 {self._natural_read_aloud_cadence_rules()}
@@ -6326,7 +6508,8 @@ PAGE LENGTH:
 - For Age 0: use 2-5 tiny read-aloud sentences and 1-2 short paragraphs.
 - For Age 1: use 3-6 very short read-aloud sentences and 1-2 short paragraphs.
 - For Age 2: use 3-6 short read-aloud sentences and 1-2 short paragraphs.
-- For Age 3+: keep exactly 2 short paragraphs and about 5-7 read-aloud sentences.
+- For Age 3+: use about 5-7 read-aloud sentences in natural story paragraphs, normally 2-3. Paragraph boundaries must follow a real change of action, focus, speaker, or emotional beat.
+- Never split dialogue from its short attribution or immediately attached reaction/action just to create another paragraph. If a line would read awkwardly aloud because a tag such as "she whispered", "he said", "Emily asked", or an equivalent is stranded at the start of a paragraph, keep that beat together instead.
 - Final page may be slightly shorter if complete, satisfying, and naturally settled.
 
 COMPANION:
@@ -6713,6 +6896,15 @@ PAGE 1 BUDGET REPAIR:
 - Target {budget['target_min']}-{budget['target_max']} words. HARD MAXIMUM: {hard_max} words.
 - Establish only the opening beat and one clear next step; leave Page 2 material for Page 2.
 """
+                if str(last_error).startswith("moral_leak_"):
+                    attempt_prompt += f"""
+
+MORAL LEAK REPAIR — NON-NEGOTIABLE:
+- The previous candidate exposed the private moral label {request.moral!r}.
+- Rewrite Page 1 and the title from scratch without using that label.
+- Do not replace it with a sentence that explains the same lesson.
+- Show only the concrete story setup: what the protagonist wants, what makes it difficult, and the next action.
+"""
 
             t_attempt = time.time()
             response = await asyncio.wait_for(
@@ -6819,6 +7011,19 @@ PAGE 1 BUDGET REPAIR:
                             f"words={page_units} hard_max={hard_max}"
                         )
                         continue
+
+                moral_leak = self._standard_bedtime_moral_leak_reason(
+                    request,
+                    title=str(story_data.get("title") or ""),
+                    pages=standard_pages,
+                )
+                if moral_leak:
+                    last_error = ValueError(moral_leak)
+                    print(
+                        f"[PERF] bedtime_moral_leak_rejected page=1 attempt={attempt} "
+                        f"reason={moral_leak}"
+                    )
+                    continue
 
             return story_data
 
@@ -7211,6 +7416,15 @@ PAGE 1 BUDGET REPAIR:
                             )
 
                     combined_pages = postprocess_story_pages([*working_pages, *batch_pages])
+                    # Standard Bedtime only: postprocess_story_pages() runs after the
+                    # generation-time language sanitizer and can reintroduce an orphaned
+                    # quote/attribution paragraph break. Re-apply the existing narrow
+                    # language repair at this final postprocess boundary before partial
+                    # publication. Canon/Folk Adventure remain untouched.
+                    if not is_dynamic_canon:
+                        combined_pages = self._sanitize_standard_bedtime_language_pages(
+                            request, combined_pages
+                        )
                     working_pages = combined_pages if is_dynamic_canon else combined_pages[:expected_pages]
                     remaining.extend(batch_pages)
 
@@ -7312,7 +7526,14 @@ PAGE 1 BUDGET REPAIR:
 
             all_pages = postprocess_story_pages([*current_pages, *remaining])
             if not is_dynamic_canon:
-                all_pages = all_pages[:expected_pages]
+                # Final Standard Bedtime persistence boundary. Keep the stored pages
+                # identical to the already-approved prose except for the existing
+                # deterministic English quote/attribution repair (and existing
+                # language-only cleanup). This prevents a later postprocess pass from
+                # undoing the v5 repair before the reader receives the page.
+                all_pages = self._sanitize_standard_bedtime_language_pages(
+                    request, all_pages
+                )[:expected_pages]
             if not is_dynamic_canon and len(all_pages) < expected_pages:
                 safe_pages = postprocess_story_pages(all_pages or current_pages)[:expected_pages]
                 if safe_pages:
