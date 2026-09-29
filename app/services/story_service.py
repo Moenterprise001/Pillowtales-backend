@@ -671,43 +671,6 @@ FUNNY_QUIRKS = [
     "puts important things in strange places",
 ]
 
-COMFORT_HABITS = [
-    "twists a sleeve when thinking",
-    "keeps a lucky pebble in a pocket",
-    "counts steps when nervous",
-    "hums softly while solving problems",
-    "taps fingers together when excited",
-    "smooths the corner of a blanket",
-    "keeps tiny treasures in a pouch",
-    "whispers ideas to the stars",
-]
-
-SIGNATURE_BEHAVIOURS = [
-    "always checks their hat before speaking",
-    "collects unusual buttons",
-    "writes everything in a notebook",
-    "carries far too many snacks",
-    "cannot resist solving riddles",
-    "polishes spectacles that are never dirty",
-    "talks to flowers as if they can answer",
-    "keeps pockets full of interesting things",
-    "alphabetises biscuits before eating them",
-    "wears three scarves even indoors",
-    "is scared of seagulls but pretends not to be",
-    "keeps forgetting where they put their hat",
-    "paints vegetables instead of pictures",
-]
-
-FAVOURITE_PHRASES = [
-    "Stars and teacups!",
-    "Well butter my biscuits!",
-    "Good feathers!",
-    "Oh my moonbeams!",
-    "What a curious thing!",
-    "By the sleepy sea!",
-    "Biscuit crumbs and dragon tails!",
-]
-
 PLOT_HUMOUR_EVENTS = [
     "a dragon sneezes and accidentally reveals a secret door",
     "a rabbit loses its spoon and discovers an important clue",
@@ -1902,65 +1865,34 @@ LIVING WORLD HARD RULES:
         """Choose a hidden character trait for story personality variety."""
         return random.choice(CHARACTER_TRAITS)
 
-    def _select_funny_quirk(self) -> str:
-        """Choose a hidden comic quirk for gentle bedtime humour variety."""
-        return random.choice(FUNNY_QUIRKS)
-    def _select_comfort_habit(self) -> str:
-        return random.choice(COMFORT_HABITS)
-
-    def _select_signature_behaviour(self) -> str:
-        return random.choice(SIGNATURE_BEHAVIOURS)
-
-    def _select_favourite_phrase(self) -> str:
-        return random.choice(FAVOURITE_PHRASES)
-
-    def _select_plot_humour_event(self) -> str:
-        return random.choice(PLOT_HUMOUR_EVENTS)
-
     def _personality_humour_block(
         self,
         character_trait: Optional[str],
         funny_quirk: Optional[str],
         age: Any,
     ) -> str:
-        comfort_habit = self._select_comfort_habit()
-        signature = self._select_signature_behaviour()
-        phrase = self._select_favourite_phrase()
-        plot_humour = self._select_age_plot_humour_event(age)
         age_humour_instruction = self._age_humour_instruction(age)
 
         return f"""
-SELECTED CHARACTER PERSONALITY ENGINE:
-- Give the child or one important side character a clear personality trait: {character_trait}.
-- Give the child a memorable quirk: {funny_quirk}.
-- Give the child a comfort habit: {comfort_habit}.
-- At least one of these should influence the story solution.
+CHARACTER ENGINE — PERSONALITY MUST CREATE BEHAVIOUR:
+- Use this hidden personality tendency as inspiration, not as a label to announce: {character_trait}.
+- A second character tendency available for inspiration is: {funny_quirk}. Do not force it into the story if it does not fit naturally.
+- Give the protagonist or one important supporting character a recognisable way of approaching problems. Let the reader discover it through choices, dialogue, mistakes, observations, hesitation, or action.
+- Let a lovable tendency sometimes help and sometimes make things harder. At least one harmless imperfect choice, mistaken assumption, or failed idea should arise naturally from character rather than being inserted only to satisfy plot structure.
+- The protagonist must cause or significantly alter at least one important event through curiosity, choice, mistake, idea, or action. Do not let the child merely follow instructions from helper to helper.
+- If an important supporting character recurs, give them a point of view or problem-solving instinct the child can begin to anticipate; do not manufacture identity from a random catchphrase, snack, costume, or decorative quirk.
 
-SIDE CHARACTER RULES:
-- One important side character should have this distinctive behaviour:
-  {signature}
-
-- That character may occasionally say:
-  "{phrase}"
-
-PLOT HUMOUR RULES:
+HUMOUR — NATURAL, NOT ASSIGNED:
 - Age-specific humour guidance: {age_humour_instruction}
-- Include this funny event somewhere in the story:
-  {plot_humour}
+- Let humour grow from personality, misunderstanding, expectation, dialogue, timing, world logic, or an unexpected consequence. Do not insert a preselected comic event simply because the story needs a joke.
+- Prefer one genuinely memorable comic beat over several manufactured funny incidents. Humour may reveal character, affect the plot, or simply give the child and parent a moment of delight.
+- Gentle physical comedy is allowed when harmless and age-appropriate. Avoid cruelty, humiliation, sarcasm aimed at a character, or frantic comedy that breaks the bedtime tone.
+- If a behaviour, phrase, or object naturally becomes funny through repetition, let it return only when the new context adds anticipation, escalation, or payoff.
 
-- The funny event MUST change what happens next.
-- The funny event should create a clue, obstacle, solution, or new discovery.
-- Do not include humour that can be removed without affecting the story.
-- At least one supporting character should have a recurring funny behaviour that appears more than once.
-
-SHOW DON'T TELL RULES:
-- Never describe a character only as kind, brave, curious, or gentle.
-- Show personality through actions, choices, dialogue, mistakes, and habits.
-- Let quirks create gentle humour naturally.
-- Include at least one funny misunderstanding or unexpected behaviour caused by a quirk.
-- The humour should make a parent smile and may make a child giggle.
-- The ending should feel earned because of the hero's personality.
-- Avoid slapstick, sarcasm, teasing, or loud comedy.
+SHOW CHARACTER; DO NOT EXPLAIN IT:
+- Never describe a character only as kind, brave, curious, funny, gentle, or clever. Make the reader infer personality from what the character actually does.
+- Dialogue should sometimes be recognisable as that character's speech even without a dialogue tag.
+- The ending should feel earned by the protagonist's choices, not by a personality label or narrator explanation.
 """
 
 
@@ -2715,6 +2647,24 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 - Pages 4 and 5 must deepen that same conflict rather than replacing it with a different problem.
 - Repeated phrases, counts, glowing objects, rewards, or symbolic reactions may return only when they move the plot or create a meaningful callback.
 - A child should remember the adventure first and understand the moral through it, without the narrator explaining it word by word.
+"""
+
+    def _bedtime_story_flow_essentials(self) -> str:
+        """Unique standard-Bedtime flow protections without duplicate progression rules."""
+        return """BEDTIME STORY FLOW — ESSENTIALS ONLY:
+- Keep the opening promise from Page 1 active through the ending; do not replace it with a different central problem.
+- Conspicuous setup must pay off: if a detail is presented as unusual, important, magical, mysterious, promised, or memorable, make it useful later or do not emphasise it.
+- If the same scene pattern has appeared twice, the next page must use a different kind of event rather than repeating that pattern a third time.
+- The central conflict must be visible no later than Page 3. Pages 4 and 5 must deepen that same conflict rather than replacing it.
+"""
+
+    def _bedtime_prose_polish_essentials(self) -> str:
+        """Small prose-only polish layer for standard Bedtime continuation pages."""
+        return """BEDTIME PROSE POLISH — ESSENTIALS ONLY:
+- Show important feelings through a visible action, choice, body response, or short line of dialogue rather than repeatedly naming the emotion.
+- Avoid stock reactions and vary sentence openings naturally.
+- Use sensory detail sparingly and concretely when it helps the scene.
+- Let dialogue breathe, but use it only when it adds story value.
 """
 
     def _page_narrative_role(self, page_number: int) -> str:
@@ -6356,11 +6306,6 @@ JSON ONLY:
             request.storyLanguageCode,
         )
         page_role = self._very_young_bedtime_page_role(request.age, next_page_number)
-        page_tension = (
-            ""
-            if self._safe_child_age(request.age) <= 2
-            else self._page_tension_rules(next_page_number)
-        )
         very_young_override = self._very_young_bedtime_override(request.age)
         includes_final_page = next_page_number <= intended_final_page <= final_page_number
         if includes_final_page:
@@ -6376,7 +6321,6 @@ JSON ONLY:
 - The page must feel complete even before the words The End.
 - Finish with exactly: The End.
 
-{self._literary_polish_rules()}
 {self._ending_engine_rules()}"""
         elif next_page_number == intended_final_page - 1:
             ending_job = """PENULTIMATE PAGE — PAGE 6:
@@ -6454,22 +6398,17 @@ AGE LOCK:
 - If a sentence sounds impressive, simplify it.
 
 STORY FLOW:
-{self._story_flow_rules()}
+{self._bedtime_story_flow_essentials()}
 {bedtime_progression_block}
 
-{self._narrative_progression_repetition_rules()}
 {self._natural_read_aloud_cadence_rules()}
 
 {self._natural_name_pronoun_rules()}
 
-LITERARY POLISH:
-{self._literary_polish_rules()}
+{self._bedtime_prose_polish_essentials()}
 
 CURRENT PAGE ROLE — NON-NEGOTIABLE:
 {page_role}
-
-CURRENT PAGE TENSION — NON-NEGOTIABLE:
-{page_tension}
 
 CONTINUATION JOB:
 - Write exactly {remaining_page_count} new pages: Page {next_page_number} through Page {final_page_number}.
