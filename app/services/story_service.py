@@ -2650,24 +2650,28 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 """
 
     def _bedtime_narrative_progression_rules(self) -> str:
-        """Bedtime-only scene progression guidance.
+        """Bedtime-only hard progression contract.
 
-        Prompt-only. This strengthens forward movement in standard Bedtime
-        Stories without changing Story Worlds/Canon generation or any runtime
-        narration, polling, storage, page-count, or playback behaviour.
+        Prompt-only. This is the authoritative momentum rule for standard
+        Bedtime Stories. It does not change Story Worlds/Canon generation or
+        any runtime narration, polling, storage, page-count, or playback behaviour.
         """
-        return """BEDTIME STORY FORWARD PROGRESSION:
-- Build each new story beat from the result of the beat immediately before it: previous beat -> new action -> new consequence -> changed situation.
-- The changed situation must give the child, helper, or story world something meaningfully new to respond to next.
-- SHOW ONCE, THEN ADVANCE: when an action, expression, dialogue line, sensory detail, or consequence has already made a fact, emotion, failed attempt, intention, or realisation sufficiently clear, do not immediately restate, interpret, translate, or explain the same information. Trust the reader to understand what has been shown. Use the next sentence or paragraph to advance the action, reveal genuinely new information, deepen the scene, or add new sensory or settling value.
-- Several different descriptions that communicate the same fact still count as repetition. Do not stack action -> reaction -> narrator interpretation when the action and reaction already make the meaning clear. Do not follow a visibly failed attempt with commentary that merely says it did not work. Do not let the protagonist realise something, then have the narrator explain that realisation, then have dialogue explain it again. One clear beat is enough before the next meaningful action.
-- MORAL IS STRUCTURE, NOT COMMENTARY: let a requested moral shape the protagonist's choices, actions, consequences, relationships, and resolution, but do not repeatedly discuss, label, analyse, paraphrase, or explain it. Once the protagonist understands enough to make the next meaningful choice, move to action. One insight is enough.
-- Preserve age-appropriate causal clarity. Younger children may need explicit information when a cause, consequence, motive, or transition has NOT already been made clear. This rule removes redundant explanation; it does not remove explanation the reader genuinely needs.
-- Preserve purposeful repetition: later callbacks, recurring motifs, refrains, humour, suspense, soothing rhythm, and very-young-child repetition are welcome when they add new narrative, emotional, sensory, or settling value. A later return with a new purpose is cohesion, not redundancy.
-- Bedtime settling does not need to advance plot. On the final page, quiet sensory detail, restored surroundings, relaxation, and story-specific callbacks may slow the pace as long as each sentence adds new settling or emotional value rather than re-explaining what is already clear.
-- Do not reset the scene after a beat, repeat the same attempt with different wording, or return to the same unchanged problem merely to fill a page.
-- When an action succeeds or fails, carry that result forward. The next action should happen because of what just changed.
-- Across the seven pages, the child's choices and their consequences should create a visible chain of progress toward the ending rather than a collection of loosely related moments.
+        return """BEDTIME STORY FORWARD PROGRESSION — HARD REQUIREMENT:
+- RULE PRIORITY: for standard Bedtime Stories, these progression rules override creative embellishment. Humour, callbacks, atmosphere, character quirks, dialogue, description, and moral signalling must never delay required forward movement or cause a completed story beat to be retold.
+- Every non-settling story beat MUST change the story state by adding at least one genuinely new action, consequence, discovery, decision, obstacle, relationship change, or necessary understanding. More words about an unchanged state are NOT progression.
+- Build causally: PREVIOUS RESULT -> NEXT ACTION -> NEW CONSEQUENCE -> CHANGED SITUATION. The changed situation must give the protagonist, helper, or story world something meaningfully new to respond to.
+- SHOW ONCE -> ADVANCE. Once action, dialogue, expression, sensory detail, or consequence makes a fact, feeling, intention, failure, discovery, or problem clear, that information is COMPLETE. Do not restate, paraphrase, interpret, translate, summarise, or emotionally explain it. Move to the next meaningful beat.
+- REALISE ONCE -> ACT. The protagonist may have at most ONE short realisation or decision beat about the same issue before taking consequential action. Never express the same understanding through internal thought, narration, and dialogue. Choose the strongest form once, then act.
+- RESULT -> CONSEQUENCE. When an attempt succeeds or fails, carry that result forward permanently. Do not reset to the previous state, repeat the attempt in different wording, or spend another beat confirming a result the reader has already seen.
+- NO SEMANTIC DUPLICATION. Different wording does not make information new. If two sentences or paragraphs substantially communicate the same fact, feeling, intention, problem, discovery, interpretation, or consequence, keep the stronger one and use the remaining space to advance the story.
+- DIALOGUE MUST CHANGE SOMETHING. Dialogue must cause or reveal a decision, disagreement, clue, misunderstanding, plan, consequence, relationship shift, or genuinely new information. It must not repeat narration or merely confirm what is already obvious.
+- ONE SIMPLE OBSTACLE MUST NOT CONSUME MULTIPLE PAGES. Once the initial problem, choice, or obstacle is understood, the next page must attempt, transform, complicate, or resolve it; it may not merely reconsider or re-describe it. By Page 4, the story must have materially advanced beyond the initial setup so the main adventure has room to unfold before the Page 6 resolution and Page 7 settling.
+- MORAL = CAUSAL STRUCTURE, NEVER COMMENTARY. A requested moral may shape choices and consequences, but once those actions make it inferable, move on. Never explain why an action demonstrates the moral or restate its meaning afterward. One insight is enough.
+- PAGE-STATE TEST: before completing each non-final page, silently compare its beginning and ending. At least one meaningful story state MUST have changed. If the only difference is extra description, reaction, explanation, reconsideration, or restatement of something already known, the page FAILS this requirement and MUST be rewritten before output.
+- Preserve age-appropriate causal clarity. Younger children may receive explicit explanation only when a cause, consequence, motive, or transition has NOT already been made clear. Simplicity is allowed; redundant explanation is not.
+- PURPOSEFUL REPETITION ONLY. Later callbacks, recurring motifs, refrains, humour, suspense, soothing rhythm, and very-young-child repetition are allowed when the return adds new narrative, emotional, comic, sensory, or settling value. A callback with a new purpose is cohesion; repetition without a new purpose is not.
+- FINAL-PAGE EXCEPTION: bedtime settling does not need to advance the plot, but it is NOT exempt from semantic duplication. Quiet sensory detail, restored surroundings, relaxation, and earned callbacks may slow the pace only when each sentence adds new settling or emotional value rather than explaining what the protagonist learned.
+- Across all seven pages, the protagonist's choices and consequences must form a visible chain of progress toward the ending, not a collection of loosely related moments or repeated reconsiderations of the same problem.
 """
 
     def _natural_read_aloud_cadence_rules(self) -> str:
@@ -2922,6 +2926,7 @@ CANON NAME PROTECTION:
 - Vary sentence rhythm naturally. Mix short punchy lines, dialogue, and longer clear sentences appropriate to the child's reading age. Do not make every paragraph follow the same sentence pattern.
 - Dialogue should sound spoken. Characters may interrupt, disagree gently, joke, misread a situation, or answer imperfectly. Avoid dialogue whose only purpose is to explain the plot to the reader.
 - Trust the reader. If an action, pause, expression, consequence or line of dialogue already communicates the feeling or lesson, do not explain it again.
+- Distinguish redundant explanation from intentional story continuity. Do not restate the meaning of an earlier event merely to remind the reader, but preserve purposeful callbacks, recurring details, planted clues, promises, objects, places, phrases and consequences when they return to develop the story or deliver a later payoff. A repeated detail is valuable when its return does new narrative work; repetition is unwanted when it only explains again what the reader already understands.
 - Let quiet moments count. Not every page needs a magical reveal, glowing object, new helper or spectacle. A choice, conversation, failed idea, observation or small act can carry a scene.
 - Hide the story framework. The reader must never feel an obvious template of setup, clue, helper, setback, climax and moral, even though the story remains structurally complete.
 - Include at least one memorable line, comic beat, behaviour, image or callback that could only belong to this story and that a child might repeat the next day.
