@@ -1325,6 +1325,30 @@ CANON AUTHORITY RULES:
             return raw
         return 'child'
 
+    def _story_world_age_band(self, request: GenerateStoryRequest) -> str:
+        """Resolve the authoritative Story Worlds audience band.
+
+        Exact child age remains compatible with the existing request contract,
+        but Story Worlds storytelling policy is selected from fixed production
+        bands. Standard Bedtime Stories do not use this resolver.
+        """
+        audience = self._story_world_audience(request)
+        if audience == '16_plus':
+            return '16+'
+        if audience == 'teen':
+            return '13-15'
+
+        child_age = self._safe_child_age(request.age)
+        if child_age <= 4:
+            return '0-4'
+        if child_age <= 6:
+            return '5-6'
+        if child_age <= 8:
+            return '7-8'
+        if child_age <= 10:
+            return '9-10'
+        return '11-12'
+
     def _story_world_audience_block(self, request: GenerateStoryRequest) -> str:
         if not str(getattr(request, 'storyWorldSlug', '') or '').strip():
             return ''
@@ -4621,6 +4645,9 @@ REQUIRED CHANGES — APPLY EVERY ONE:
         last_required_changes: list[str] = []
 
         for generation_attempt in range(1, max_attempts + 1):
+            _bedtime_audit.event("continuation_attempt", page_number=next_page_number,
+                                 attempt_number=generation_attempt, max_attempts=max_attempts,
+                                 previous_rejection=str(last_error or "")[:200])
             prompt = self._build_remaining_pages_prompt(
                 request=request,
                 companion=companion,
@@ -5225,38 +5252,38 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
     def _canon_age_storytelling_block(self, request: GenerateStoryRequest) -> str:
         """Canon-specific audience calibration: Canon controls WHAT; audience controls HOW."""
         audience = self._story_world_audience(request)
-        child_age = self._safe_child_age(request.age)
+        age_band = self._story_world_age_band(request)
 
-        if audience == '16_plus':
+        if age_band == '16+':
             level = """CANON READING/READ-ALOUD LEVEL — 16+:
 - Use natural, sophisticated prose for an older teen/adult listener.
 - Preserve the fullest traditional Canon telling supported by the protected source.
 - Keep difficult events, motives and consequences intact rather than converting them into a children's substitute.
 - Do not add gratuitous gore, sexual detail or invented mature material."""
-        elif audience == 'teen':
+        elif age_band == '13-15':
             level = """CANON READING/READ-ALOUD LEVEL — AGE 13-15:
 - Use confident young-teen prose with richer vocabulary, layered dialogue, inference, atmosphere and emotional consequence.
 - Preserve difficult Canon material with less softening than child editions while remaining non-graphic.
 - Do not talk down to the listener or over-explain motives."""
-        elif child_age <= 4:
+        elif age_band == '0-4':
             level = """CANON READING/READ-ALOUD LEVEL — AGE 0-4:
 - Use very short, concrete sentences and familiar words.
 - Keep cause and effect explicit and easy to follow.
 - Use brief natural dialogue only where it helps understanding.
 - Describe frightening, violent, cruel or adult material very gently and without graphic detail."""
-        elif child_age <= 6:
+        elif age_band == '5-6':
             level = """CANON READING/READ-ALOUD LEVEL — AGE 5-6:
 - Use Oxford-inspired early-reader clarity: mostly short sentences, one clear idea at a time, familiar vocabulary and concrete actions.
 - Let important Canon moments happen as simple scenes with short dialogue and visible reactions.
 - Keep motivations clear rather than abstract.
 - Soften frightening, violent, cruel, sexual or otherwise adult presentation, but preserve the event and its cause when part of Canon."""
-        elif child_age <= 8:
+        elif age_band == '7-8':
             level = """CANON READING/READ-ALOUD LEVEL — AGE 7-8:
 - Use Oxford-inspired confident early chapter-book storytelling.
 - Use varied but clear sentences, richer child-friendly vocabulary, regular characterful dialogue and connected scenes.
 - Let motives and feelings emerge through actions and dialogue rather than narrator summary.
 - Important Canon moments should be dramatized as scenes, not reduced to plot-summary sentences."""
-        elif child_age <= 10:
+        elif age_band == '9-10':
             level = """CANON READING/READ-ALOUD LEVEL — AGE 9-10:
 - Use Oxford-inspired middle-grade clarity with richer vocabulary, varied sentence structure, stronger dialogue, motives, anticipation and consequence.
 - Allow the reader to infer some feelings and intentions.
@@ -5276,6 +5303,12 @@ CANON STORYTELLING LAW — DRAMATISE, DO NOT INVENT:
 - Never invent a new event, villain, helper, object, quest, power, solution or motivation merely to create drama.
 - Prefer showing a protected event happening in-scene over summarising it as 'they decided', 'he failed', 'she rescued him', or 'the truth was revealed' when that event deserves narrative space.
 - Dialogue may expand a Canon moment only when it preserves the recorded relationship, motivation, fact and outcome.
+
+CANON FIDELITY — NO UNSUPPORTED EMBELLISHMENT:
+- Dramatise only within facts, relationships, settings, actions, motivations and consequences supported by the approved Canon.
+- Do not invent specific scenery, physical characteristics, possessions, gestures, emotions, locations or historical details merely to make a scene more vivid.
+- Where Canon does not provide a specific factual detail, remain neutral rather than filling the gap.
+- Dialogue and reactions may make an existing Canon moment immediate, but must not introduce a new factual claim.
 """
 
         if audience == '16_plus':
@@ -5335,9 +5368,8 @@ CANON AGE-ADAPTATION LAW — NON-NEGOTIABLE:
         blocks = self._language_and_character_blocks(request, companion)
         contract = self._canon_contract(request)
         title = contract.get('title') or 'Original Folk Story'
-        child_age = self._safe_child_age(request.age)
-        audience = self._story_world_audience(request)
-        max_chars = 820 if audience in {'teen', '16_plus'} else (560 if child_age <= 6 else 700)
+        age_band = self._story_world_age_band(request)
+        max_chars = 820 if age_band in {'13-15', '16+'} else (560 if age_band in {'0-4', '5-6'} else 700)
         return f"""Write Page 1 only of a faithful canonical folklore retelling. Return only final JSON.
 
 LANGUAGE:
@@ -5346,7 +5378,7 @@ LANGUAGE:
 
 LISTENER CALIBRATION ONLY:
 - Story Worlds audience: {self._story_world_audience(request)}
-- Child-scale age value (used only when audience is child): {request.age}
+- Authoritative Story Worlds age band: {self._story_world_age_band(request)}
 - The listener's name is intentionally not supplied to Canon generation.
 - Never add or address the listener in the canonical prose.
 
@@ -7656,3 +7688,9 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         stories_saved = self.story_repo.count_all(user_id)
         if tier['max_saved_stories'] is not None and stories_saved >= tier['max_saved_stories']:
             raise HTTPException(status_code=403, detail={'error': 'storage_limit', 'message': "You've reached the maximum number of saved stories.", 'upgrade_required': True})
+
+
+# Opt-in instrumentation; existing story generation behaviour remains unchanged.
+from app.services import bedtime_audit as _bedtime_audit
+if _bedtime_audit.enabled():
+    _bedtime_audit.install(StoryService)

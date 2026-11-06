@@ -17,6 +17,7 @@ from app.models.story import (
 from app.repositories.story_repository import StoryRepository
 from app.repositories.user_repository import UserRepository
 from app.services.story_service import StoryService
+from app.services import bedtime_audit
 from app.services.subscription_service import SubscriptionService
 from app.utils.story_text import preview_from_pages
 
@@ -50,7 +51,14 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
     # Page-1-first story generation is required for PillowTales performance.
     # Return page 1 as soon as it is ready, then complete pages 2+ in the
     # background. Do not block this route on the full 7-page story.
-    story_data = await story_service.generate_story_first_page(request, subscription)
+    audit_trace = None
+    if not story_service._is_canon_request(request) and not story_service._is_folk_adventure_request(request):
+        audit_trace = bedtime_audit.begin(request)
+    audit_token = bedtime_audit.activate(audit_trace)
+    try:
+        story_data = await story_service.generate_story_first_page(request, subscription)
+    finally:
+        bedtime_audit.deactivate(audit_token)
     pages = story_data.get('pages') or []
     full_text = '\n\n'.join(pages)
     expected_pages = story_data.get('expected_pages') or 7
@@ -86,6 +94,13 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         'created_at': datetime.now(timezone.utc).isoformat(),
     }
     saved_story = story_repo.insert(record)
+    if audit_trace is not None:
+        audit_trace["story_id"] = saved_story["id"]
+        audit_trace["first_page_ready_ms"] = round((__import__("time").time() - audit_trace["started_at"]) * 1000)
+        audit_trace["status"] = generation_status
+        # Database writes run after the response path, never before Page 1 is returned.
+        if generation_status == 'complete' or len(pages) >= expected_pages:
+            asyncio.create_task(asyncio.to_thread(bedtime_audit.persist, audit_trace, story_repo.client))
     logger.info(
         '[STORY_PAGE1_READY] user_id=%s story_id=%s title=%s pages_ready=%s expected_pages=%s generation_status=%s',
         user_id,
@@ -119,15 +134,31 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
             expected_pages,
             len(pages),
         )
-        asyncio.create_task(story_service.complete_story_background(
-            request=request,
-            user_id=user_id,
-            story_id=saved_story['id'],
-            title=story_data['title'],
-            current_pages=pages,
-            companion=story_data.get('companion'),
-            expected_pages=expected_pages,
-        ))
+        async def _complete_with_audit():
+            token = bedtime_audit.activate(audit_trace)
+            try:
+                await story_service.complete_story_background(
+                    request=request,
+                    user_id=user_id,
+                    story_id=saved_story['id'],
+                    title=story_data['title'],
+                    current_pages=pages,
+                    companion=story_data.get('companion'),
+                    expected_pages=expected_pages,
+                )
+                if audit_trace is not None:
+                    audit_trace["status"] = "background_finished"
+            except Exception:
+                if audit_trace is not None:
+                    audit_trace["status"] = "background_exception"
+                raise
+            finally:
+                bedtime_audit.deactivate(token)
+                if audit_trace is not None:
+                    await asyncio.to_thread(bedtime_audit.persist, audit_trace, story_repo.client)
+        asyncio.create_task(_complete_with_audit())
+        # The original background call has been wrapped above.
+
 
     return StoryResponse(
         storyId=saved_story['id'],
