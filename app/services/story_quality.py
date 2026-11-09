@@ -360,7 +360,10 @@ PLANNING RULES:
 - answer_to_opening_question: exactly how Page 7 answers it. Every question Page 1 raises must be answered
   (for example: who sent the letter, what hatches from the egg, why the song is lost).
 - hidden_explanation: the true explanation behind any mystery on Page 1, decided now, consistent with Page 1.
+  It must be REVEALED ALOUD in one of the beats (say it in that beat), never left only in these notes.
 - {_age_stakes_line(age)}
+- stakes: what is at risk. The listener must HEAR the stakes on the page by Page 3 (put them in the Page 2 or
+  Page 3 beat), and the setback beat must make it look as if the bad outcome could really happen.
 - beats: exactly six strings, one per page for Pages 2,3,4,5,6,7. Each 1-2 sentences describing what HAPPENS.
   Every page must move the story forward; no page may only repeat a search or re-explain the problem.
   Page 2 develops the hook. Pages 3-4 complicate it. Page 4 or 5 contains the setback.
@@ -369,13 +372,49 @@ PLANNING RULES:
 - setback: the moment the child's first approach fails or things get worse.
 - childs_decisive_act: what the child THEMSELF does on Page 6 that causes the resolution. It must be the
   child's own idea using something established earlier. Never luck, an accident, an adult or helper solving it.
+  {_decisive_act_cost_line(age)}
 - callback_detail: one specific Page 1 detail that returns meaningfully on Page 7.
 - final_image: the concrete, calm last image of the story.
-- threads_to_close: every open thread that must be resolved by Page 7.
+- threads_to_close: every open thread that must be resolved by Page 7. Each must be answered in words the
+  listener hears on the page, so put each answer into a specific beat.
 - Introduce no new important character after Page 4. Keep the cast small.
 - Keep Page 1 facts exactly; do not contradict them.
+- NAMES: any new character or creature you name must NOT use a name from the avoid list below. Banned names
+  are banned in the plan too; a plan that uses one is rejected.
 {avoid_block}
 """
+
+
+def _decisive_act_cost_line(age: int) -> str:
+    if age >= 7:
+        return ("For this age the decisive act must cost the child something real (giving up something they love, "
+                "facing a fear, admitting a mistake) or take visible courage, so the moral lands without being stated.")
+    return "Keep the decisive act simple, gentle and clearly the child's own."
+
+
+def banned_names_in_text(text: Any, names: Iterable[str]) -> List[str]:
+    """Avoided names used as names (whole word, capitalised as given) in text.
+
+    Case-sensitive on purpose: "her voice was squeaky" must not match the
+    banned name "Squeaky", and "a willow tree" must not match "Willow".
+    """
+    haystack = str(text or "")
+    found = []
+    for name in names:
+        name = str(name or "").strip()
+        if len(name) < 2:
+            continue
+        if re.search(r"(?<![\w])" + re.escape(name) + r"(?![\w])", haystack):
+            found.append(name)
+    return found
+
+
+def plan_text(plan: Any) -> str:
+    try:
+        import json as _json
+        return _json.dumps(plan, ensure_ascii=False)
+    except Exception:
+        return str(plan)
 
 
 def plan_is_valid(plan: Any) -> bool:
@@ -406,7 +445,9 @@ LOCKED STORY PLAN — PRIVATE EDITORIAL NOTES (follow it; never quote these note
 - The child's decisive act (Page 6, the child's own idea): {plan.get('childs_decisive_act')}
 - Callback detail for Page 7: {plan.get('callback_detail')}
 - Final image: {plan.get('final_image')}
-- Threads that must be closed by Page 7: {threads}
+- Threads that must be closed by Page 7, each answered in words the listener hears: {threads}
+- The stakes must be heard on the page by Page 3 and feel truly at risk at the setback.
+- The hidden explanation must be revealed on the page, not left implied.
 - Page beats:
 {beats}
 - The story is incomplete if the opening question is unanswered, the child's decisive act is replaced by luck, an accident or a helper, or any listed thread is left open.

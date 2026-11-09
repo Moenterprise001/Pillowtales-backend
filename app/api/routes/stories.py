@@ -18,6 +18,8 @@ from app.models.story import (
 from app.repositories.story_repository import StoryRepository
 from app.repositories.user_repository import UserRepository
 from app.services import story_quality
+
+_BACKGROUND_TASKS: set = set()
 from app.services.story_service import StoryService
 from app.services.subscription_service import SubscriptionService
 from app.utils.story_text import preview_from_pages
@@ -167,7 +169,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
             expected_pages,
             len(pages),
         )
-        asyncio.create_task(story_service.complete_story_background(
+        task = asyncio.create_task(story_service.complete_story_background(
             request=request,
             user_id=user_id,
             story_id=saved_story['id'],
@@ -176,6 +178,11 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
             companion=story_data.get('companion'),
             expected_pages=expected_pages,
         ))
+        # Keep a strong reference until the task finishes. asyncio only holds
+        # weak references to tasks, so an unreferenced background task can be
+        # garbage-collected mid-run (pages 2+ or the trace silently lost).
+        _BACKGROUND_TASKS.add(task)
+        task.add_done_callback(_BACKGROUND_TASKS.discard)
 
     return StoryResponse(
         storyId=saved_story['id'],

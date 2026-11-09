@@ -7243,7 +7243,13 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             and self._safe_child_age(request.age) >= min_age
         )
 
-    async def _ensure_story_plan(self, request: GenerateStoryRequest, title: str, current_pages: list[str]) -> None:
+    async def _ensure_story_plan(
+        self,
+        request: GenerateStoryRequest,
+        title: str,
+        current_pages: list[str],
+        companion: Optional[dict] = None,
+    ) -> None:
         """Fix 1: plan Pages 2-7 once, in the background, before Page 2.
 
         Runs while Page 1 is being read aloud, so it adds no parent-visible
@@ -7260,25 +7266,47 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             return
         t_start = time.time()
         try:
+            history = self._recent_story_history(request)
+            banned = _quality.avoid_names_for(request, history, companion)
             prompt = _quality.build_plan_prompt(
                 request=request,
                 title=title,
                 page_one=current_pages[0],
                 moral_requested=self._moral_requested(request),
-                avoid_block=_quality.avoid_repeats_block(
-                    request, self._recent_story_history(request), None
-                ),
+                avoid_block=_quality.avoid_repeats_block(request, history, companion),
                 age=self._safe_child_age(request.age),
             )
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self._generate_content_sync, prompt, _quality.PLAN_RESPONSE_SCHEMA, 1600
-                ),
-                timeout=_quality.PLAN_TIMEOUT_SECONDS,
-            )
-            plan = self._clean_json_response(getattr(response, "text", "") or "")
-            if not _quality.plan_is_valid(plan):
-                raise ValueError("plan missing required fields")
+            plan = None
+            banned_used: list[str] = []
+            for plan_attempt in range(1, 3):
+                attempt_prompt = prompt
+                if banned_used:
+                    attempt_prompt += (
+                        "\nREJECTED: your previous plan used these banned names: "
+                        + ", ".join(banned_used)
+                        + ". Write the whole plan again with fresh, easy-to-say names instead.\n"
+                    )
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._generate_content_sync, attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA, 1600
+                    ),
+                    timeout=_quality.PLAN_TIMEOUT_SECONDS,
+                )
+                candidate = self._clean_json_response(getattr(response, "text", "") or "")
+                if not _quality.plan_is_valid(candidate):
+                    raise ValueError("plan missing required fields")
+                # Names already on Page 1 are part of the fixed story, not new choices.
+                banned_used = [
+                    name for name in _quality.banned_names_in_text(_quality.plan_text(candidate), banned)
+                    if not _quality.banned_names_in_text(current_pages[0], [name])
+                ]
+                plan = candidate
+                _quality.trace_set(request, "plan_attempts", plan_attempt)
+                if not banned_used:
+                    break
+                _quality.trace_event(request, "plan_banned_names", attempt=plan_attempt, names=", ".join(banned_used))
+            if banned_used:
+                _quality.trace_set(request, "plan_banned_names_kept", banned_used)
             plan["beats"] = [str(beat).strip() for beat in plan["beats"][:6]]
             state["plan"] = plan
             _quality.trace_set(request, "plan_status", "ok")
@@ -7423,7 +7451,10 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                     else postprocess_story_pages(current_pages)[:expected_pages]
                 )
                 if not is_dynamic_canon:
-                    await self._ensure_story_plan(request, title, working_pages)
+                    await self._ensure_story_plan(request, title, working_pages, companion)
+                    # Save in stages so an interrupted task still leaves the plan on record.
+                    _quality.trace_set(request, "final_status", "planning_done")
+                    self.persist_generation_trace(request, story_id, user_id)
 
                 while is_dynamic_canon or len(working_pages) < expected_pages:
                     preferred_batch_count = (
@@ -7747,6 +7778,19 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 print(f"[PERF] metadata_extract skipped story_id={story_id}: {metadata_exc}")
 
             if not is_dynamic_canon:
+                try:
+                    _banned = _quality.avoid_names_for(
+                        request, _quality.get_state(request).get("history") or {}, companion
+                    )
+                    _quality.trace_set(request, "banned_names_in_story", [
+                        name for name in _quality.banned_names_in_text(" ".join(all_pages[1:]), _banned)
+                        if not _quality.banned_names_in_text(all_pages[0] if all_pages else "", [name])
+                    ])
+                except Exception:
+                    pass
+                _quality.trace_set(request, "final_status", "pages_complete_scoring")
+                _quality.trace_set(request, "background_seconds", round(time.time() - start_total, 2))
+                self.persist_generation_trace(request, story_id, user_id)
                 await self._score_story(request, title, all_pages)
                 _quality.trace_set(request, "final_status", "complete")
                 _quality.trace_set(request, "background_seconds", round(time.time() - start_total, 2))
