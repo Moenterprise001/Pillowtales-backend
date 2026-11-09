@@ -32,6 +32,7 @@ from app.models.subscription import SubscriptionResponse
 from app.repositories.story_repository import StoryRepository
 from app.repositories.story_world_repository import StoryWorldRepository
 from app.utils.story_text import postprocess_story_pages
+from app.services import story_quality as _quality
 
 
 OPENING_SEED_FAMILIES = [
@@ -2565,7 +2566,29 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 - Page 7 must answer or fulfil the opening promise, complete the emotional change, reuse the callback naturally, and settle safely.
 - The ending is incomplete if it only fixes an object or completes a task while leaving the opening wish, question, relationship, or emotional need unanswered.
 - The ending should depend on specific events, choices, relationships, clues, habits, or rules from this story. If it could be pasted into another story with only the names changed, it is not good enough.
-"""
+""" + _quality.plan_spine_block(_quality.get_state(request).get("plan"))
+
+    def _record_rule_fingerprints(self, request: GenerateStoryRequest) -> None:
+        """Fix 5: record exactly which rule-text versions this story used."""
+        try:
+            trace = _quality.get_trace(request)
+            if trace.get("rules"):
+                return
+            rules = {
+                "author_voice": self._children_author_voice_rules(),
+                "first_page_spine_setup": self._first_page_spine_setup_rules(request),
+                "name_pronoun": self._natural_name_pronoun_rules(),
+                "first_page_quality": self._standard_bedtime_first_page_quality_rules(request),
+                "read_aloud_cadence": self._natural_read_aloud_cadence_rules(),
+                "elite_quality": self._standard_bedtime_elite_quality_rules(request),
+                "narrative_progression": self._bedtime_narrative_progression_rules(),
+                "ending_engine": self._ending_engine_rules(),
+                "age_lock": self._first_page_age_prompt_rules(request.age),
+            }
+            trace["rules"] = {key: _quality.fingerprint(value) for key, value in rules.items()}
+            trace["rules_combined"] = _quality.fingerprint("|".join(trace["rules"].values()))
+        except Exception as exc:
+            _quality.trace_set(request, "rules_error", str(exc)[:200])
 
     def _first_page_spine_setup_rules(self, request: GenerateStoryRequest) -> str:
         moral_line = (
@@ -3073,31 +3096,40 @@ FINAL QUALITY CHECK:
         """
         child = request.childName or "the child"
         language_code = (request.storyLanguageCode or "en").lower()[:2]
-        theme_key = str(request.theme or request.customTheme or "").lower().replace("-", "_").replace(" ", "_")
 
-        theme_seed_allowlist = {
-            "space": {"ancient_observatory", "star_painter_cottage", "river_of_stars", "moon_bakery", "pillow_harbour"},
-            "dragons": {"dragon_market", "dragon_post_office", "sleepy_castle_hall"},
-            "dragon": {"dragon_market", "dragon_post_office", "sleepy_castle_hall"},
-            "princess": {"glass_slipper_cafe", "sleepy_castle_hall", "hidden_garden_gate"},
-            "animals": {"forest_school", "honeybee_palace", "little_lighthouse_cafe", "sleepy_forest_path"},
-            "animal": {"forest_school", "honeybee_palace", "little_lighthouse_cafe", "sleepy_forest_path"},
-            "forest": {"sleepy_forest_path", "forest_school", "hidden_garden_gate", "rainbow_garden"},
-            "dinosaurs": {"dinosaur_kindergarten", "hidden_dinosaur_valley"},
-            "dinosaur": {"dinosaur_kindergarten", "hidden_dinosaur_valley"},
-            "underwater": {"underwater_palace", "mermaid_library", "whale_island", "seaside_cave"},
-            "adventure": {"pillow_harbour", "glowing_attic", "hidden_garden_gate", "toymaker_workshop", "little_lighthouse_cafe"},
-            "magic": {"moonlit_library", "toymaker_workshop", "rainbow_garden", "hidden_garden_gate"},
-        }
+        # Consistency 20261109: one seed per request (Page 1 prompt and the
+        # local fallback must agree), custom themes matched by keyword, and
+        # seeds this child heard recently are skipped when alternatives exist.
+        state = _quality.get_state(request)
+        cached = state.get("opening_seed")
+        if isinstance(cached, dict):
+            return cached
 
         age_pool = self._seed_pool_for_age(request.age)
-        allowed_for_theme = theme_seed_allowlist.get(theme_key)
+        allowed_for_theme, pool_label = _quality.resolve_theme_seed_families(
+            request.theme, request.customTheme
+        )
         if allowed_for_theme:
             themed_pool = [seed for seed in age_pool if seed.get("family") in allowed_for_theme]
             if themed_pool:
                 age_pool = themed_pool
+            else:
+                pool_label = f"{pool_label}:empty_for_age_fallback"
+
+        history = self._recent_story_history(request)
+        recent_families = history.get("families") or set()
+        fresh_pool = [seed for seed in age_pool if seed.get("family") not in recent_families]
+        excluded = len(age_pool) - len(fresh_pool)
+        if fresh_pool:
+            age_pool = fresh_pool
 
         seed = random.choice(age_pool)
+        _quality.trace_set(request, "seed", {
+            "family": seed.get("family"),
+            "pool": pool_label,
+            "pool_size": len(age_pool),
+            "excluded_recent": excluded,
+        })
         template = seed.get(language_code)
         if not template and language_code == "ja":
             template = "{childName}は、眠る前の静かな時間に、小さな不思議を見つけました。"
@@ -3105,10 +3137,34 @@ FINAL QUALITY CHECK:
             template = "في هدوء ما قبل النوم، وجد {childName} شيئًا صغيرًا وعجيبًا ينتظر بداية الحكاية."
         elif not template:
             template = seed["en"]
-        return {
+        selected = {
             "family": seed.get("family", "place_entry"),
             "sentence": template.replace("{childName}", child),
         }
+        state["opening_seed"] = selected
+        return selected
+
+    def _recent_story_history(self, request: GenerateStoryRequest) -> dict:
+        """Recent Standard Bedtime titles/names/seeds for this child (cached per request)."""
+        state = _quality.get_state(request)
+        history = state.get("history")
+        if isinstance(history, dict):
+            return history
+        t_start = time.time()
+        history = _quality.load_recent_history(
+            getattr(self, "story_repo", None),
+            getattr(request, "userId", None),
+            getattr(request, "childName", None),
+        )
+        state["history"] = history
+        _quality.trace_set(request, "history", {
+            "loaded": history.get("loaded"),
+            "recent_titles": len(history.get("titles") or []),
+            "recent_families": sorted(history.get("families") or []),
+            "ms": int((time.time() - t_start) * 1000),
+            "error": history.get("error"),
+        })
+        return history
 
     def _opening_transition_rule(self, opening_family: str) -> str:
         return (
@@ -4645,9 +4701,6 @@ REQUIRED CHANGES — APPLY EVERY ONE:
         last_required_changes: list[str] = []
 
         for generation_attempt in range(1, max_attempts + 1):
-            _bedtime_audit.event("continuation_attempt", page_number=next_page_number,
-                                 attempt_number=generation_attempt, max_attempts=max_attempts,
-                                 previous_rejection=str(last_error or "")[:200])
             prompt = self._build_remaining_pages_prompt(
                 request=request,
                 companion=companion,
@@ -4656,6 +4709,20 @@ REQUIRED CHANGES — APPLY EVERY ONE:
                 remaining_page_count=batch_count,
                 next_page_number=next_page_number,
             )
+            if not self._is_canon_request(request) and not self._is_folk_adventure_request(request):
+                _quality_state = _quality.get_state(request)
+                prompt = _quality.inject_before_output_format(
+                    prompt,
+                    "\n".join(block for block in (
+                        _quality.plan_page_focus_block(_quality_state.get("plan"), next_page_number, batch_count),
+                        _quality.avoid_repeats_block(request, _quality_state.get("history") or {}, companion),
+                    ) if block),
+                )
+                if generation_attempt > 1:
+                    _quality.trace_event(
+                        request, "page_retry", page=next_page_number, attempt=generation_attempt,
+                        previous_rejection=str(last_error or "")[:200],
+                    )
             if generation_attempt > 1 and str(last_error or "").startswith("moral_leak_"):
                 prompt += f"""
 
@@ -4989,6 +5056,12 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                         existing_pages=working_pages,
                         candidate_page=sanitized[0],
                     )
+                if not is_canon and not self._is_folk_adventure_request(request):
+                    _quality.trace_event(
+                        request, "page7_review", attempt=generation_attempt,
+                        valid=bool(semantic_valid), reason=str(semantic_reason)[:200],
+                        failed=[key for key, passed in (check_results or {}).items() if not passed],
+                    )
                 if not semantic_valid:
                     last_error = semantic_reason
                     last_required_changes = required_changes
@@ -5051,6 +5124,9 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                             f"story_title={title!r} reason={semantic_reason!r} "
                             f"checks={check_results}"
                         )
+                        _quality.trace_set(request, "page7_forced_completion", True)
+                    if not self._is_canon_request(request) and not self._is_folk_adventure_request(request):
+                        _quality.trace_set(request, "page7_accepted_with_failed_review", True)
                     if self._is_canon_request(request):
                         print(
                             f"[PERF] final_page_completion_validated_with_secondary_warnings "
@@ -5879,6 +5955,11 @@ JSON ONLY:
             age_contract = "Use older-child bedtime language: richer but clear, one hook, one reason the child is involved."
             max_chars = "700"
 
+        freshness_block = _quality.avoid_repeats_block(
+            request, self._recent_story_history(request), companion
+        )
+        self._record_rule_fingerprints(request)
+
         return f"""Write Page 1 only. Do not plan or analyse. Return only final JSON.
 
 LANGUAGE:
@@ -5903,6 +5984,7 @@ STORY WORLD ISOLATION:
 {self._natural_name_pronoun_rules()}
 {self._standard_bedtime_first_page_quality_rules(request)}
 {self._natural_read_aloud_cadence_rules()}
+{freshness_block}
 PAGE 1 JOB:
 - Write like a relaxed children's author starting a favourite bedtime adventure.
 - Start from this theme-matched opening idea, rewritten naturally: "{opening}"
@@ -7153,6 +7235,101 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             fallback['first_page_generation_source'] = 'fallback_exception'
             return fallback
 
+    def _quality_layer_applies(self, request: GenerateStoryRequest, min_age: int) -> bool:
+        return (
+            bool(self.model)
+            and not self._is_canon_request(request)
+            and not self._is_folk_adventure_request(request)
+            and self._safe_child_age(request.age) >= min_age
+        )
+
+    async def _ensure_story_plan(self, request: GenerateStoryRequest, title: str, current_pages: list[str]) -> None:
+        """Fix 1: plan Pages 2-7 once, in the background, before Page 2.
+
+        Runs while Page 1 is being read aloud, so it adds no parent-visible
+        wait. Fails open: without a plan the story continues exactly as before.
+        """
+        state = _quality.get_state(request)
+        if state.get("plan") or not current_pages or len(current_pages) > 1:
+            return
+        if os.getenv("BEDTIME_STORY_PLAN_ENABLED", "1").strip().lower() in {"0", "false", "no", "off"}:
+            _quality.trace_set(request, "plan_status", "disabled")
+            return
+        if not self._quality_layer_applies(request, _quality.PLAN_MIN_AGE):
+            _quality.trace_set(request, "plan_status", "not_applicable")
+            return
+        t_start = time.time()
+        try:
+            prompt = _quality.build_plan_prompt(
+                request=request,
+                title=title,
+                page_one=current_pages[0],
+                moral_requested=self._moral_requested(request),
+                avoid_block=_quality.avoid_repeats_block(
+                    request, self._recent_story_history(request), None
+                ),
+                age=self._safe_child_age(request.age),
+            )
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._generate_content_sync, prompt, _quality.PLAN_RESPONSE_SCHEMA, 1600
+                ),
+                timeout=_quality.PLAN_TIMEOUT_SECONDS,
+            )
+            plan = self._clean_json_response(getattr(response, "text", "") or "")
+            if not _quality.plan_is_valid(plan):
+                raise ValueError("plan missing required fields")
+            plan["beats"] = [str(beat).strip() for beat in plan["beats"][:6]]
+            state["plan"] = plan
+            _quality.trace_set(request, "plan_status", "ok")
+            _quality.trace_set(request, "plan", plan)
+        except Exception as exc:
+            _quality.trace_set(request, "plan_status", f"failed:{str(exc)[:160]}")
+            print(f"[QUALITY] story_plan_failed error={str(exc)[:200]}")
+        finally:
+            _quality.trace_set(request, "plan_ms", int((time.time() - t_start) * 1000))
+
+    async def _score_story(self, request: GenerateStoryRequest, title: str, pages: list[str]) -> None:
+        """Fix 2: score the finished story (score only; pages are already live)."""
+        if os.getenv("BEDTIME_STORY_SCORE_ENABLED", "1").strip().lower() in {"0", "false", "no", "off"}:
+            _quality.trace_set(request, "score_status", "disabled")
+            return
+        if not self._quality_layer_applies(request, _quality.SCORE_MIN_AGE):
+            _quality.trace_set(request, "score_status", "not_applicable")
+            return
+        t_start = time.time()
+        try:
+            prompt = _quality.build_score_prompt(
+                request, title, pages, self._moral_requested(request), self._safe_child_age(request.age)
+            )
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._generate_content_sync, prompt, _quality.SCORE_RESPONSE_SCHEMA, 1200
+                ),
+                timeout=_quality.SCORE_TIMEOUT_SECONDS,
+            )
+            result = self._clean_json_response(getattr(response, "text", "") or "")
+            score = _quality.summarise_score(result)
+            if score.get("overall") is None:
+                raise ValueError("score response had no criteria")
+            _quality.trace_set(request, "score", score)
+            _quality.trace_set(request, "score_status", "ok")
+            print(f"[QUALITY] story_score overall={score['overall']} weakest_page={score.get('weakest_page')}")
+        except Exception as exc:
+            _quality.trace_set(request, "score_status", f"failed:{str(exc)[:160]}")
+            print(f"[QUALITY] story_score_failed error={str(exc)[:200]}")
+        finally:
+            _quality.trace_set(request, "score_ms", int((time.time() - t_start) * 1000))
+
+    def persist_generation_trace(self, request: GenerateStoryRequest, story_id: str, user_id: str) -> None:
+        """Fix 5: save the trace. Never breaks story saving (e.g. before migration)."""
+        try:
+            trace = _quality.get_trace(request)
+            trace["persisted_at_epoch"] = round(time.time(), 3)
+            self.story_repo.update(story_id, user_id, {"generation_trace": trace})
+        except Exception as exc:
+            print(f"[QUALITY] generation_trace_persist_failed story_id={story_id} error={str(exc)[:200]}")
+
     async def complete_story_background(
         self,
         request: GenerateStoryRequest,
@@ -7245,6 +7422,8 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                     if is_dynamic_canon
                     else postprocess_story_pages(current_pages)[:expected_pages]
                 )
+                if not is_dynamic_canon:
+                    await self._ensure_story_plan(request, title, working_pages)
 
                 while is_dynamic_canon or len(working_pages) < expected_pages:
                     preferred_batch_count = (
@@ -7282,6 +7461,10 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                             print(
                                 f"[PERF] remaining_pages_attempt FAILED story_id={story_id} "
                                 f"next_page={next_page_number} count={batch_count} error={last_batch_error[:300]}"
+                            )
+                            _quality.trace_event(
+                                request, "page_batch_failed", page=next_page_number,
+                                error=last_batch_error[:200],
                             )
 
                     if not batch_pages:
@@ -7385,6 +7568,8 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                                     f"pages={len(safe_pages)}/{expected_pages} "
                                     f"total={time.time() - start_total:.2f}s"
                                 )
+                                _quality.trace_set(request, "final_status", "partial_paused_after_recovery")
+                                self.persist_generation_trace(request, story_id, user_id)
                                 return
                             raise ValueError(
                                 last_batch_error
@@ -7524,6 +7709,8 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                         f"[PERF] complete_story_background PARTIAL_ONLY story_id={story_id} "
                         f"pages={len(safe_pages)}/{expected_pages} total={time.time() - start_total:.2f}s"
                     )
+                    _quality.trace_set(request, "final_status", "partial_partial_only")
+                    self.persist_generation_trace(request, story_id, user_id)
                     return
                 raise ValueError(f"Remaining generation produced only {len(all_pages)} of {expected_pages} pages")
 
@@ -7559,9 +7746,18 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             except Exception as metadata_exc:
                 print(f"[PERF] metadata_extract skipped story_id={story_id}: {metadata_exc}")
 
+            if not is_dynamic_canon:
+                await self._score_story(request, title, all_pages)
+                _quality.trace_set(request, "final_status", "complete")
+                _quality.trace_set(request, "background_seconds", round(time.time() - start_total, 2))
+                self.persist_generation_trace(request, story_id, user_id)
+
             print(f"[PERF] complete_story_background DONE story_id={story_id} pages={len(all_pages)} total={time.time() - start_total:.2f}s")
         except Exception as exc:
             print(f"[PERF] complete_story_background FAILED story_id={story_id}: {exc}")
+            if not self._is_canon_request(request):
+                _quality.trace_set(request, "final_status", f"failed:{str(exc)[:200]}")
+                self.persist_generation_trace(request, story_id, user_id)
             try:
                 safe_pages = postprocess_story_pages(current_pages)[:expected_pages]
                 if safe_pages:
@@ -7688,9 +7884,3 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         stories_saved = self.story_repo.count_all(user_id)
         if tier['max_saved_stories'] is not None and stories_saved >= tier['max_saved_stories']:
             raise HTTPException(status_code=403, detail={'error': 'storage_limit', 'message': "You've reached the maximum number of saved stories.", 'upgrade_required': True})
-
-
-# Opt-in instrumentation; existing story generation behaviour remains unchanged.
-from app.services import bedtime_audit as _bedtime_audit
-if _bedtime_audit.enabled():
-    _bedtime_audit.install(StoryService)

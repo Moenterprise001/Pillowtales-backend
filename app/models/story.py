@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from typing import List, Literal, Optional
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, PrivateAttr, field_validator
 
 
 class StoryCharacter(BaseModel):
@@ -31,6 +31,12 @@ class GenerateStoryRequest(BaseModel):
     storyWorldAudience: Optional[Literal['child', 'teen', '16_plus']] = None
     storyWorldMode: Optional[Literal['traditional_folk_tale', 'pillowtales_folk_adventure']] = None
     storyWorldAnchorSlug: Optional[str] = None
+    # Consistency 20261109: which Bedtime flow created the request. Optional so
+    # older app builds keep working; recorded in generation_trace only.
+    storyType: Optional[Literal['pillowtales_selected', 'parent_selected']] = None
+    # Request-scoped consistency state (seed, history, plan, generation trace).
+    # Private: never part of the API contract.
+    _quality_state: dict = PrivateAttr(default_factory=dict)
 
     @field_validator('customMoral')
     @classmethod

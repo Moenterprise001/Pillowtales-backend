@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import asyncio
 import logging
+import time
 from datetime import datetime, timezone
 
 from fastapi import APIRouter, Depends, HTTPException
@@ -16,8 +17,8 @@ from app.models.story import (
 )
 from app.repositories.story_repository import StoryRepository
 from app.repositories.user_repository import UserRepository
+from app.services import story_quality
 from app.services.story_service import StoryService
-from app.services import bedtime_audit
 from app.services.subscription_service import SubscriptionService
 from app.utils.story_text import preview_from_pages
 
@@ -41,6 +42,20 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         bool(getattr(request, 'customMoral', None)),
         getattr(request, 'companionId', None),
     )
+    # Consistency 20261109 (fix 4): reject unsuitable custom theme/moral text
+    # before any generation or quota use. Preset themes/morals never match.
+    unsafe_term = story_quality.unsafe_custom_text(
+        request.customTheme, request.customMoral,
+        request.theme if request.customTheme is None else None,
+        request.moral if request.customMoral is None else None,
+    )
+    if unsafe_term:
+        logger.warning('[STORY_REQUEST_REJECTED] user_id=%s reason=unsafe_custom_text term=%s', user_id, unsafe_term)
+        raise HTTPException(
+            status_code=400,
+            detail='That theme or moral is not suitable for a children\'s bedtime story. Please choose another.',
+        )
+
     profile = user_repo.get_profile(user_id)
     if not profile:
         logger.warning('[PROFILE_MISSING] user_id=%s endpoint=/api/generateStory', user_id)
@@ -48,23 +63,44 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
     subscription = subscription_service.get_subscription(user_id, profile.get('email'))
     story_service.validate_story_limits(user_id, subscription)
 
+    # Consistency 20261109 (fix 4): the parent's custom moral must reach the
+    # story prompts. Previously the service received the literal 'other'.
+    custom_moral = (request.customMoral or '').strip()[:15] if getattr(request, 'customMoral', None) else ''
+    requested_moral = request.moral
+    effective_moral = (custom_moral if request.moral == 'other' and custom_moral else request.moral)
+    request.moral = effective_moral
+
+    story_quality.trace_set(request, 'story_type', request.storyType or 'unknown')
+    story_quality.trace_set(request, 'inputs', {
+        'age': request.age,
+        'theme': request.theme,
+        'custom_theme': request.customTheme,
+        'moral_sent': requested_moral,
+        'custom_moral': custom_moral or None,
+        'effective_moral': effective_moral,
+        'moral_branch': story_service._moral_requested(request),
+        'language': request.storyLanguageCode,
+        'calm_level': request.calmLevel,
+        'companion_id': request.companionId,
+        'extra_characters': len(request.characters or []),
+        'story_world_slug': request.storyWorldSlug,
+    })
+
     # Page-1-first story generation is required for PillowTales performance.
     # Return page 1 as soon as it is ready, then complete pages 2+ in the
     # background. Do not block this route on the full 7-page story.
-    audit_trace = None
-    if not story_service._is_canon_request(request) and not story_service._is_folk_adventure_request(request):
-        audit_trace = bedtime_audit.begin(request)
-    audit_token = bedtime_audit.activate(audit_trace)
-    try:
-        story_data = await story_service.generate_story_first_page(request, subscription)
-    finally:
-        bedtime_audit.deactivate(audit_token)
+    t_page1 = time.time()
+    story_data = await story_service.generate_story_first_page(request, subscription)
+    story_quality.trace_set(request, 'page1', {
+        'source': story_data.get('first_page_generation_source'),
+        'fallback_reason': story_data.get('generation_fallback_reason'),
+        'seconds': round(time.time() - t_page1, 2),
+        'title': story_data.get('title'),
+    })
     pages = story_data.get('pages') or []
     full_text = '\n\n'.join(pages)
     expected_pages = story_data.get('expected_pages') or 7
     generation_status = story_data.get('generation_status') or ('complete' if len(pages) >= expected_pages else 'partial')
-    custom_moral = (request.customMoral or '').strip()[:15] if getattr(request, 'customMoral', None) else ''
-    effective_moral = (custom_moral if request.moral == 'other' and custom_moral else request.moral)
     story_world_metadata = story_service.get_story_world_generation_metadata(request)
 
     record = {
@@ -94,13 +130,10 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         'created_at': datetime.now(timezone.utc).isoformat(),
     }
     saved_story = story_repo.insert(record)
-    if audit_trace is not None:
-        audit_trace["story_id"] = saved_story["id"]
-        audit_trace["first_page_ready_ms"] = round((__import__("time").time() - audit_trace["started_at"]) * 1000)
-        audit_trace["status"] = generation_status
-        # Database writes run after the response path, never before Page 1 is returned.
-        if generation_status == 'complete' or len(pages) >= expected_pages:
-            asyncio.create_task(asyncio.to_thread(bedtime_audit.persist, audit_trace, story_repo.client))
+    # Fix 5: initial trace (Page 1 facts). The background task overwrites it
+    # with the complete trace. Separate update so a missing column (before
+    # the migration is applied) can never break story saving.
+    story_service.persist_generation_trace(request, saved_story['id'], user_id)
     logger.info(
         '[STORY_PAGE1_READY] user_id=%s story_id=%s title=%s pages_ready=%s expected_pages=%s generation_status=%s',
         user_id,
@@ -134,31 +167,15 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
             expected_pages,
             len(pages),
         )
-        async def _complete_with_audit():
-            token = bedtime_audit.activate(audit_trace)
-            try:
-                await story_service.complete_story_background(
-                    request=request,
-                    user_id=user_id,
-                    story_id=saved_story['id'],
-                    title=story_data['title'],
-                    current_pages=pages,
-                    companion=story_data.get('companion'),
-                    expected_pages=expected_pages,
-                )
-                if audit_trace is not None:
-                    audit_trace["status"] = "background_finished"
-            except Exception:
-                if audit_trace is not None:
-                    audit_trace["status"] = "background_exception"
-                raise
-            finally:
-                bedtime_audit.deactivate(token)
-                if audit_trace is not None:
-                    await asyncio.to_thread(bedtime_audit.persist, audit_trace, story_repo.client)
-        asyncio.create_task(_complete_with_audit())
-        # The original background call has been wrapped above.
-
+        asyncio.create_task(story_service.complete_story_background(
+            request=request,
+            user_id=user_id,
+            story_id=saved_story['id'],
+            title=story_data['title'],
+            current_pages=pages,
+            companion=story_data.get('companion'),
+            expected_pages=expected_pages,
+        ))
 
     return StoryResponse(
         storyId=saved_story['id'],
