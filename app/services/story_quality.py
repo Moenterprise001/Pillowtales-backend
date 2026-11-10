@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "bedtime_prompts_v5=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "bedtime_prompts_v5b=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -282,10 +282,20 @@ def avoid_names_for(request: Any, history: Dict[str, Any], companion: Optional[d
     return names[:25]
 
 
+# Data-driven (Supabase, 10 Nov 2026): "whispering" was in 22 bedtime titles,
+# "secret" 11, "lost" 8, "sleepy" 7, "brave" 5.
+OVERUSED_TITLE_WORDS = ["Whispering", "Secret", "Lost", "Sleepy", "Brave", "Silver", "Little", "Starry", "Magical", "Mysterious"]
+
+
+def overused_title_words_in(title: Any) -> List[str]:
+    words = {w.lower() for w in re.findall(r"[A-Za-z]+", str(title or ""))}
+    return [w for w in OVERUSED_TITLE_WORDS if w.lower() in words]
+
+
 def avoid_repeats_block(request: Any, history: Dict[str, Any], companion: Optional[dict]) -> str:
     names = avoid_names_for(request, history, companion)
     titles = history.get("titles", [])[:RECENT_HISTORY_LIMIT]
-    if not names and not titles:
+    if not names and not titles and not prompts_v5_enabled():
         return ""
     lines = ["FRESHNESS — AVOID REPEATS:"]
     if titles:
@@ -293,6 +303,8 @@ def avoid_repeats_block(request: Any, history: Dict[str, Any], companion: Option
     if names:
         lines.append("- Do not use these names for any new side character (they are overused or already heard): " + ", ".join(names) + ". Invent a fresh, easy-to-say name that suits the world.")
     lines.append("- Do not repeat a premise this child has already heard (for example the same lost object, same letter mystery, same school).")
+    if prompts_v5_enabled():
+        lines.append("- TITLE: do not use these overused title words: " + ", ".join(OVERUSED_TITLE_WORDS) + ". Never put the moral or a form of it in the title. Name the specific thing this story is about.")
     return "\n".join(lines)
 
 
@@ -523,7 +535,7 @@ def inject_before_output_format(prompt: str, block: str) -> str:
 SCORE_CRITERIA = [
     ("opening_promise_resolved", "Every question/wish/mystery raised on Page 1 is clearly answered by the end."),
     ("child_drives_climax", "The child's own idea or action causes the resolution; not luck, an accident or a helper."),
-    ("stakes_and_tension", "There is a real, age-appropriate problem, a genuine setback, and a moment of doubt."),
+    ("stakes_and_tension", "There is a concrete, bedtime-safe stake shown on the page (something will be lost, missed, broken or spoiled, and someone will mind), a genuine setback where that loss nearly happens, and a moment of doubt. Do not reward danger or fear: this is a bedtime story, and frightening content should lower this score."),
     ("coherence", "No confusing contradictions, muddled objects or loose threads; every introduced element matters."),
     ("pacing", "Each page moves the story forward; the middle does not stall and the ending is not crammed."),
     ("moral_shown_not_told", "The moral (if any) is shown through choices and consequences, never stated or lectured."),
@@ -585,7 +597,7 @@ def summarise_score(result: Dict[str, Any]) -> Dict[str, Any]:
         "criteria": scores,
         "weakest_page": result.get("weakest_page"),
         "top_issues": [str(i)[:200] for i in (result.get("top_issues") or [])][:4],
-        "rubric_version": "20261109",
+        "rubric_version": "20261110",
     }
 
 
@@ -790,6 +802,8 @@ V5_PLAN_RULES = """- PAGE 6 COMPLETES THE SOLUTION: the child's decisive act on 
   rescued, healed, repaired, revealed, travelled to or decided on Page 7.
 - VISIBLE STAKES: name one visible sign of the possible loss that the listener sees on the page by Page 3 and that gets
   worse at the setback (for example: the market stays dark and the cocoa goes cold; the egg grows cooler each hour).
+- ANSWER EVERYTHING BY PAGE 6: put the hidden explanation and the answer to every thread into the text of a specific
+  Page 2-6 beat. Page 7 may show results but must not explain anything new.
 - FRESH IMAGES: avoid overused motifs such as whispering woods, sparkly feathers, glowing moss and "a shimmer of magic"."""
 
 
@@ -797,6 +811,7 @@ PLAN_CHECK_KEYS = [
     ("stakes_visible_by_page3", True, "A concrete, visible sign of what will be lost appears in the Page 2 or Page 3 beat and gets worse at the setback."),
     ("child_causes_solution", True, "The Page 6 beat shows the child's own act causing the outcome; no adult, royal, helper, creature, magic, luck or coincidence heals, fixes, rescues or finishes it."),
     ("page7_aftermath_only", True, "The Page 7 beat contains only the result, callback and settling: no arrival, rescue, healing, repair, reveal, journey or decision."),
+    ("threads_answered_by_page6", True, "The hidden explanation and every item in threads_to_close is actually answered inside a specific Page 2-6 beat (check the beat text itself, not the thread list); nothing is left to be explained on Page 7."),
     ("payoff_planted_early", True, "The decisive act uses an object, habit, clue or skill planted in the Page 2, 3 or 4 beat."),
     ("no_contradictions", True, "Nothing contradicts Page 1 or another part of the plan, and no name or fact is known before it is learned."),
     ("theme_literal", True, "The chosen theme's central subject is literally present and matters to the plot."),

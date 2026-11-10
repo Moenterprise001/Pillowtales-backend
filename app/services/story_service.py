@@ -7790,6 +7790,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 story_data["pages"] = pages
                 _quality.trace_set(request, "page1_renamed", mapping)
                 print(f"[QUALITY] page1_names_freshened mapping={mapping}")
+            _quality.trace_set(request, "title_overused_words", _quality.overused_title_words_in(story_data.get("title")))
         except Exception as exc:
             print(f"[QUALITY] page1_name_freshness_failed error={str(exc)[:200]}")
 
