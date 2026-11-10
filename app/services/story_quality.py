@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -146,12 +146,12 @@ def unsafe_custom_text(*values: Any) -> Optional[str]:
 
 THEME_SEED_ALLOWLIST: Dict[str, set] = {
     "space": {"ancient_observatory", "star_painter_cottage", "river_of_stars", "moon_bakery", "pillow_harbour", "floating_cloud_city", "northern_lights_village"},
-    "dragons": {"dragon_market", "dragon_post_office", "sleepy_castle_hall"},
-    "princess": {"glass_slipper_cafe", "sleepy_castle_hall", "hidden_garden_gate"},
-    "animals": {"forest_school", "honeybee_palace", "little_lighthouse_cafe", "sleepy_forest_path", "amazon_treehouse", "jungle_waterfall", "whale_island"},
+    "dragons": {"dragon_market", "dragon_post_office", "dragon_nursery", "dragon_lighthouse", "dragon_bakery", "dragon_flying_school", "dragon_cloud_stables", "dragon_strawberry_garden"},
+    "princess": {"glass_slipper_cafe", "sleepy_castle_hall", "princess_tea_garden", "princess_lantern_festival", "princess_sky_ponies", "princess_palace_nursery"},
+    "animals": {"rock_pool_friends", "forest_school", "honeybee_palace", "little_lighthouse_cafe", "sleepy_forest_path", "amazon_treehouse", "jungle_waterfall", "whale_island"},
     "forest": {"sleepy_forest_path", "forest_school", "hidden_garden_gate", "rainbow_garden", "lantern_treehouse"},
-    "dinosaurs": {"dinosaur_kindergarten", "hidden_dinosaur_valley"},
-    "underwater": {"underwater_palace", "mermaid_library", "whale_island", "seaside_cave"},
+    "dinosaurs": {"dinosaur_kindergarten", "hidden_dinosaur_valley", "dinosaur_museum_night", "dinosaur_island_farm", "dinosaur_puddle_park", "fossil_dig"},
+    "underwater": {"underwater_palace", "mermaid_library", "whale_island", "seaside_cave", "rock_pool_friends", "bubble_reef_school"},
     "adventure": {"pillow_harbour", "glowing_attic", "hidden_garden_gate", "toymaker_workshop", "little_lighthouse_cafe", "pirate_harbour", "desert_caravan", "enchanted_hot_air_balloon", "sky_train_station"},
     "magic": {"moonlit_library", "toymaker_workshop", "rainbow_garden", "hidden_garden_gate", "clockwork_greenhouse", "sleepy_puppet_theatre"},
     "winter": {"snowy_village", "northern_lights_village"},
