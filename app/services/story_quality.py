@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -766,6 +766,7 @@ Characters and dialogue
 - Prefer short dialogue, action and funny behaviour over narrator explanation. Dialogue must sound spoken and must change something: a decision, clue, disagreement, plan or relationship. Never use it only to explain the plot.
 - A quoted line and its attribution are one beat: write "Where is it?" she wondered. Never start a new paragraph with a short speech tag or reaction that belongs to the line before.
 - Introduce the child clearly by name, then prefer natural pronouns. Bring the name back after a change of focus or when pronouns could be unclear. Avoid several sentences in a row that start with the same name or pronoun.
+- Nobody knows a new character's name until it is given on the page (they say it, someone introduces them, or it is written somewhere). Until then, call them by what they look like.
 
 Story
 - The theme is a real promise: its central subject must affect the plot and interact with the child, early enough to matter, not sit in the background or arrive only at the end.
@@ -1133,15 +1134,19 @@ EDITOR_CHECKLIST = """- Stakes: by Page 3 the listener SEES what will be lost, m
 
 
 def build_editor_prompt(request: Any, title: str, pages: List[str], plan: Optional[dict], age: int,
-                        moral_requested: bool, age_standard: str = "") -> str:
+                        moral_requested: bool, age_standard: str = "", final_page_number: Optional[int] = None) -> str:
     theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
     moral = getattr(request, "moral", "") if moral_requested else "none requested"
     story = "\n\n".join(f"Page {i + 1}: {p}" for i, p in enumerate(pages))
+    partial = ""
+    if final_page_number and len(pages) < final_page_number:
+        partial = (f"NOTE: this draft stops at Page {len(pages)}; the story continues to Page {final_page_number} afterwards. "
+                   "Do not judge the ending or ask for it to be wrapped up; judge only the pages shown.\n")
     return f"""You are the senior editor of a children's bedtime story app. Read this complete draft as a whole, the way a parent will hear it,
 and decide which pages need rewriting before anyone hears them. Pages 1 and 2 are already published and FIXED; only Pages 3-{len(pages)} may be rewritten.
 Return only JSON matching the schema. List at most {MAX_REWRITE_PAGES} pages, the ones that matter most. For each, name the specific problem and an
 exact, actionable fix that keeps the rest of the story consistent. If the draft is already excellent, return an empty list. Do not rewrite for taste alone.
-
+{partial}
 STORY FACTS: title "{title}"; theme {theme}; private moral {moral}; listener age {age}.
 PLAN THE STORY WAS WRITTEN FROM:
 {plan_text(plan) if plan else "(none)"}

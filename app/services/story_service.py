@@ -3924,6 +3924,11 @@ OUTPUT RULES:
         # Story pages are prose, so remove only the stray escape before a
         # double quote. This keeps the visible text and narration text clean.
         cleaned = cleaned.replace('\\"', '"')
+        # Same for escaped line breaks: a page reached the app showing a
+        # literal "\n\n" between paragraphs (10 Nov 2026). Turn them back into
+        # real paragraph breaks.
+        cleaned = re.sub(r"(?:\\r)?\\n", "\n", cleaned)
+        cleaned = re.sub(r"\\t", " ", cleaned)
 
         # Story prose is plain text. Remove common inline Markdown formatting
         # markers if the model leaks them despite the prompt. This does not
@@ -4916,8 +4921,13 @@ REQUIRED CHANGES — APPLY EVERY ONE:
         batch_count: int,
         timeout_seconds: Optional[float] = None,
         max_attempts_override: Optional[int] = None,
+        lenient_draft: bool = False,
     ) -> list[str]:
         """Generate and validate a continuation batch.
+
+        lenient_draft (draft-and-revise only): keep a short draft instead of
+        rejecting it, cut a draft at a page that fails boundary cleanup, and
+        record moral-word pages for rewrite instead of rejecting the batch.
 
         Standard Bedtime Stories retain their fixed final-page review. Canon
         Story Worlds use ordinary one-page continuation here and are completed
@@ -5100,7 +5110,7 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                     start_page_number=next_page_number,
                 )
 
-            if len(batch_pages) < batch_count:
+            if len(batch_pages) < batch_count and not (lenient_draft and batch_pages):
                 last_error = (
                     f"Remaining generation produced only {len(batch_pages)} "
                     f"of {batch_count} pages in batch"
@@ -5182,7 +5192,7 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                 boundary_cleaned.append(cleaned_page)
                 previous_for_boundary = cleaned_page
 
-            if boundary_rejected:
+            if boundary_rejected and not (lenient_draft and boundary_cleaned):
                 continue
 
             sanitized = boundary_cleaned
@@ -5191,6 +5201,12 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                 request,
                 pages=sanitized,
             )
+            if moral_leak and lenient_draft:
+                _quality.get_state(request)["draft_moral_leaks"] = [
+                    next_page_number + i for i, page in enumerate(sanitized)
+                    if self._standard_bedtime_moral_leak_reason(request, pages=[page])
+                ]
+                moral_leak = None
             if moral_leak:
                 last_error = moral_leak
                 last_required_changes = [
@@ -7938,6 +7954,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         title: str,
         pages: list[str],
         targets: list[Dict[str, Any]],
+        final_page_number: Optional[int] = None,
     ) -> str:
         blocks = self._language_and_character_blocks(request, companion)
         language_code = (request.storyLanguageCode or "en").lower()[:2]
@@ -7961,7 +7978,8 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 + (f" (hard maximum {budget['hard_max']})" if budget.get('hard_max') else "")
                 + "\n" + _quality.v5_page_role(self._very_young_bedtime_page_role(request.age, n))
             )
-        ending = self._ending_engine_rules() if any(t["page"] == total for t in targets) else ""
+        final_page_number = final_page_number or total
+        ending = self._ending_engine_rules() if any(t["page"] == final_page_number for t in targets) else ""
         return f"""Revise specific pages of this bedtime story. Write ONLY in {blocks['language_name']}.
 {self._bedtime_native_editorial_block(language_code)}
 The pages marked FIXED will be read exactly as they are, so each rewritten page must flow naturally from the page before it
@@ -8011,6 +8029,9 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
         """
         record: Dict[str, Any] = {"status": "started"}
         t_start = time.time()
+        state = _quality.get_state(request)
+        state.pop("draft_moral_leaks", None)
+        first_new = len(working_pages) + 1
         try:
             draft = await self._generate_remaining_pages_batch(
                 request=request,
@@ -8020,6 +8041,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
                 batch_count=expected_pages - len(working_pages),
                 timeout_seconds=_quality.DRAFT_TIMEOUT_SECONDS,
                 max_attempts_override=1,
+                lenient_draft=True,
             )
         except Exception as exc:
             record.update({"status": "draft_failed", "error": str(exc)[:200]})
@@ -8028,47 +8050,62 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
             return []
         pages = postprocess_story_pages([*working_pages, *draft])
         pages = self._sanitize_standard_bedtime_language_pages(request, pages)[:expected_pages]
-        if len(pages) < expected_pages:
-            record.update({"status": "draft_incomplete", "pages": len(pages)})
+        if len(pages) <= len(working_pages):
+            record.update({"status": "draft_empty"})
             _quality.trace_set(request, "draft_revise", record)
             return []
-        pages[-1] = self._ensure_the_end(pages[-1])
+        complete = len(pages) >= expected_pages
+        if complete:
+            pages[-1] = self._ensure_the_end(pages[-1])
+        leaks = [n for n in (state.pop("draft_moral_leaks", None) or []) if first_new <= n <= len(pages)]
+        record.update({"draft_pages": len(pages) - len(working_pages), "complete_draft": complete, "moral_word_pages": leaks})
         record["draft_ms"] = int((time.time() - t_start) * 1000)
 
-        # Page 2 goes live now; Pages 3-7 are revised while it is read aloud.
-        self._publish_partial_story_pages(
-            story_id=story_id, user_id=user_id, working_pages=pages[:len(working_pages) + 1],
-            expected_pages=expected_pages, generation_error=None,
-        )
+        # Page 2 goes live now (unless it needs a fix); later pages are revised while it is read aloud.
+        if first_new not in leaks:
+            self._publish_partial_story_pages(
+                story_id=story_id, user_id=user_id, working_pages=pages[:first_new],
+                expected_pages=expected_pages, generation_error=None,
+            )
 
-        # Editor: read the whole draft.
+        # Editor: read the whole draft (only pages after Page 2 may be changed for craft).
         targets: list[Dict[str, Any]] = []
         t_edit = time.time()
-        try:
-            response = await asyncio.wait_for(
-                asyncio.to_thread(
-                    self._gen("planner", request),
-                    _quality.build_editor_prompt(
-                        request, title, pages, _quality.get_state(request).get("plan"),
-                        self._safe_child_age(request.age), self._moral_requested(request),
-                        age_standard=self._age_vocabulary_block(request.age),
+        if len(pages) > first_new:
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._gen("planner", request),
+                        _quality.build_editor_prompt(
+                            request, title, pages, state.get("plan"),
+                            self._safe_child_age(request.age), self._moral_requested(request),
+                            age_standard=self._age_vocabulary_block(request.age),
+                            final_page_number=expected_pages,
+                        ),
+                        _quality.EDITOR_SCHEMA, 2500, _quality.EDITOR_THINKING_BUDGET,
                     ),
-                    _quality.EDITOR_SCHEMA, 2500, _quality.EDITOR_THINKING_BUDGET,
-                ),
-                timeout=_quality.EDITOR_TIMEOUT_SECONDS,
-            )
-            review = self._clean_json_response(getattr(response, "text", "") or "")
-            targets = _quality.editor_rewrite_targets(review, len(pages))
-            record["editor_notes"] = [str(n)[:200] for n in (review.get("overall_notes") or [])][:4]
-        except Exception as exc:
-            record["editor_error"] = str(exc)[:160]
-        record["editor_ms"] = int((time.time() - t_edit) * 1000)
+                    timeout=_quality.EDITOR_TIMEOUT_SECONDS,
+                )
+                review = self._clean_json_response(getattr(response, "text", "") or "")
+                targets = _quality.editor_rewrite_targets(review, len(pages))
+                record["editor_notes"] = [str(n)[:200] for n in (review.get("overall_notes") or [])][:4]
+            except Exception as exc:
+                record["editor_error"] = str(exc)[:160]
+            record["editor_ms"] = int((time.time() - t_edit) * 1000)
 
-        # Deterministic final-page check always feeds the rewrite list.
-        final_ok, final_reason = self._validate_final_page(pages[-1], pages[:-1], request.storyLanguageCode, request=request)
-        if not final_ok and not any(t["page"] == len(pages) for t in targets):
-            targets.append({"page": len(pages), "problem": final_reason, "fix": "Rewrite the final page as a complete, settled ending with no new events."})
-            targets = sorted(targets, key=lambda t: t["page"])[-_quality.MAX_REWRITE_PAGES:]
+        # Deterministic checks always feed the rewrite list: moral word said aloud, weak final page.
+        forced: list[Dict[str, Any]] = [
+            {"page": n, "problem": f"The page says the moral word {request.moral!r} out loud.",
+             "fix": f"Remove the word {request.moral!r} and any explanation of the lesson; keep the same events and show the idea only through what the characters do."}
+            for n in leaks
+        ]
+        if complete:
+            final_ok, final_reason = self._validate_final_page(pages[-1], pages[:-1], request.storyLanguageCode, request=request)
+            if not final_ok and expected_pages not in leaks:
+                forced.append({"page": expected_pages, "problem": final_reason, "fix": "Rewrite the final page as a complete, settled ending with no new events."})
+        forced_pages = {t["page"] for t in forced}
+        editor_extra = [t for t in targets if t["page"] not in forced_pages]
+        targets = sorted(forced + editor_extra[:max(0, _quality.MAX_REWRITE_PAGES + 1 - len(forced))], key=lambda t: t["page"])
         record["rewrite_requested"] = [{"page": t["page"], "problem": t["problem"][:160]} for t in targets]
 
         # Rewrite only the flagged pages, each re-validated; failures keep the draft page.
@@ -8079,7 +8116,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
                         self._gen("pages", request),
-                        self._build_rewrite_prompt(request, companion, title, pages, targets),
+                        self._build_rewrite_prompt(request, companion, title, pages, targets, final_page_number=expected_pages),
                         _quality.REWRITE_SCHEMA,
                     ),
                     timeout=_quality.REWRITE_TIMEOUT_SECONDS,
@@ -8091,7 +8128,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
                         n = int(item.get("page"))
                     except Exception:
                         continue
-                    if n not in wanted:
+                    if n not in wanted or n > len(pages):
                         continue
                     candidate = self._valid_generated_pages([str(item.get("text") or "")], 1, request=request, start_page_number=n)
                     if not candidate:
@@ -8099,7 +8136,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
                     text = self._sanitize_generated_pages(candidate)[0]
                     if self._standard_bedtime_moral_leak_reason(request, title=title, pages=[text]):
                         continue
-                    if n == len(pages):
+                    if complete and n == expected_pages:
                         text = self._ensure_the_end(text)
                         ok, _ = self._validate_final_page(text, pages[:-1], request.storyLanguageCode, request=request)
                         if not ok:
@@ -8112,30 +8149,47 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
             record["rewrite_ms"] = int((time.time() - t_rw) * 1000)
         record["rewritten_pages"] = accepted
 
+        # A page that still says the moral word is never published: cut the draft there
+        # and let the normal page-by-page path write it and the pages after it.
+        still_leaking = [n for n in leaks if n not in accepted]
+        if still_leaking:
+            cut = min(still_leaking)
+            pages = pages[:cut - 1]
+            complete = False
+            record["cut_at_page"] = cut
+            if len(pages) <= len(working_pages):
+                record["status"] = "draft_unusable_moral_word"
+                record["total_ms"] = int((time.time() - t_start) * 1000)
+                _quality.trace_set(request, "draft_revise", record)
+                print(f"[QUALITY] draft_revise moral_word_on_page_{cut} falling_back_to_page_by_page")
+                return []
+
         # Keep the established Page 7 review as the final safety net.
-        final_ok, final_reason = self._validate_final_page(pages[-1], pages[:-1], request.storyLanguageCode, request=request)
-        semantic_ok = True
-        if final_ok:
-            try:
-                semantic_ok, semantic_reason, _changes, checks = await self._review_final_page_semantics(
-                    request=request, title=title, existing_pages=pages[:-1], candidate_page=pages[-1],
-                )
-                _quality.trace_event(
-                    request, "page7_review", attempt=0, valid=bool(semantic_ok), reason=str(semantic_reason)[:200],
-                    failed=[k for k, v in (checks or {}).items() if not v],
-                )
-            except Exception as exc:
-                semantic_ok = True
-                record["page7_review_error"] = str(exc)[:160]
+        final_ok, semantic_ok = True, True
+        if complete:
+            final_ok, final_reason = self._validate_final_page(pages[-1], pages[:-1], request.storyLanguageCode, request=request)
+            if final_ok:
+                try:
+                    semantic_ok, semantic_reason, _changes, checks = await self._review_final_page_semantics(
+                        request=request, title=title, existing_pages=pages[:-1], candidate_page=pages[-1],
+                    )
+                    _quality.trace_event(
+                        request, "page7_review", attempt=0, valid=bool(semantic_ok), reason=str(semantic_reason)[:200],
+                        failed=[k for k, v in (checks or {}).items() if not v],
+                    )
+                except Exception as exc:
+                    semantic_ok = True
+                    record["page7_review_error"] = str(exc)[:160]
         record["total_ms"] = int((time.time() - t_start) * 1000)
-        if not final_ok or not semantic_ok:
+        if complete and (not final_ok or not semantic_ok):
             record["status"] = "revised_page7_regenerated_normally"
             _quality.trace_set(request, "draft_revise", record)
             print("[QUALITY] draft_revise page7_failed_review regenerating_page7_normally")
             return pages[len(working_pages):-1]
-        record["status"] = "revised" if accepted else "draft_accepted"
+        base = "revised" if accepted else "draft_accepted"
+        record["status"] = base if complete else f"{base}_partial"
         _quality.trace_set(request, "draft_revise", record)
-        print(f"[QUALITY] draft_revise status={record['status']} rewritten={accepted} ms={record['total_ms']}")
+        print(f"[QUALITY] draft_revise status={record['status']} pages={len(pages)} rewritten={accepted} ms={record['total_ms']}")
         return pages[len(working_pages):]
 
     async def _score_story(self, request: GenerateStoryRequest, title: str, pages: list[str]) -> None:
