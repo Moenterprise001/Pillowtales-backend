@@ -7795,8 +7795,13 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         title: str,
         current_pages: list[str],
         companion: Optional[dict] = None,
+        background_check: bool = False,
     ) -> None:
         """Fix 1: plan Pages 2-7 once, in the background, before Page 2.
+
+        background_check (draft-and-revise): Page 2 is written from the plan
+        straight away while the plan check runs alongside it; the check may
+        revise Pages 3-7 but keeps the Page 2 beat exactly as written.
 
         Runs while Page 1 is being read aloud, so it adds no parent-visible
         wait. Fails open: without a plan the story continues exactly as before.
@@ -7873,6 +7878,14 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             if banned_used:
                 _quality.trace_set(request, "plan_banned_names_kept", banned_used)
             plan["beats"] = _quality.clean_beats(plan["beats"][:6])
+            if background_check and _quality.plan_check_enabled():
+                state["plan"] = plan
+                _quality.trace_set(request, "plan_status", "ok")
+                _quality.trace_set(request, "plan", plan)
+                state["plan_check_task"] = asyncio.create_task(
+                    self._background_plan_check(request, prompt, plan, current_pages[0], banned)
+                )
+                return
             plan = await self._check_and_revise_plan(request, prompt, plan, current_pages[0], banned)
             state["plan"] = plan
             _quality.trace_set(request, "plan_status", "ok")
@@ -7883,6 +7896,27 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         finally:
             _quality.trace_set(request, "plan_ms", int((time.time() - t_start) * 1000))
 
+    async def _background_plan_check(
+        self, request: GenerateStoryRequest, plan_prompt: str, plan: dict, page_one: str, banned: list[str],
+    ) -> None:
+        """Plan check run alongside Page 2 (draft-and-revise). The Page 2 beat is locked."""
+        try:
+            checked = await self._check_and_revise_plan(request, plan_prompt, plan, page_one, banned, lock_first_beat=True)
+            state = _quality.get_state(request)
+            state["plan"] = checked
+            _quality.trace_set(request, "plan", checked)
+        except Exception as exc:
+            print(f"[QUALITY] background_plan_check_failed error={str(exc)[:200]}")
+
+    async def _await_background_plan_check(self, request: GenerateStoryRequest) -> None:
+        task = _quality.get_state(request).pop("plan_check_task", None)
+        if task is None:
+            return
+        try:
+            await asyncio.wait_for(asyncio.shield(task), timeout=2 * _quality.PLAN_FAST_TIMEOUT_SECONDS + 5)
+        except Exception as exc:
+            _quality.trace_event(request, "plan_check_wait_failed", error=str(exc)[:160])
+
     async def _check_and_revise_plan(
         self,
         request: GenerateStoryRequest,
@@ -7890,6 +7924,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         plan: dict,
         page_one: str,
         banned: list[str],
+        lock_first_beat: bool = False,
     ) -> dict:
         """v5: a strict, fast editor check of the plan; one revision if it fails.
 
@@ -7917,7 +7952,10 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
                         self._gen("planner", request),
-                        _quality.build_plan_revision_prompt(plan_prompt, plan, check),
+                        _quality.build_plan_revision_prompt(
+                            plan_prompt, plan, check,
+                            locked_first_beat=(plan.get("beats") or [""])[0] if lock_first_beat else None,
+                        ),
                         _quality.PLAN_RESPONSE_SCHEMA, 1600, 0,
                     ),
                     timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
@@ -7929,6 +7967,8 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 ]
                 if _quality.plan_is_valid(revised) and not new_banned:
                     revised["beats"] = _quality.clean_beats(revised["beats"][:6])
+                    if lock_first_beat and plan.get("beats") and revised["beats"]:
+                        revised["beats"][0] = plan["beats"][0]  # Page 2 is already being written from it
                     record["status"] = "revised"
                     _quality.trace_set(request, "plan_original", plan)
                     plan = revised
@@ -8061,8 +8101,8 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
         record.update({"draft_pages": len(pages) - len(working_pages), "complete_draft": complete, "moral_word_pages": leaks})
         record["draft_ms"] = int((time.time() - t_start) * 1000)
 
-        # Page 2 goes live now (unless it needs a fix); later pages are revised while it is read aloud.
-        if first_new not in leaks:
+        # When drafting from Page 2, Page 2 goes live now (unless it needs a fix).
+        if first_new == 2 and first_new not in leaks:
             self._publish_partial_story_pages(
                 story_id=story_id, user_id=user_id, working_pages=pages[:first_new],
                 expected_pages=expected_pages, generation_error=None,
@@ -8107,6 +8147,19 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
         editor_extra = [t for t in targets if t["page"] not in forced_pages]
         targets = sorted(forced + editor_extra[:max(0, _quality.MAX_REWRITE_PAGES + 1 - len(forced))], key=lambda t: t["page"])
         record["rewrite_requested"] = [{"page": t["page"], "problem": t["problem"][:160]} for t in targets]
+
+        # Pages the editor is happy with go live straight away, up to the first page being rewritten
+        # (never the final page, which still has its review).
+        flagged = {t["page"] for t in targets}
+        ready_to = len(working_pages)
+        while ready_to + 1 < min(len(pages) + 1, expected_pages) and (ready_to + 1) not in flagged:
+            ready_to += 1
+        if ready_to > len(working_pages) and not (first_new == 2 and first_new in leaks):
+            self._publish_partial_story_pages(
+                story_id=story_id, user_id=user_id, working_pages=pages[:ready_to],
+                expected_pages=expected_pages, generation_error=None,
+            )
+            record["published_before_rewrite"] = ready_to
 
         # Rewrite only the flagged pages, each re-validated; failures keep the draft page.
         accepted: list[int] = []
@@ -8371,34 +8424,39 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
                     if is_dynamic_canon
                     else postprocess_story_pages(current_pages)[:expected_pages]
                 )
+                draft_pending = (
+                    not is_dynamic_canon
+                    and len(working_pages) == 1
+                    and expected_pages > 3
+                    and self._draft_revise_applies(request)
+                )
                 if not is_dynamic_canon:
-                    await self._ensure_story_plan(request, title, working_pages, companion)
+                    await self._ensure_story_plan(request, title, working_pages, companion, background_check=draft_pending)
                     # Save in stages so an interrupted task still leaves the plan on record.
                     _quality.trace_set(request, "final_status", "planning_done")
                     self.persist_generation_trace(request, story_id, user_id)
 
-                if (
-                    not is_dynamic_canon
-                    and len(working_pages) == 1
-                    and expected_pages > 2
-                    and self._draft_revise_applies(request)
-                ):
-                    drafted = await self._draft_and_revise_pages(
-                        request, companion, title, working_pages, story_id, user_id, expected_pages,
-                    )
-                    if drafted:
-                        combined = postprocess_story_pages([*working_pages, *drafted])
-                        combined = self._sanitize_standard_bedtime_language_pages(request, combined)
-                        added = combined[len(working_pages):expected_pages]
-                        working_pages = combined[:expected_pages]
-                        remaining.extend(added)
-                        if len(working_pages) < expected_pages:
-                            self._publish_partial_story_pages(
-                                story_id=story_id, user_id=user_id, working_pages=working_pages,
-                                expected_pages=expected_pages, generation_error=None,
-                            )
-
                 while is_dynamic_canon or len(working_pages) < expected_pages:
+                    # Draft-and-revise: Page 2 is written and shown the normal way first;
+                    # Pages 3-7 are then drafted and revised while Page 2 is read aloud.
+                    if draft_pending and len(working_pages) >= 2:
+                        draft_pending = False
+                        await self._await_background_plan_check(request)
+                        drafted = await self._draft_and_revise_pages(
+                            request, companion, title, working_pages, story_id, user_id, expected_pages,
+                        )
+                        if drafted:
+                            combined = postprocess_story_pages([*working_pages, *drafted])
+                            combined = self._sanitize_standard_bedtime_language_pages(request, combined)
+                            added = combined[len(working_pages):expected_pages]
+                            working_pages = combined[:expected_pages]
+                            remaining.extend(added)
+                            if len(working_pages) < expected_pages:
+                                self._publish_partial_story_pages(
+                                    story_id=story_id, user_id=user_id, working_pages=working_pages,
+                                    expected_pages=expected_pages, generation_error=None,
+                                )
+                            continue
                     preferred_batch_count = (
                         1
                         if is_dynamic_canon

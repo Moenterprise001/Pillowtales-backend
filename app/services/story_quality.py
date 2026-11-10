@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -887,7 +887,8 @@ def evaluate_plan_check(result: Any) -> Dict[str, Any]:
     }
 
 
-def build_plan_revision_prompt(original_prompt: str, plan: dict, check: Dict[str, Any]) -> str:
+def build_plan_revision_prompt(original_prompt: str, plan: dict, check: Dict[str, Any],
+                               locked_first_beat: Optional[str] = None) -> str:
     descriptions = {key: desc for key, _, desc in PLAN_CHECK_KEYS}
     problems = [f"- {key}: {descriptions[key]}" for key in check["failed_critical"] + check["failed_other"]]
     problems += [f"- {issue}" for issue in check["issues"]]
@@ -896,6 +897,8 @@ def build_plan_revision_prompt(original_prompt: str, plan: dict, check: Dict[str
         + "\nREVISE THIS PLAN. It failed the editor's checks. Keep everything that works and Page 1 exactly; fix ONLY these problems:\n"
         + "\n".join(problems)
         + "\n\nPLAN TO REVISE:\n" + plan_text(plan) + "\n"
+        + (("PAGE 2 IS ALREADY BEING WRITTEN from the first beat, so keep that beat exactly as it is and make every fix in the later beats:\n- "
+            + str(locked_first_beat) + "\n") if locked_first_beat else "")
     )
 
 
