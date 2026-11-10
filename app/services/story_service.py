@@ -6590,6 +6590,18 @@ JSON ONLY:
                 next_page_number=next_page_number,
             )
 
+        if _quality.prompts_v5_enabled() and self._safe_child_age(request.age) >= 3:
+            _quality.trace_set(request, "prompt_version", "v5")
+            return self._build_remaining_pages_prompt_v5(
+                request=request,
+                companion=companion,
+                title=title,
+                existing_pages=existing_pages,
+                remaining_page_count=remaining_page_count,
+                next_page_number=next_page_number,
+            )
+        _quality.trace_set(request, "prompt_version", "v4")
+
         """Build a compact continuation prompt for pages 2+.
 
         The continuation prompt is intentionally simpler than earlier Phase 11
@@ -6778,6 +6790,140 @@ Return ONLY valid JSON:
 {{{{"pages":["new page text","new page text"]}}}}
 - The pages array must contain exactly {remaining_page_count} strings.
 - No markdown, notes, explanations, or extra keys. Story strings must be plain prose with no asterisks, underscores, headings, bullets, backticks, or formatting notation.
+- Silently check that every page progresses the story and feels fun, warm, and age-appropriate.
+"""
+
+    def _build_remaining_pages_prompt_v5(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+        title: str,
+        existing_pages: list[str],
+        remaining_page_count: int,
+        next_page_number: int,
+    ) -> str:
+        """v5 continuation prompt for standard Bedtime Stories, ages 3+ (2026-11-10).
+
+        Same story spine, locked plan, forward-progression rules, page roles,
+        ending engine, page budget and output contract as v4. Differences:
+        - the seven overlapping style blocks are merged into one craft list,
+          each rule stated once (about a third shorter);
+        - bedtime-safe stakes are defined instead of "never frightening" alone;
+        - magic is required where it matters, not on every page;
+        - Pages 2-7 get their own age calibration, not the Page 1 rules;
+        - the JSON example uses valid single braces.
+        Switch off with BEDTIME_PROMPTS_V5=0 to return to v4 exactly.
+        """
+        blocks = self._language_and_character_blocks(request, companion)
+        age = self._safe_child_age(request.age)
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
+        native_editorial_block = self._bedtime_native_editorial_block(language_code)
+        existing_pages_text = "\n\n".join(
+            f"Page {idx + 1}: {page}" for idx, page in enumerate(existing_pages or [])
+        )
+        story_spine = self._story_spine_block(
+            request=request,
+            title=title,
+            first_page=(existing_pages or [""])[0],
+        )
+        final_page_number = next_page_number + remaining_page_count - 1
+        intended_final_page = self._intended_page_count(request)
+        bedtime_budget = self._standard_bedtime_page_budget(
+            request.age,
+            next_page_number,
+            request.storyLanguageCode,
+        )
+        page_role = _quality.v5_page_role(self._very_young_bedtime_page_role(request.age, next_page_number))
+        very_young_override = self._very_young_bedtime_override(request.age)
+        includes_final_page = next_page_number <= intended_final_page <= final_page_number
+        if includes_final_page:
+            ending_job = f"""FINAL PAGE MODE — THIS STORY ENDS NOW:
+- You are writing ONLY the ending of the story shown above.
+- Do not continue the adventure as though another page follows.
+- Everything must stay in tune with this story's existing goal, characters, setting, humour, promises, and magical rules.
+- Resolve what Pages 1-6 actually set up. Do not replace it with a generic celebration or bedtime paragraph.
+- The final page should move through: resolution, brief story-specific afterglow, safe settling, final image.
+- Do not add a new character, named friend, place, task, object, clue, problem, secret, or surprise.
+- Do not summarise the ending with "felt brave", "felt proud", "felt like the bravest", or similar wording.
+- The final story sentence must be a concrete image, action, sound, or callback from Pages 1-6.
+- The page must feel complete even before the words The End.
+- Finish with exactly: The End.
+
+{self._ending_engine_rules()}"""
+        elif next_page_number == intended_final_page - 1:
+            ending_job = """PENULTIMATE PAGE — PAGE 6:
+- This is the final challenge and only one page will remain.
+- Bring the main problem to its decisive moment and resolve it here through the child's own action.
+- Do not introduce a new character, location, subplot, mystery, magical rule, or second problem.
+- Do not stretch the same activity across Page 6 and Page 7.
+- Leave Page 7 to show the completed result, emotional payoff, callback, and safe closing.
+"""
+        else:
+            ending_job = """NOT THE FINAL PAGE:
+- Do not resolve the whole story yet.
+- Progress the main problem and leave one clear, bedtime-safe reason to continue.
+- Do not introduce a new subplot, unrelated mystery, or premature return-home ending.
+"""
+        craft_block = _quality.v5_craft_block(self._moral_requested(request), request.moral)
+        trace_rules = _quality.get_trace(request).setdefault("rules", {})
+        trace_rules.setdefault("v5_craft", _quality.fingerprint(craft_block))
+        hard_max = (
+            f"{bedtime_budget['hard_max']} {bedtime_budget['unit_label']}"
+            if bedtime_budget['hard_max'] is not None
+            else "follow the existing age-appropriate character guidance"
+        )
+
+        return f"""Continue this bedtime story from the existing pages.
+
+LANGUAGE:
+- Write ONLY in {blocks['language_name']}.
+- Do not mix languages.
+- Use natural read-aloud bedtime language.
+{native_editorial_block}
+
+STORY FACTS:
+- Title: {title}
+- Child: {request.childName}
+- Internal reading age: {request.age} (writing calibration only).
+- Theme: {blocks['effective_theme']}
+- Moral: {request.moral}
+
+{story_spine}
+EXISTING PAGES:
+{existing_pages_text}
+
+{_quality.v5_age_block(age)}
+
+{craft_block}
+{self._bedtime_narrative_progression_rules()}
+
+CURRENT PAGE ROLE — NON-NEGOTIABLE:
+{page_role}
+
+{_quality.v5_continuation_job(remaining_page_count, next_page_number, final_page_number)}
+ENDING JOB FOR THIS BATCH:
+{ending_job}
+
+{very_young_override}
+
+PAGE LENGTH:
+- Each continuation page must be a real story page, not a caption or summary.
+- For Page {next_page_number}, aim for {bedtime_budget['target_min']}-{bedtime_budget['target_max']} {bedtime_budget['unit_label']}. HARD MAXIMUM: {hard_max}.
+- If the page approaches its maximum, remove repetition or unnecessary description before removing plot progression, character, humour, complication, discovery or emotional meaning. Do not shrink a developing scene into a thin summary.
+- Use about 5-7 read-aloud sentences in natural paragraphs, normally 2-3, split where the action, focus, speaker or emotional beat changes. Never return a single-sentence page.
+- The final page may be slightly shorter if complete, satisfying and naturally settled.
+
+COMPANION:
+- {blocks['companion_line']}
+
+CHARACTERS:
+- {blocks['character_instruction']}
+
+OUTPUT FORMAT STRICT:
+Return ONLY valid JSON:
+{{"pages":["new page text","new page text"]}}
+- The pages array must contain exactly {remaining_page_count} strings.
+- No markdown, notes, explanations, or extra keys.
 - Silently check that every page progresses the story and feels fun, warm, and age-appropriate.
 """
 
@@ -7521,6 +7667,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             if banned_used:
                 _quality.trace_set(request, "plan_banned_names_kept", banned_used)
             plan["beats"] = _quality.clean_beats(plan["beats"][:6])
+            plan = await self._check_and_revise_plan(request, prompt, plan, current_pages[0], banned)
             state["plan"] = plan
             _quality.trace_set(request, "plan_status", "ok")
             _quality.trace_set(request, "plan", plan)
@@ -7529,6 +7676,67 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             print(f"[QUALITY] story_plan_failed error={str(exc)[:200]}")
         finally:
             _quality.trace_set(request, "plan_ms", int((time.time() - t_start) * 1000))
+
+    async def _check_and_revise_plan(
+        self,
+        request: GenerateStoryRequest,
+        plan_prompt: str,
+        plan: dict,
+        page_one: str,
+        banned: list[str],
+    ) -> dict:
+        """v5: a strict, fast editor check of the plan; one revision if it fails.
+
+        Fails open: any error keeps the original plan. Switch off with
+        BEDTIME_PLAN_CHECK_ENABLED=0.
+        """
+        if not _quality.plan_check_enabled():
+            _quality.trace_set(request, "plan_check", {"status": "disabled"})
+            return plan
+        t_start = time.time()
+        record: Dict[str, Any] = {"status": "error"}
+        try:
+            age = self._safe_child_age(request.age)
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._generate_content_sync,
+                    _quality.build_plan_check_prompt(request, page_one, plan, age),
+                    _quality.PLAN_CHECK_SCHEMA, 800, 0,
+                ),
+                timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
+            )
+            check = _quality.evaluate_plan_check(self._clean_json_response(getattr(response, "text", "") or ""))
+            record = {"status": "passed" if check["passed"] else "failed", **check}
+            if not check["passed"]:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._generate_content_sync,
+                        _quality.build_plan_revision_prompt(plan_prompt, plan, check),
+                        _quality.PLAN_RESPONSE_SCHEMA, 1600, 0,
+                    ),
+                    timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
+                )
+                revised = self._clean_json_response(getattr(response, "text", "") or "")
+                new_banned = [
+                    name for name in _quality.banned_names_in_text(_quality.plan_text(revised), banned)
+                    if not _quality.banned_names_in_text(page_one, [name])
+                ]
+                if _quality.plan_is_valid(revised) and not new_banned:
+                    revised["beats"] = _quality.clean_beats(revised["beats"][:6])
+                    record["status"] = "revised"
+                    _quality.trace_set(request, "plan_original", plan)
+                    plan = revised
+                else:
+                    record["status"] = "revision_rejected"
+                    record["revision_problem"] = "banned names" if new_banned else "invalid plan"
+        except Exception as exc:
+            record = {"status": f"error:{str(exc)[:160]}"}
+            print(f"[QUALITY] plan_check_failed error={str(exc)[:200]}")
+        finally:
+            record["ms"] = int((time.time() - t_start) * 1000)
+            _quality.trace_set(request, "plan_check", record)
+            print(f"[QUALITY] plan_check status={record.get('status')} failed={record.get('failed_critical')}")
+        return plan
 
     async def _score_story(self, request: GenerateStoryRequest, title: str, pages: list[str]) -> None:
         """Fix 2: score the finished story (score only; pages are already live)."""

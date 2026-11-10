@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "bedtime_prompts_v5=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -393,7 +393,7 @@ PLANNING RULES:
 - BEDTIME LANDING: the final image is calm and settled, ideally the child at home, evening or night, with a quiet
   feeling of having made something right.
 
-SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
+{(V5_PLAN_RULES + chr(10) + chr(10)) if prompts_v5_enabled() else ""}SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
 1. Is the stakes line heard on the page by Page 3, and does it feel at real risk at the setback?
 2. Could any character other than the child have solved it just as easily? (Must be "no".)
 3. Does every beat move the story forward, with the answer to every thread placed in a specific beat?
@@ -503,7 +503,8 @@ def plan_page_focus_block(plan: Optional[dict], next_page_number: int, batch_cou
         if later else
         "- This is the final page: deliver the planned answer, close every listed thread, use the callback and land on the final image."
     )
-    return "THIS PAGE'S JOB FROM THE LOCKED PLAN:\n" + "\n".join(lines) + "\n" + tail + "\n"
+    precedence = ("\n" + V5_PLAN_PRECEDENCE) if prompts_v5_enabled() else ""
+    return "THIS PAGE'S JOB FROM THE LOCKED PLAN:\n" + "\n".join(lines) + "\n" + tail + precedence + "\n"
 
 
 def inject_before_output_format(prompt: str, block: str) -> str:
@@ -652,3 +653,205 @@ def freshen_continuation_names(pages: List[str], banned: Iterable[str], state: D
             page = re.sub(r"(?<![\w])" + re.escape(old) + r"(?![\w])", new, page)
         out.append(page)
     return out, added
+
+
+# ===========================================================================
+# v5 (2026-11-10): de-duplicated, contradiction-free continuation prompt and
+# a plan checker. Everything here is behind switches:
+#   BEDTIME_PROMPTS_V5=0       -> continuation prompts revert to v4 exactly
+#   BEDTIME_PLAN_CHECK_ENABLED=0 -> no plan check / revision
+# ===========================================================================
+
+V5_BUILD = "bedtime_prompts_v5=20261110 plan_check=20261110"
+
+
+def _env_on(name: str, default: str = "1") -> bool:
+    import os
+    return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "off"}
+
+
+def prompts_v5_enabled() -> bool:
+    return _env_on("BEDTIME_PROMPTS_V5")
+
+
+def plan_check_enabled() -> bool:
+    return _env_on("BEDTIME_PLAN_CHECK_ENABLED")
+
+
+def v5_age_block(age: int) -> str:
+    if age <= 5:
+        level = (
+            "- Use clear early-childhood bedtime language. Most sentences should be 5-10 words.\n"
+            "- One place at a time, no more than one helper, and obvious cause and effect.\n"
+            "- Concrete everyday words; no layered clues, abstract feelings or poetic description."
+        )
+    elif age == 6:
+        level = (
+            "- Use simple, lively sentences of about 6-12 words with the occasional fun new word.\n"
+            "- Keep one clear thread and make each cause and effect easy to follow."
+        )
+    elif age <= 8:
+        level = (
+            "- Use confident child-friendly adventure language. Most sentences should be 8-14 words.\n"
+            "- Keep to the existing cast and one main thread; do not pile up new names, objects, places or rules.\n"
+            "- No adult, poetic, cinematic or fantasy-novel prose, and no advanced words unless truly age-suitable. If a sentence sounds impressive, simplify it."
+        )
+    else:
+        level = (
+            "- Use richer but bedtime-safe language with varied sentences. Inference, a real dilemma and gentle wit are welcome.\n"
+            "- Keep one main thread. Avoid dense world-building or adult literary prose."
+        )
+    return (
+        f"AGE CALIBRATION FOR PAGES 2-7 (internal reading age {age}; never state the number in the story):\n" + level
+    )
+
+
+def v5_craft_block(moral_requested: bool, moral: Any) -> str:
+    moral_rule = (
+        f"- Requested moral: {moral}. It is private design metadata. Never use the moral word in the title or prose, and never name, "
+        "define, paraphrase, interpret or explain it in dialogue, narration, thought or the ending. Build it into a concrete temptation, "
+        "one meaningful choice and its natural consequence, shown by Pages 4-6. MORAL REMOVAL TEST: with all commentary removed, "
+        "the actions and consequences alone must make the idea inferable. Once they do, move on."
+        if moral_requested else
+        "- No moral was requested. Do not invent or force a lesson."
+    )
+    return f"""STORY CRAFT — EACH RULE STATED ONCE:
+Voice
+- Write like an experienced, warm, witty children's author reading aloud at bedtime: original, never imitating a named author, never sounding generated.
+- Make the prose specific to this story. One unusual story-only detail beats several generic glowing, sparkling or magical descriptions. Use at most one memorable comparison per page, and sensory detail sparingly and concretely.
+- Include at least one line, comic beat, behaviour or image across the story that only this story could have and a child might repeat tomorrow.
+- Avoid stock storybook reactions and phrases: tummy flutters or flip-flops, widened or sparkling eyes, warmth in the chest, gasps, sinking hearts, slumped shoulders, "her eyes twinkled", "This was definitely...", "With a determined breath...", "she realised that...". Show feelings through what characters do, say, choose or avoid.
+- Avoid overusing: tiny, little, small, soft, gentle, golden, silver, shimmering, glowing, sparkling, whispering, moonlit, sleepy, softly, slowly. Never describe the child as little, small, tiny or young (no "little hands", "little girl", "young explorer").
+
+Characters and dialogue
+- Give characters personality through what they say, notice, misunderstand, attempt and choose. Let the protagonist hesitate, guess wrongly or make a harmless mistake when it strengthens the eventual solution.
+- Prefer short dialogue, action and funny behaviour over narrator explanation. Dialogue must sound spoken and must change something: a decision, clue, disagreement, plan or relationship. Never use it only to explain the plot.
+- A quoted line and its attribution are one beat: write "Where is it?" she wondered. Never start a new paragraph with a short speech tag or reaction that belongs to the line before.
+- Introduce the child clearly by name, then prefer natural pronouns. Bring the name back after a change of focus or when pronouns could be unclear. Avoid several sentences in a row that start with the same name or pronoun.
+
+Story
+- The theme is a real promise: its central subject must affect the plot and interact with the child, early enough to matter, not sit in the background or arrive only at the end.
+- By the end of Page 2 the listener knows what the child wants or must solve. The central conflict is visible by Page 3, and Pages 4 and 5 deepen that same conflict rather than replacing it.
+- The world must not hand the child every clue. The child works out at least one important connection, makes the meaningful choices and causes the solution. Helpers may offer information or opportunities and may make funny mistakes, but they never solve it, and no adult, magic object, gift or coincidence fixes it for the child.
+- Every conspicuous setup (object, smell, phrase, rule, promise, joke, mystery) must pay off later or not be emphasised. Bring an earlier detail back when it becomes useful or meaningful.
+- Use magic where it matters across the story. This page does not need a new magical element: a quiet choice, conversation, failed idea or funny moment can carry a scene. Harmless silliness is welcome when it grows from character.
+- Keep the seven-page structure invisible: no narrator commentary or transition phrases that announce what a page is for.
+
+Stakes — bedtime-safe is not stake-free
+- Bedtime-safe means no fear, injury, cruelty or danger and no unresolved cliffhanger. It does NOT mean nothing is at risk.
+- Make the stakes concrete and visible on the page: show what will be lost, missed, broken, spoiled or left behind, and who will be sad, if the child fails. Let one moment make that loss look likely before the child's decisive act.
+
+Moral
+{moral_rule}
+
+Read-aloud rhythm
+- Write for the ear. Vary sentence length and shape within the age level: mix short action or dialogue lines with occasional longer flowing ones, avoid runs of sentences with the same pattern or opening, and use punctuation as breathing guidance.
+- Paragraphs follow real story beats and need not be equal. Keep refrains or comic repetition only when the return does new work.
+- Before returning a page, read it silently as spoken prose and fix anything mechanical, rushed or awkward without adding filler.
+
+Plain prose
+- Story text is plain prose only: no Markdown, asterisks, underscores, headings, bullets or backticks. Show emphasis through wording and rhythm.
+- Never state the child's numerical age.
+"""
+
+
+def v5_continuation_job(remaining_page_count: int, next_page_number: int, final_page_number: int) -> str:
+    pages_word = "page" if remaining_page_count == 1 else "pages"
+    return f"""CONTINUATION JOB:
+- Write exactly {remaining_page_count} new {pages_word}: Page {next_page_number} through Page {final_page_number}.
+- Continue from the latest existing page. Do not recap or contradict it.
+- Keep one main story idea visible. Something must change on every page (see FORWARD PROGRESSION); pages must not only search, wait, look around or explain.
+- Compare the last two existing pages before writing. If they used the same kind of scene, this page must use a different kind.
+- Every page includes something a child can picture or remember.
+- Pages before the resolution end with a small reason to keep listening: a clue, choice, funny complication or clear next step, never a frightening cliffhanger.
+- Where it fits, include a warm funny or surprising moment that changes what happens next.
+"""
+
+
+V5_PAGE5_OLD = "- Success should briefly feel uncertain, but never frightening."
+V5_PAGE5_NEW = (
+    "- Success must look genuinely in doubt: the concrete loss from the stakes nearly happens. Keep it bedtime-safe "
+    "(no fear, injury or danger), but do not soften the loss itself."
+)
+
+
+def v5_page_role(page_role: str) -> str:
+    return page_role.replace(V5_PAGE5_OLD, V5_PAGE5_NEW)
+
+
+V5_PLAN_PRECEDENCE = (
+    "- If this beat conflicts with the page role or ending rules (Page 6: the child's own act resolves it; "
+    "Page 7: aftermath and settling only, nothing new happens), follow the page role and adjust the beat."
+)
+
+V5_PLAN_RULES = """- PAGE 6 COMPLETES THE SOLUTION: the child's decisive act on Page 6 must itself cause the outcome. Helpers may assist,
+  but no adult, royal, parent, wizard, creature or magic may heal, fix, rescue, decide or finish it for the child.
+- PAGE 7 IS AFTERMATH ONLY: the visible result, the callback and calm settling. No character arrives, and nothing is
+  rescued, healed, repaired, revealed, travelled to or decided on Page 7.
+- VISIBLE STAKES: name one visible sign of the possible loss that the listener sees on the page by Page 3 and that gets
+  worse at the setback (for example: the market stays dark and the cocoa goes cold; the egg grows cooler each hour).
+- FRESH IMAGES: avoid overused motifs such as whispering woods, sparkly feathers, glowing moss and "a shimmer of magic"."""
+
+
+PLAN_CHECK_KEYS = [
+    ("stakes_visible_by_page3", True, "A concrete, visible sign of what will be lost appears in the Page 2 or Page 3 beat and gets worse at the setback."),
+    ("child_causes_solution", True, "The Page 6 beat shows the child's own act causing the outcome; no adult, royal, helper, creature, magic, luck or coincidence heals, fixes, rescues or finishes it."),
+    ("page7_aftermath_only", True, "The Page 7 beat contains only the result, callback and settling: no arrival, rescue, healing, repair, reveal, journey or decision."),
+    ("payoff_planted_early", True, "The decisive act uses an object, habit, clue or skill planted in the Page 2, 3 or 4 beat."),
+    ("no_contradictions", True, "Nothing contradicts Page 1 or another part of the plan, and no name or fact is known before it is learned."),
+    ("theme_literal", True, "The chosen theme's central subject is literally present and matters to the plot."),
+    ("bedtime_landing", False, "The final image is calm and settled, ideally at home in the evening or at night."),
+]
+
+PLAN_CHECK_SCHEMA = {
+    "type": "object",
+    "properties": {
+        **{key: {"type": "boolean"} for key, _, _ in PLAN_CHECK_KEYS},
+        "issues": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": [*[key for key, _, _ in PLAN_CHECK_KEYS], "issues"],
+}
+
+
+def build_plan_check_prompt(request: Any, page_one: str, plan: dict, age: int) -> str:
+    theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
+    checks = "\n".join(f"- {key}: {desc}" for key, _, desc in PLAN_CHECK_KEYS)
+    return f"""You are a strict children's book editor checking a story plan before any page is written.
+Return only JSON matching the schema. Answer false whenever you are in doubt. For every false answer, add one short,
+specific issue that says exactly what to change.
+
+STORY FACTS: theme "{theme}"; listener age {age}.
+
+PAGE 1 (FIXED):
+{page_one}
+
+PLAN:
+{plan_text(plan)}
+
+CHECKS:
+{checks}
+"""
+
+
+def evaluate_plan_check(result: Any) -> Dict[str, Any]:
+    result = result if isinstance(result, dict) else {}
+    failed_critical = [key for key, critical, _ in PLAN_CHECK_KEYS if critical and result.get(key) is not True]
+    failed_other = [key for key, critical, _ in PLAN_CHECK_KEYS if not critical and result.get(key) is not True]
+    return {
+        "passed": not failed_critical,
+        "failed_critical": failed_critical,
+        "failed_other": failed_other,
+        "issues": [str(i)[:240] for i in (result.get("issues") or [])][:6],
+    }
+
+
+def build_plan_revision_prompt(original_prompt: str, plan: dict, check: Dict[str, Any]) -> str:
+    descriptions = {key: desc for key, _, desc in PLAN_CHECK_KEYS}
+    problems = [f"- {key}: {descriptions[key]}" for key in check["failed_critical"] + check["failed_other"]]
+    problems += [f"- {issue}" for issue in check["issues"]]
+    return (
+        original_prompt
+        + "\nREVISE THIS PLAN. It failed the editor's checks. Keep everything that works and Page 1 exactly; fix ONLY these problems:\n"
+        + "\n".join(problems)
+        + "\n\nPLAN TO REVISE:\n" + plan_text(plan) + "\n"
+    )
