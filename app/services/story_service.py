@@ -8225,7 +8225,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         if task is None:
             return
         try:
-            await asyncio.wait_for(asyncio.shield(task), timeout=2 * _quality.PLAN_FAST_TIMEOUT_SECONDS + 5)
+            await asyncio.wait_for(asyncio.shield(task), timeout=2 * _quality.PLAN_CHECK_TIMEOUT_SECONDS + 5)
         except Exception as exc:
             _quality.trace_event(request, "plan_check_wait_failed", error=str(exc)[:160])
 
@@ -8256,7 +8256,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                     _quality.build_plan_check_prompt(request, page_one, plan, age),
                     _quality.PLAN_CHECK_SCHEMA, 800, 0,
                 ),
-                timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
+                timeout=_quality.PLAN_CHECK_TIMEOUT_SECONDS,
             )
             check = _quality.evaluate_plan_check(self._clean_json_response(getattr(response, "text", "") or ""))
             structural = _quality.structural_plan_issues(plan)
@@ -8278,7 +8278,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                         ),
                         _quality.plan_response_schema(), 1600, 0,
                     ),
-                    timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
+                    timeout=_quality.PLAN_CHECK_TIMEOUT_SECONDS,
                 )
                 revised = self._clean_json_response(getattr(response, "text", "") or "")
                 new_banned = [
@@ -8302,7 +8302,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                     record["status"] = "revision_rejected"
                     record["revision_problem"] = "banned names" if new_banned else "invalid plan"
         except Exception as exc:
-            record = {"status": f"error:{str(exc)[:160]}"}
+            record = {"status": f"error:{(str(exc) or type(exc).__name__)[:160]}"}
             print(f"[QUALITY] plan_check_failed error={str(exc)[:200]}")
         finally:
             record["ms"] = int((time.time() - t_start) * 1000)

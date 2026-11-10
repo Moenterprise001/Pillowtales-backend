@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -38,6 +38,7 @@ PLAN_MIN_AGE = 3
 SCORE_MIN_AGE = 3
 PLAN_TIMEOUT_SECONDS = 20          # thinking plan (first attempt)
 PLAN_FAST_TIMEOUT_SECONDS = 12     # fast fallback / banned-name retry
+PLAN_CHECK_TIMEOUT_SECONDS = 25    # plan check and its revision, each (3.8 Flash checks took 14-22 s; 12 s timed out)
 PLAN_MAX_OUTPUT_TOKENS = 6000      # thinking tokens share this budget
 SCORE_TIMEOUT_SECONDS = 30
 RECENT_HISTORY_LIMIT = 30  # openings/titles/hooks (was 10: a busy child recycled openings within a day)
@@ -1217,7 +1218,7 @@ PAGE1_JUDGE_SCHEMA = {
         "spare_ideas": {"type": "array", "items": {"type": "string"}},
         "fresh_title": {"type": "string"},
     },
-    "required": ["best", "reason", "story_promise", "childs_want", "stakes_seed", "spare_ideas"],
+    "required": ["best", "reason", "story_promise", "childs_want", "stakes_seed", "spare_ideas", "fresh_title"],
 }
 
 
