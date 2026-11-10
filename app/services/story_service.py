@@ -1517,6 +1517,7 @@ LIVING WORLD HARD RULES:
         self,
         response_schema: Optional[dict] = None,
         max_output_tokens: Optional[int] = None,
+        thinking_budget: Optional[int] = None,
     ) -> types.GenerateContentConfig:
         """Create a Gemini JSON-mode config for the google.genai SDK.
 
@@ -1530,7 +1531,8 @@ LIVING WORLD HARD RULES:
             # PillowTales needs fast, complete JSON rather than long internal reasoning.
             # Gemini 2.5 Flash otherwise spends much of the output budget on thinking,
             # which can truncate Page 1 and delay every continuation page.
-            "thinking_config": types.ThinkingConfig(thinking_budget=0),
+            # Only the background story-plan call opts into thinking.
+            "thinking_config": types.ThinkingConfig(thinking_budget=int(thinking_budget or 0)),
         }
         if max_output_tokens:
             kwargs["max_output_tokens"] = max_output_tokens
@@ -1682,6 +1684,7 @@ LIVING WORLD HARD RULES:
         prompt: str,
         response_schema: Optional[dict] = None,
         max_output_tokens: Optional[int] = None,
+        thinking_budget: Optional[int] = None,
     ):
         return self.client.models.generate_content(
             model=model_name,
@@ -1689,6 +1692,7 @@ LIVING WORLD HARD RULES:
             config=self._json_generation_config(
                 response_schema,
                 max_output_tokens=max_output_tokens,
+                thinking_budget=thinking_budget,
             ),
         )
 
@@ -1697,6 +1701,7 @@ LIVING WORLD HARD RULES:
         prompt: str,
         response_schema: Optional[dict] = None,
         max_output_tokens: Optional[int] = None,
+        thinking_budget: Optional[int] = None,
     ):
         """Generate content using google.genai, preferring structured JSON output.
 
@@ -1717,6 +1722,7 @@ LIVING WORLD HARD RULES:
                     prompt,
                     response_schema,
                     max_output_tokens,
+                    thinking_budget,
                 )
             except Exception as exc:
                 last_exc = exc
@@ -1733,6 +1739,7 @@ LIVING WORLD HARD RULES:
                         prompt,
                         None,
                         max_output_tokens,
+                        thinking_budget,
                     )
 
                 if is_not_found:
@@ -5168,6 +5175,8 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                     f"story_title={title!r}"
                 )
 
+            if not self._is_canon_request(request) and not self._is_folk_adventure_request(request):
+                sanitized = self._freshen_continuation_names(request, sanitized, working_pages, companion)
             return sanitized
 
         if is_final_page_batch and self._is_canon_request(request):
@@ -5959,6 +5968,20 @@ JSON ONLY:
             request, self._recent_story_history(request), companion
         )
         self._record_rule_fingerprints(request)
+        custom_theme_text = str(request.customTheme or "").strip()
+        if custom_theme_text:
+            # A parent-typed theme is specific ("Horse summer camp"); a preset
+            # opening world (e.g. a lighthouse cafe) would fight it. Open
+            # directly inside the parent's theme instead. The selected seed is
+            # still kept for the instant local fallback.
+            opening_instruction = (
+                f'- Open directly inside the parent\'s chosen theme: "{custom_theme_text}". Build the setting, '
+                "the first image and the hook from that theme itself. Do not open in an unrelated place "
+                "and then travel to the theme."
+            )
+            _quality.get_trace(request).setdefault("seed", {})["prompt_opening"] = "custom_theme_direct"
+        else:
+            opening_instruction = f'- Start from this theme-matched opening idea, rewritten naturally: "{opening}"'
 
         return f"""Write Page 1 only. Do not plan or analyse. Return only final JSON.
 
@@ -5987,7 +6010,7 @@ STORY WORLD ISOLATION:
 {freshness_block}
 PAGE 1 JOB:
 - Write like a relaxed children's author starting a favourite bedtime adventure.
-- Start from this theme-matched opening idea, rewritten naturally: "{opening}"
+{opening_instruction}
 - Show who the story is about, where they are, and what makes today different.
 - Give the story one clear child-friendly hook: a funny wish, silly mistake, odd visitor, simple problem, useful mystery, or goal the child wants to achieve.
 - The hook should fit the chosen theme and make the child want to hear Page 2.
@@ -7286,12 +7309,28 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                         + ", ".join(banned_used)
                         + ". Write the whole plan again with fresh, easy-to-say names instead.\n"
                     )
-                response = await asyncio.wait_for(
-                    asyncio.to_thread(
-                        self._generate_content_sync, attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA, 1600
-                    ),
-                    timeout=_quality.PLAN_TIMEOUT_SECONDS,
-                )
+                thinking = _quality.plan_thinking_budget() if plan_attempt == 1 else 0
+                try:
+                    response = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self._generate_content_sync, attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA,
+                            _quality.PLAN_MAX_OUTPUT_TOKENS if thinking else 1600, thinking,
+                        ),
+                        timeout=_quality.PLAN_TIMEOUT_SECONDS if thinking else _quality.PLAN_FAST_TIMEOUT_SECONDS,
+                    )
+                except asyncio.TimeoutError:
+                    if not thinking:
+                        raise
+                    # Thinking plan too slow: fall back to a fast plan so Page 2 is never late.
+                    _quality.trace_event(request, "plan_thinking_timeout", attempt=plan_attempt)
+                    thinking = 0
+                    response = await asyncio.wait_for(
+                        asyncio.to_thread(
+                            self._generate_content_sync, attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA, 1600, 0,
+                        ),
+                        timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
+                    )
+                _quality.trace_set(request, "plan_thinking_budget", thinking)
                 candidate = self._clean_json_response(getattr(response, "text", "") or "")
                 if not _quality.plan_is_valid(candidate):
                     raise ValueError("plan missing required fields")
@@ -7307,7 +7346,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 _quality.trace_event(request, "plan_banned_names", attempt=plan_attempt, names=", ".join(banned_used))
             if banned_used:
                 _quality.trace_set(request, "plan_banned_names_kept", banned_used)
-            plan["beats"] = [str(beat).strip() for beat in plan["beats"][:6]]
+            plan["beats"] = _quality.clean_beats(plan["beats"][:6])
             state["plan"] = plan
             _quality.trace_set(request, "plan_status", "ok")
             _quality.trace_set(request, "plan", plan)
@@ -7348,6 +7387,50 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             print(f"[QUALITY] story_score_failed error={str(exc)[:200]}")
         finally:
             _quality.trace_set(request, "score_ms", int((time.time() - t_start) * 1000))
+
+    def freshen_page_one_names(self, request: GenerateStoryRequest, story_data: Dict[str, Any]) -> None:
+        """Swap overused/recent names out of the title and Page 1 before they are saved or shown."""
+        try:
+            if self._is_canon_request(request) or self._is_folk_adventure_request(request):
+                return
+            pages = story_data.get("pages") or []
+            if not pages:
+                return
+            history = _quality.get_state(request).get("history") or {}
+            banned = _quality.avoid_names_for(request, history, story_data.get("companion"))
+            title, page_one, mapping = _quality.freshen_page_one_names(
+                str(story_data.get("title") or ""), str(pages[0]), banned,
+                extra_avoid=history.get("names") or [],
+            )
+            if mapping:
+                story_data["title"] = title
+                pages[0] = page_one
+                story_data["pages"] = pages
+                _quality.trace_set(request, "page1_renamed", mapping)
+                print(f"[QUALITY] page1_names_freshened mapping={mapping}")
+        except Exception as exc:
+            print(f"[QUALITY] page1_name_freshness_failed error={str(exc)[:200]}")
+
+    def _freshen_continuation_names(
+        self, request: GenerateStoryRequest, pages: list[str], working_pages: list[str], companion: Optional[dict]
+    ) -> list[str]:
+        """Swap overused names a continuation page introduced (e.g. a pony called Sparkle)."""
+        try:
+            state = _quality.get_state(request)
+            history = state.get("history") or {}
+            banned = _quality.avoid_names_for(request, history, companion)
+            keep_text = (working_pages[0] if working_pages else "") + "\n" + _quality.plan_text(state.get("plan") or {})
+            pages, added = _quality.freshen_continuation_names(
+                list(pages), banned, state, keep_text=keep_text, extra_avoid=history.get("names") or [],
+            )
+            if added:
+                renamed = _quality.get_trace(request).setdefault("continuation_renamed", {})
+                renamed.update(added)
+                print(f"[QUALITY] continuation_names_freshened mapping={added}")
+            return pages
+        except Exception as exc:
+            print(f"[QUALITY] continuation_name_freshness_failed error={str(exc)[:200]}")
+            return pages
 
     def persist_generation_trace(self, request: GenerateStoryRequest, story_id: str, user_id: str) -> None:
         """Fix 5: save the trace. Never breaks story saving (e.g. before migration)."""

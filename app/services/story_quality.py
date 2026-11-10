@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "bedtime_story_plan=20261109 bedtime_story_score=20261109 "
+    "bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -36,7 +36,9 @@ QUALITY_BUILD = (
 # multi-beat plot (see bedtime_age_0_1_2_calibration).
 PLAN_MIN_AGE = 3
 SCORE_MIN_AGE = 3
-PLAN_TIMEOUT_SECONDS = 15
+PLAN_TIMEOUT_SECONDS = 20          # thinking plan (first attempt)
+PLAN_FAST_TIMEOUT_SECONDS = 12     # fast fallback / banned-name retry
+PLAN_MAX_OUTPUT_TOKENS = 6000      # thinking tokens share this budget
 SCORE_TIMEOUT_SECONDS = 30
 RECENT_HISTORY_LIMIT = 10
 MAX_TRACE_EVENTS = 80
@@ -381,8 +383,33 @@ PLANNING RULES:
 - Keep Page 1 facts exactly; do not contradict them.
 - NAMES: any new character or creature you name must NOT use a name from the avoid list below. Banned names
   are banned in the plan too; a plan that uses one is rejected.
+- PLANT AND PAYOFF: the decisive act must use something specific planted on Page 2, 3 or 4 (an object, a habit,
+  a clue, a skill). It must be clever: something only this child would think of. A helper or the creature could
+  not simply have done it themselves.
+- TITLE PROMISE: honour every word of the title (if the title says "grumpy", someone is truly grumpy and why is answered).
+- THEME PROMISE: the theme "{theme}" must be literally present, not only a metaphor. A princess theme needs a real
+  princess (or the child becoming one); dragons need a real dragon; space needs space. If Page 1 only hints at the
+  theme, bring it in for real by Page 3 in a way that fits Page 1.
+- BEDTIME LANDING: the final image is calm and settled, ideally the child at home, evening or night, with a quiet
+  feeling of having made something right.
+
+SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
+1. Is the stakes line heard on the page by Page 3, and does it feel at real risk at the setback?
+2. Could any character other than the child have solved it just as easily? (Must be "no".)
+3. Does every beat move the story forward, with the answer to every thread placed in a specific beat?
+4. Is there any contradiction with Page 1 or inside the plan (e.g. a "new" thing that already exists, a name known before it is learned)?
+5. Does the decisive act show the moral through action, without anyone stating it?
 {avoid_block}
 """
+
+
+def plan_thinking_budget() -> int:
+    """Thinking tokens for the background plan call (0 disables). Env: BEDTIME_PLAN_THINKING_BUDGET."""
+    import os
+    try:
+        return max(0, min(8192, int(os.getenv("BEDTIME_PLAN_THINKING_BUDGET", "2048"))))
+    except Exception:
+        return 2048
 
 
 def _decisive_act_cost_line(age: int) -> str:
@@ -427,6 +454,10 @@ def plan_is_valid(plan: Any) -> bool:
         if not str(plan.get(key) or "").strip():
             return False
     return True
+
+
+def clean_beats(beats: Iterable[Any]) -> List[str]:
+    return [re.sub(r"^\s*page\s*\d+\s*[:.\-–]\s*", "", str(beat).strip(), flags=re.IGNORECASE) for beat in beats]
 
 
 def plan_spine_block(plan: Optional[dict]) -> str:
@@ -555,3 +586,69 @@ def summarise_score(result: Dict[str, Any]) -> Dict[str, Any]:
         "top_issues": [str(i)[:200] for i in (result.get("top_issues") or [])][:4],
         "rubric_version": "20261109",
     }
+
+
+# ---------------------------------------------------------------------------
+# Page 1 name freshness. Page 1 is written for speed with no plan, and Gemini
+# defaults to "Barnaby" even when told not to. Page 1 is not yet shown when
+# this runs, so a whole-word swap to a fresh name is safe and instant.
+# ---------------------------------------------------------------------------
+
+FRESH_NAME_POOL = [
+    "Quill", "Fennel", "Nutmeg", "Tansy", "Sorrel", "Juniper", "Tumble", "Pebblewick", "Marlo",
+    "Clementine", "Hollis", "Wren", "Bellamy", "Ottoline", "Figgy", "Rosco", "Tibbet", "Mabel",
+    "Ziggy", "Pernel", "Lark", "Dimble", "Saffron", "Brindle", "Orla", "Thistle", "Cosmo", "Nell",
+]
+
+
+def freshen_page_one_names(title: str, page_one: str, banned: Iterable[str], extra_avoid: Iterable[str] = ()) -> tuple:
+    """Replace banned names in title/Page 1. Returns (title, page_one, {old: new})."""
+    used = banned_names_in_text(f"{title}\n{page_one}", banned)
+    if not used:
+        return title, page_one, {}
+    avoid = {_normalise_text(n) for n in [*banned, *extra_avoid]}
+    present = set(re.findall(r"[A-Za-z]+", f"{title} {page_one}"))
+    import random as _random
+    pool = [n for n in FRESH_NAME_POOL if _normalise_text(n) not in avoid and n not in present]
+    _random.shuffle(pool)
+    mapping = {}
+    for old in used:
+        if not pool:
+            break
+        new = pool.pop()
+        mapping[old] = new
+        pattern = r"(?<![\w])" + re.escape(old) + r"(?![\w])"
+        title = re.sub(pattern, new, title)
+        page_one = re.sub(pattern, new, page_one)
+    return title, page_one, mapping
+
+
+def freshen_continuation_names(pages: List[str], banned: Iterable[str], state: Dict[str, Any],
+                               keep_text: str = "", extra_avoid: Iterable[str] = ()) -> tuple:
+    """Rename banned names newly introduced on Pages 2+, consistently across pages.
+
+    keep_text (Page 1 and the plan) holds names that are already part of the
+    story; those are never renamed. Returns (pages, new_mapping_entries).
+    """
+    mapping: Dict[str, str] = state.setdefault("continuation_name_map", {})
+    banned_list = [n for n in banned if not banned_names_in_text(keep_text, [n])]
+    found = banned_names_in_text("\n".join(pages), banned_list)
+    added = {}
+    if found:
+        avoid = {_normalise_text(n) for n in [*banned, *extra_avoid, *mapping.values()]}
+        present = set(re.findall(r"[A-Za-z]+", keep_text + " " + " ".join(pages)))
+        import random as _random
+        pool = [n for n in FRESH_NAME_POOL if _normalise_text(n) not in avoid and n not in present]
+        _random.shuffle(pool)
+        for old in found:
+            if old not in mapping and pool:
+                mapping[old] = pool.pop()
+                added[old] = mapping[old]
+    if not mapping:
+        return pages, added
+    out = []
+    for page in pages:
+        for old, new in mapping.items():
+            page = re.sub(r"(?<![\w])" + re.escape(old) + r"(?![\w])", new, page)
+        out.append(page)
+    return out, added

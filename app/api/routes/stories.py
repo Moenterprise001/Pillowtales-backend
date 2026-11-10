@@ -93,6 +93,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
     # background. Do not block this route on the full 7-page story.
     t_page1 = time.time()
     story_data = await story_service.generate_story_first_page(request, subscription)
+    story_service.freshen_page_one_names(request, story_data)
     story_quality.trace_set(request, 'page1', {
         'source': story_data.get('first_page_generation_source'),
         'fallback_reason': story_data.get('generation_fallback_reason'),
