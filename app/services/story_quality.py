@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -159,9 +159,22 @@ THEME_SEED_ALLOWLIST: Dict[str, set] = {
     "trains": {"dream_train_carriage", "sky_train_station"},
     "circus": {"cloud_circus", "sleepy_puppet_theatre"},
 }
+
+# 10 Nov 2026: new openings per theme (superheroes now has its own list: adventure + hero openings).
+THEME_SEED_ALLOWLIST['adventure'].update(['adventure_kite_hill', 'adventure_wet_ink_maps'])
+THEME_SEED_ALLOWLIST['animals'].update(['animal_country_bus', 'animal_night_vet'])
+THEME_SEED_ALLOWLIST['dinosaurs'].update(['dinosaur_egg_nursery', 'dinosaur_school_bus'])
+THEME_SEED_ALLOWLIST['dragons'].update(['dragon_laundry', 'dragon_lost_property'])
+THEME_SEED_ALLOWLIST['forest'].update(['forest_acorn_library', 'forest_firefly_bridge'])
+THEME_SEED_ALLOWLIST['magic'].update(['magic_weather_umbrellas', 'magic_wizard_cafe'])
+THEME_SEED_ALLOWLIST['princess'].update(['princess_moving_maze', 'princess_royal_kitchen'])
+THEME_SEED_ALLOWLIST['space'].update(['space_comet_lake', 'space_lunchbox_rocket'])
+THEME_SEED_ALLOWLIST["superheroes"] = set(THEME_SEED_ALLOWLIST["adventure"]) | {'hero_cape_repair', 'hero_rooftop_garden'}
+THEME_SEED_ALLOWLIST['underwater'].update(['underwater_bottle_post', 'underwater_submarine_bakery'])
+THEME_SEED_ALLOWLIST['winter'].update(['winter_owl_skating', 'winter_sock_sledge'])
 THEME_ALIASES = {
     "dragon": "dragons", "animal": "animals", "dinosaur": "dinosaurs", "princesses": "princess",
-    "superheroes": "adventure", "superhero": "adventure", "emotions": "forest",
+    "superhero": "superheroes", "emotions": "forest",
 }
 # Seeds that adapt to almost any subject; used when a custom theme matches nothing.
 NEUTRAL_SEED_FAMILIES = {"glowing_attic", "hidden_garden_gate", "toymaker_workshop", "moonlit_library", "pillow_harbour", "lantern_treehouse"}
@@ -313,10 +326,18 @@ ROLE_WORDS = {
 
 
 def clean_character_name(name: Any) -> str:
-    """'Princess Lily' -> 'Lily'; 'The Princess' -> ''; 'Captain Thistle' -> 'Thistle'."""
+    """A saved character "name" -> the real name to avoid, or "" if it is only a description.
+
+    'Princess Lily' -> 'Lily'; 'Captain Thistle' -> 'Thistle'; 'Old Nell' -> 'Nell';
+    'The Princess', 'The tiny dragon', 'The Young Unicorn', 'Sun-Drake chick', 'Princess' -> ''.
+    """
     words = str(name or "").split()
+    if not words or re.sub(r"[^a-z]", "", words[0].lower()) in {"the", "a", "an"}:
+        return ""
     kept = [w for w in words if re.sub(r"[^a-z]", "", w.lower()) not in ROLE_WORDS]
-    return " ".join(kept).strip()
+    if not kept or any(not w[:1].isupper() for w in kept):
+        return ""
+    return " ".join(kept)
 
 
 def avoid_names_for(request: Any, history: Dict[str, Any], companion: Optional[dict]) -> List[str]:
@@ -388,6 +409,77 @@ PLAN_RESPONSE_SCHEMA = {
         "setback", "childs_decisive_act", "callback_detail", "final_image", "threads_to_close",
     ],
 }
+
+
+PLAN_V5_EXTRA_FIELDS = {
+    "solution_key": {"type": "string"},
+    "solution_planted_page": {"type": "integer"},
+    "stake_for_child": {"type": "string"},
+    "stake_sign": {"type": "string"},
+    "signature_delight": {"type": "string"},
+}
+PLAN_RESPONSE_SCHEMA_V5 = {
+    "type": "object",
+    "properties": {**PLAN_RESPONSE_SCHEMA["properties"], **PLAN_V5_EXTRA_FIELDS},
+    "required": [*PLAN_RESPONSE_SCHEMA["required"], *PLAN_V5_EXTRA_FIELDS.keys()],
+}
+
+
+def plan_response_schema() -> dict:
+    return PLAN_RESPONSE_SCHEMA_V5 if prompts_v5_enabled() else PLAN_RESPONSE_SCHEMA
+
+
+_PLAN_STOPWORDS = set("""the a an and or of to in on at by for with from into onto her his their its she he they them this that these those
+is was are were be been being has have had will would can could should must not no yes very just only also then than
+when what where which who whom whose why how all any each every some more most other such own same so too out up down
+over under again once here there about after before while because until little tiny big small old new one two three
+child emily makes made make uses used using give gives gave take takes took page story""".split())
+
+
+def _key_words(text: Any, limit: int = 3) -> List[str]:
+    words = [w for w in re.findall(r"[a-z][a-z'-]+", str(text or "").lower()) if len(w) >= 4 and w not in _PLAN_STOPWORDS]
+    seen: List[str] = []
+    for w in sorted(words, key=len, reverse=True):
+        if w not in seen:
+            seen.append(w)
+    return seen[:limit]
+
+
+def _mentions(beat: Any, key_words: List[str]) -> bool:
+    text = str(beat or "").lower()
+    return any(re.search(r"(?<![a-z])" + re.escape(w[:max(4, len(w) - 2)]), text) for w in key_words)
+
+
+def structural_plan_issues(plan: Any) -> List[tuple]:
+    """Deterministic v5 checks: the solution is planted on Page 2 or 3 and used on Page 6, the stake is
+    visible by Page 3 and worse at the setback, and the signature delight returns. Returns [(key, issue)]."""
+    if not isinstance(plan, dict) or not prompts_v5_enabled():
+        return []
+    beats = list(plan.get("beats") or [])
+    if len(beats) < 6:
+        return []
+    issues: List[tuple] = []
+    key = _key_words(plan.get("solution_key"))
+    if not key:
+        issues.append(("solution_planted", "solution_key is missing: name the exact object, habit, clue or skill the child uses on Page 6."))
+    else:
+        if not (_mentions(beats[0], key) or _mentions(beats[1], key)):
+            issues.append(("solution_planted", f"The solution ({plan.get('solution_key')}) is not shown in the Page 2 or Page 3 beat. "
+                                               "Put it into the Page 3 beat in a natural, memorable way so the listener notices it."))
+        if not _mentions(beats[4], key):
+            issues.append(("solution_planted", f"The Page 6 beat does not use the planted solution ({plan.get('solution_key')})."))
+    sign = _key_words(plan.get("stake_sign"))
+    if not sign:
+        issues.append(("stake_felt", "stake_sign is missing: name the visible sign that the loss is coming."))
+    else:
+        if not (_mentions(beats[0], sign) or _mentions(beats[1], sign)):
+            issues.append(("stake_felt", f"The visible stake sign ({plan.get('stake_sign')}) is not in the Page 2 or Page 3 beat."))
+        if not (_mentions(beats[2], sign) or _mentions(beats[3], sign)):
+            issues.append(("stake_felt", f"The stake sign ({plan.get('stake_sign')}) must get visibly worse in the Page 4 or Page 5 setback beat."))
+    delight = _key_words(plan.get("signature_delight"))
+    if delight and sum(1 for b in beats[:6] if _mentions(b, delight)) < 2:
+        issues.append(("signature_delight", f"The signature delight ({plan.get('signature_delight')}) should return in at least two beats, including Page 7."))
+    return issues
 
 
 def _age_stakes_line(age: int) -> str:
@@ -498,7 +590,8 @@ def banned_names_in_text(text: Any, names: Iterable[str]) -> List[str]:
     found = []
     for name in names:
         name = str(name or "").strip()
-        if len(name) < 2:
+        # A name always starts with a capital letter; never treat ordinary words ("tiny") as names.
+        if len(name) < 2 or not name[:1].isupper():
             continue
         if re.search(r"(?<![\w])" + re.escape(name) + r"(?![\w])", haystack):
             found.append(name)
@@ -887,7 +980,19 @@ V5_PLAN_RULES = """- PAGE 6 COMPLETES THE SOLUTION: the child's decisive act on 
   worse at the setback (for example: the market stays dark and the cocoa goes cold; the egg grows cooler each hour).
 - ANSWER EVERYTHING BY PAGE 6: put the hidden explanation and the answer to every thread into the text of a specific
   Page 2-6 beat. Page 7 may show results but must not explain anything new.
-- FRESH IMAGES: avoid overused motifs such as whispering woods, sparkly feathers, glowing moss and "a shimmer of magic"."""
+- FRESH IMAGES: avoid overused motifs such as whispering woods, sparkly feathers, glowing moss and "a shimmer of magic".
+- solution_key: the ONE specific object, habit, clue or skill the child uses on Page 6 to solve it. Show it in the Page 2 or
+  Page 3 beat in a memorable way (the listener should be able to say "the hairbrush!" before the climax), and set
+  solution_planted_page to that page number. Never let it appear for the first time on Page 5 or 6.
+- stake_for_child: what the child THEMSELF will miss, lose or let down if this fails, in words a child feels (a friend
+  left waiting in the cold, a promise broken, a party that will not happen, a creature that cannot get home). Not an
+  abstract or far-away loss such as "the kingdom's magic fades".
+- stake_sign: the visible sign of that loss coming closer (the lantern dims, the egg grows colder, the music slows).
+  Show it in the Page 2 or 3 beat and make it visibly worse in the setback beat.
+- signature_delight: one funny or wonderful thing a child will want to hear again tomorrow night (a creature's odd habit,
+  a silly sound, a running joke). Use it in at least two beats, and let it return on Page 7.
+- Make the listener desperate to know what happens next on every page: end each beat with a question, a surprise or a
+  choice, never a summary. No sequel hook on Page 7, but a warm ending that makes the child want this story again."""
 
 
 PLAN_CHECK_KEYS = [
@@ -899,6 +1004,8 @@ PLAN_CHECK_KEYS = [
     ("no_contradictions", True, "Nothing contradicts Page 1 or another part of the plan, and no name or fact is known before it is learned."),
     ("theme_literal", True, "The chosen theme's central subject is literally present and matters to the plot."),
     ("bedtime_landing", False, "The final image is calm and settled, ideally at home in the evening or at night."),
+    ("stake_felt_by_child", True, "stake_for_child is something the child personally feels (a friend let down, a promise broken, something they will miss), not an abstract or far-away loss, and the beats show it rather than only say it."),
+    ("signature_delight", False, "signature_delight is genuinely funny or wonderful and returns in at least two beats."),
 ]
 
 PLAN_CHECK_SCHEMA = {
@@ -946,7 +1053,7 @@ def evaluate_plan_check(result: Any) -> Dict[str, Any]:
 def build_plan_revision_prompt(original_prompt: str, plan: dict, check: Dict[str, Any],
                                locked_first_beat: Optional[str] = None) -> str:
     descriptions = {key: desc for key, _, desc in PLAN_CHECK_KEYS}
-    problems = [f"- {key}: {descriptions[key]}" for key in check["failed_critical"] + check["failed_other"]]
+    problems = [f"- {key}: {descriptions[key]}" for key in check["failed_critical"] + check["failed_other"] if key in descriptions]
     problems += [f"- {issue}" for issue in check["issues"]]
     return (
         original_prompt
@@ -977,7 +1084,10 @@ MODEL_ROUTING_BUILD = "model_routing=20261110"
 _ROLE_ENV = {
     "pages": "GEMINI_PAGES_MODEL",
     "page1": "GEMINI_PAGE1_MODEL",
-    "planner": "GEMINI_PLANNER_MODEL",
+    "planner": "GEMINI_PLANNER_MODEL",   # Bedtime plan, plan check, editor, Page 7 review
+    "judge": "GEMINI_JUDGE_MODEL",       # Page 1 judge (kept fast: Page 1 waits for it)
+    "scorer": "GEMINI_SCORER_MODEL",     # quality score (kept stable so scores stay comparable)
+    "canon_review": "GEMINI_CANON_REVIEW_MODEL",  # Story Worlds page reviews (unchanged)
 }
 
 
@@ -1085,6 +1195,8 @@ def hook_block(hook: str) -> str:
         "HOOK FOR THIS STORY (use this kind of hook, made specific to this child, theme and world):\n"
         f"- {HOOK_TYPES.get(hook, hook)}.\n"
         "- The hook must give the child something to WANT or DO, so that later the child, not a helper, can solve it.\n"
+        "- Begin the very first sentence in a fresh way: never with the child's name followed by lived, loved or visited.\n"
+        "  Start with a sound, an action, a line of dialogue, a surprising detail or the place itself.\n"
     )
 
 
@@ -1214,7 +1326,9 @@ EDITOR_CHECKLIST = """- Stakes: by Page 3 the listener SEES what will be lost, m
 - Age fit: words and sentences match the age standard; replace words from older bands.
 - The moral is shown through action, never stated, explained or lectured.
 - No stock phrases (tummy flip-flops, sparkling eyes...), no repetition of the same image or idea, no crammed page.
-- The theme and title promise are delivered."""
+- The theme and title promise are delivered.
+- The thing that solves the problem on Page 6 is shown clearly by Page 3, and the child can feel what they would lose.
+- The signature delight from the plan returns; every page ends with a reason to turn the page."""
 
 
 def build_editor_prompt(request: Any, title: str, pages: List[str], plan: Optional[dict], age: int,

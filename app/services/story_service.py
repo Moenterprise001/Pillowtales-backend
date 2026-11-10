@@ -505,6 +505,209 @@ OPENING_SEED_FAMILIES = [
     },
 ]
 
+# 10 Nov 2026: 22 more openings (most do not start with the child's name). Used only with BEDTIME_PROMPTS_V5 on.
+OPENING_SEED_FAMILIES_V5 = [
+    {
+        "family": "dragon_laundry",
+        "en": "On washing day, the warm steam over {childName}'s street came from a dragon who dried the whole town's socks with one long, sleepy sigh.",
+        "es": "Los días de colada, el vapor tibio sobre la calle de {childName} salía de un dragón que secaba los calcetines de todo el pueblo con un largo suspiro dormilón.",
+        "fr": "Les jours de lessive, la vapeur tiède au-dessus de la rue de {childName} venait d’un dragon qui séchait les chaussettes de toute la ville d’un long soupir endormi.",
+        "it": "Nei giorni di bucato, il vapore tiepido sopra la strada di {childName} veniva da un drago che asciugava i calzini di tutto il paese con un lungo sospiro assonnato.",
+        "de": "An Waschtagen kam der warme Dampf über {childName}s Straße von einem Drachen, der mit einem langen, schläfrigen Seufzer die Socken der ganzen Stadt trocknete.",
+        "v5": True,
+    },
+    {
+        "family": "dragon_lost_property",
+        "en": "Every evening, the dragons of Crumble Hill brought their lost things to the little lost-property window, where {childName} helped stamp the labels.",
+        "es": "Cada tarde, los dragones de la Colina Migaja llevaban sus cosas perdidas a la ventanilla de objetos perdidos, donde {childName} ayudaba a sellar las etiquetas.",
+        "fr": "Chaque soir, les dragons de la colline Miette apportaient leurs objets perdus au petit guichet des objets trouvés, où {childName} aidait à tamponner les étiquettes.",
+        "it": "Ogni sera, i draghi della Collina Briciola portavano le loro cose perse allo sportellino degli oggetti smarriti, dove {childName} aiutava a timbrare le etichette.",
+        "de": "Jeden Abend brachten die Drachen vom Krümelhügel ihre verlorenen Sachen zum kleinen Fundbüro-Fenster, wo {childName} beim Stempeln der Etiketten half.",
+        "v5": True,
+    },
+    {
+        "family": "princess_royal_kitchen",
+        "en": "The royal kitchen always smelled of warm jam on the night the princess and {childName} baked the midnight pie together.",
+        "es": "La cocina real siempre olía a mermelada tibia la noche en que la princesa y {childName} horneaban juntas la tarta de medianoche.",
+        "fr": "La cuisine royale sentait toujours la confiture tiède le soir où la princesse et {childName} préparaient ensemble la tarte de minuit.",
+        "it": "La cucina reale profumava sempre di marmellata calda la sera in cui la principessa e {childName} preparavano insieme la torta di mezzanotte.",
+        "de": "Die königliche Küche duftete immer nach warmer Marmelade an dem Abend, an dem die Prinzessin und {childName} zusammen den Mitternachtskuchen backten.",
+        "v5": True,
+    },
+    {
+        "family": "princess_moving_maze",
+        "en": "Behind the palace grew a hedge maze that moved one path every night, and the princess always asked {childName} to help find the way to the fountain.",
+        "es": "Detrás del palacio crecía un laberinto de setos que cambiaba un camino cada noche, y la princesa siempre pedía a {childName} que la ayudara a encontrar la fuente.",
+        "fr": "Derrière le palais poussait un labyrinthe de haies qui déplaçait un chemin chaque nuit, et la princesse demandait toujours à {childName} de l’aider à retrouver la fontaine.",
+        "it": "Dietro il palazzo cresceva un labirinto di siepi che spostava un sentiero ogni notte, e la principessa chiedeva sempre a {childName} di aiutarla a trovare la fontana.",
+        "de": "Hinter dem Palast wuchs ein Heckenlabyrinth, das jede Nacht einen Weg verschob, und die Prinzessin bat {childName} immer, den Weg zum Brunnen zu finden.",
+        "v5": True,
+    },
+    {
+        "family": "space_lunchbox_rocket",
+        "en": "Every Friday, a small silver rocket landed in {childName}'s back garden to collect lunchboxes for the astronauts on the moon.",
+        "es": "Cada viernes, un pequeño cohete plateado aterrizaba en el jardín de {childName} para recoger las fiambreras de los astronautas de la luna.",
+        "fr": "Chaque vendredi, une petite fusée argentée atterrissait dans le jardin de {childName} pour emporter les boîtes à goûter des astronautes de la lune.",
+        "it": "Ogni venerdì, un piccolo razzo d’argento atterrava nel giardino di {childName} per raccogliere i cestini del pranzo degli astronauti sulla luna.",
+        "de": "Jeden Freitag landete eine kleine silberne Rakete in {childName}s Garten, um die Brotdosen für die Astronauten auf dem Mond abzuholen.",
+        "v5": True,
+    },
+    {
+        "family": "space_comet_lake",
+        "en": "On the hill behind {childName}'s house, comets came down at night to drink from the lake, their tails fizzing softly in the water.",
+        "es": "En la colina detrás de la casa de {childName}, los cometas bajaban de noche a beber del lago, y sus colas chisporroteaban suavemente en el agua.",
+        "fr": "Sur la colline derrière la maison de {childName}, les comètes descendaient la nuit boire au lac, leur queue pétillant doucement dans l’eau.",
+        "it": "Sulla collina dietro la casa di {childName}, di notte le comete scendevano a bere al lago, e le loro code frizzavano piano nell’acqua.",
+        "de": "Auf dem Hügel hinter {childName}s Haus kamen nachts Kometen herunter, um aus dem See zu trinken, und ihre Schweife sprudelten leise im Wasser.",
+        "v5": True,
+    },
+    {
+        "family": "animal_night_vet",
+        "en": "When the moon came up, {childName} helped at the night vet, where owls, hedgehogs and badgers queued politely for their check-ups.",
+        "es": "Cuando salía la luna, {childName} ayudaba en el veterinario nocturno, donde búhos, erizos y tejones hacían cola con educación para su revisión.",
+        "fr": "Quand la lune se levait, {childName} aidait chez le vétérinaire de nuit, où hiboux, hérissons et blaireaux faisaient poliment la queue pour leur visite.",
+        "it": "Quando sorgeva la luna, {childName} aiutava dal veterinario notturno, dove gufi, ricci e tassi facevano educatamente la fila per la visita.",
+        "de": "Wenn der Mond aufging, half {childName} beim Nachttierarzt, wo Eulen, Igel und Dachse höflich für ihre Untersuchung anstanden.",
+        "v5": True,
+    },
+    {
+        "family": "animal_country_bus",
+        "en": "The little country bus stopped outside {childName}'s gate, and today its only passengers were a goose with a suitcase and three very sleepy lambs.",
+        "es": "El pequeño autobús del campo paró ante la verja de {childName}, y hoy sus únicos pasajeros eran una oca con maleta y tres corderitos muy dormilones.",
+        "fr": "Le petit car de campagne s’arrêta devant le portail de {childName}, et aujourd’hui ses seuls passagers étaient une oie avec une valise et trois agneaux très endormis.",
+        "it": "Il piccolo autobus di campagna si fermò davanti al cancello di {childName}, e oggi i suoi unici passeggeri erano un’oca con la valigia e tre agnellini molto assonnati.",
+        "de": "Der kleine Landbus hielt vor {childName}s Gartentor, und heute waren seine einzigen Fahrgäste eine Gans mit Koffer und drei sehr verschlafene Lämmer.",
+        "v5": True,
+    },
+    {
+        "family": "adventure_wet_ink_maps",
+        "en": "Down a crooked street, {childName} found a map shop where the maps were still being drawn, and the ink was still wet at the edges of the world.",
+        "es": "Al final de una calle torcida, {childName} encontró una tienda de mapas que aún se estaban dibujando, con la tinta todavía húmeda en los bordes del mundo.",
+        "fr": "Au bout d’une rue tordue, {childName} trouva une boutique de cartes encore en train d’être dessinées, l’encre toute fraîche au bord du monde.",
+        "it": "In fondo a una strada storta, {childName} trovò un negozio di mappe ancora in disegno, con l’inchiostro bagnato ai bordi del mondo.",
+        "de": "In einer krummen Gasse fand {childName} einen Kartenladen, in dem die Karten noch gezeichnet wurden und die Tinte am Rand der Welt noch feucht war.",
+        "v5": True,
+    },
+    {
+        "family": "adventure_kite_hill",
+        "en": "On the windiest hill in town, {childName} flew a kite so high that something up in the clouds tugged back.",
+        "es": "En la colina más ventosa del pueblo, {childName} hizo volar una cometa tan alto que algo, allá en las nubes, tiró de vuelta.",
+        "fr": "Sur la colline la plus venteuse de la ville, {childName} fit voler un cerf-volant si haut que quelque chose, là-haut dans les nuages, tira en retour.",
+        "it": "Sulla collina più ventosa del paese, {childName} fece volare un aquilone così in alto che qualcosa, su tra le nuvole, tirò di rimando.",
+        "de": "Auf dem windigsten Hügel der Stadt ließ {childName} einen Drachen so hoch steigen, dass etwas oben in den Wolken zurückzog.",
+        "v5": True,
+    },
+    {
+        "family": "underwater_bottle_post",
+        "en": "Every morning, a bottle bobbed into the bay where {childName} lived, and every bottle held a letter written in seaweed ink.",
+        "es": "Cada mañana, una botella llegaba flotando a la bahía donde vivía {childName}, y cada botella traía una carta escrita con tinta de algas.",
+        "fr": "Chaque matin, une bouteille flottait jusqu’à la baie où vivait {childName}, et chaque bouteille contenait une lettre écrite à l’encre d’algue.",
+        "it": "Ogni mattina, una bottiglia arrivava galleggiando nella baia dove viveva {childName}, e ogni bottiglia conteneva una lettera scritta con inchiostro d’alghe.",
+        "de": "Jeden Morgen schaukelte eine Flasche in die Bucht, in der {childName} wohnte, und jede Flasche enthielt einen Brief in Seetang-Tinte.",
+        "v5": True,
+    },
+    {
+        "family": "underwater_submarine_bakery",
+        "en": "A round yellow submarine sat in the harbour, but it was really a bakery, and {childName} helped hand warm seaweed buns to the fish at its windows.",
+        "es": "En el puerto había un submarino amarillo y redondo que en realidad era una panadería, y {childName} ayudaba a dar bollos de algas calentitos a los peces de sus ventanas.",
+        "fr": "Un sous-marin jaune et rond était amarré au port, mais c’était en vérité une boulangerie, et {childName} aidait à tendre des brioches aux algues aux poissons des hublots.",
+        "it": "Nel porto c’era un sottomarino giallo e rotondo che in realtà era una panetteria, e {childName} aiutava a porgere panini caldi alle alghe ai pesci dei finestrini.",
+        "de": "Im Hafen lag ein rundes gelbes U-Boot, das eigentlich eine Bäckerei war, und {childName} reichte den Fischen an den Bullaugen warme Seetangbrötchen.",
+        "v5": True,
+    },
+    {
+        "family": "dinosaur_school_bus",
+        "en": "The school bus in {childName}'s town was pulled by a gentle long-necked dinosaur who stopped for every puddle and every duck.",
+        "es": "El autobús escolar del pueblo de {childName} lo tiraba un dinosaurio de cuello largo y tranquilo que se paraba ante cada charco y cada pato.",
+        "fr": "Le car scolaire de la ville de {childName} était tiré par un doux dinosaure au long cou qui s’arrêtait devant chaque flaque et chaque canard.",
+        "it": "Lo scuolabus del paese di {childName} era trainato da un dinosauro gentile dal collo lungo che si fermava per ogni pozzanghera e ogni anatra.",
+        "de": "Der Schulbus in {childName}s Stadt wurde von einem sanften Langhals-Dinosaurier gezogen, der bei jeder Pfütze und jeder Ente anhielt.",
+        "v5": True,
+    },
+    {
+        "family": "dinosaur_egg_nursery",
+        "en": "At the dinosaur egg nursery, every egg had a name tag and a knitted blanket, and tonight {childName} was on the night shift.",
+        "es": "En la guardería de huevos de dinosaurio, cada huevo tenía su etiqueta con nombre y una mantita de punto, y esta noche a {childName} le tocaba el turno de noche.",
+        "fr": "À la nurserie des œufs de dinosaures, chaque œuf avait une étiquette et une couverture tricotée, et ce soir, {childName} était de garde de nuit.",
+        "it": "Al nido delle uova di dinosauro, ogni uovo aveva un cartellino col nome e una copertina di lana, e stanotte toccava a {childName} il turno di notte.",
+        "de": "In der Dinosaurier-Eierstube hatte jedes Ei ein Namensschild und eine gestrickte Decke, und heute Nacht hatte {childName} Nachtdienst.",
+        "v5": True,
+    },
+    {
+        "family": "magic_weather_umbrellas",
+        "en": "Above the umbrella shop where {childName} lived, every umbrella made its own weather, and the snowy one sneezed whenever the door opened.",
+        "es": "En la tienda de paraguas donde vivía {childName}, cada paraguas hacía su propio tiempo, y el de nieve estornudaba cada vez que se abría la puerta.",
+        "fr": "Dans la boutique de parapluies où vivait {childName}, chaque parapluie faisait sa propre météo, et celui de la neige éternuait chaque fois que la porte s’ouvrait.",
+        "it": "Nel negozio di ombrelli dove viveva {childName}, ogni ombrello faceva il suo tempo, e quello della neve starnutiva ogni volta che si apriva la porta.",
+        "de": "Im Schirmladen, in dem {childName} wohnte, machte jeder Schirm sein eigenes Wetter, und der Schneeschirm nieste jedes Mal, wenn die Tür aufging.",
+        "v5": True,
+    },
+    {
+        "family": "magic_wizard_cafe",
+        "en": "At the corner café where {childName} had breakfast, the hot chocolate was stirred by a wizard with a wooden spoon for a wand, and he never, ever got the colour right.",
+        "es": "En el café de la esquina donde desayunaba {childName}, el chocolate caliente lo removía un mago que usaba una cuchara de madera como varita, y nunca, nunca acertaba con el color.",
+        "fr": "Au café du coin où {childName} prenait son petit-déjeuner, le chocolat chaud était remué par un magicien dont la baguette était une cuillère en bois, et il ne trouvait jamais, jamais la bonne couleur.",
+        "it": "Al caffè all’angolo dove {childName} faceva colazione, la cioccolata calda la mescolava un mago che usava un cucchiaio di legno come bacchetta, e non indovinava mai, mai il colore giusto.",
+        "de": "Im Eckcafé, in dem {childName} frühstückte, rührte ein Zauberer mit einem Holzlöffel als Zauberstab den Kakao um, und er traf nie, wirklich nie die richtige Farbe.",
+        "v5": True,
+    },
+    {
+        "family": "forest_acorn_library",
+        "en": "High in an old oak, the squirrels ran a lending library of acorn-sized books, and {childName} was the only human with a library card.",
+        "es": "En lo alto de un viejo roble, las ardillas tenían una biblioteca de libros del tamaño de una bellota, y {childName} era la única persona con carné.",
+        "fr": "Tout en haut d’un vieux chêne, les écureuils tenaient une bibliothèque de livres grands comme des glands, et {childName} était le seul humain à avoir une carte.",
+        "it": "In cima a una vecchia quercia, gli scoiattoli gestivano una biblioteca di libri grandi come ghiande, e {childName} era l’unico umano con la tessera.",
+        "de": "Hoch oben in einer alten Eiche führten die Eichhörnchen eine Bücherei mit eichelgroßen Büchern, und {childName} war der einzige Mensch mit Leseausweis.",
+        "v5": True,
+    },
+    {
+        "family": "forest_firefly_bridge",
+        "en": "Every night, {childName} crossed the little rope bridge over the stream, and the fireflies along its rails lit up one by one to say hello.",
+        "es": "Cada noche, {childName} cruzaba el puentecito de cuerda sobre el arroyo, y las luciérnagas de las barandillas se encendían una a una para saludar.",
+        "fr": "Chaque soir, {childName} traversait le petit pont de corde au-dessus du ruisseau, et les lucioles le long des rampes s’allumaient une à une pour dire bonjour.",
+        "it": "Ogni sera, {childName} attraversava il ponticello di corda sul ruscello, e le lucciole lungo le ringhiere si accendevano una a una per salutare.",
+        "de": "Jeden Abend ging {childName} über die kleine Seilbrücke am Bach, und die Glühwürmchen am Geländer leuchteten eins nach dem anderen zur Begrüßung auf.",
+        "v5": True,
+    },
+    {
+        "family": "winter_sock_sledge",
+        "en": "When the first snow came, {childName} delivered warm socks by sledge to every animal burrow on the hill.",
+        "es": "Cuando caía la primera nieve, {childName} repartía calcetines calentitos en trineo por todas las madrigueras de la colina.",
+        "fr": "Quand tombait la première neige, {childName} livrait en luge des chaussettes chaudes à tous les terriers de la colline.",
+        "it": "Quando arrivava la prima neve, {childName} consegnava calzini caldi con la slitta a ogni tana della collina.",
+        "de": "Wenn der erste Schnee fiel, brachte {childName} mit dem Schlitten warme Socken zu jedem Tierbau am Hügel.",
+        "v5": True,
+    },
+    {
+        "family": "winter_owl_skating",
+        "en": "On the frozen pond behind {childName}'s house, an old owl ran a skating school for anyone brave enough to wobble.",
+        "es": "En el estanque helado detrás de la casa de {childName}, un viejo búho dirigía una escuela de patinaje para quien se atreviera a tambalearse.",
+        "fr": "Sur l’étang gelé derrière la maison de {childName}, un vieux hibou tenait une école de patinage pour tous ceux qui osaient vaciller.",
+        "it": "Sullo stagno ghiacciato dietro la casa di {childName}, un vecchio gufo dirigeva una scuola di pattinaggio per chiunque avesse il coraggio di traballare.",
+        "de": "Auf dem zugefrorenen Teich hinter {childName}s Haus leitete eine alte Eule eine Eislaufschule für alle, die sich zu wackeln trauten.",
+        "v5": True,
+    },
+    {
+        "family": "hero_cape_repair",
+        "en": "Behind the bakery was a tiny shop that mended superhero capes, and on Saturdays {childName} helped sew on the shiny letters.",
+        "es": "Detrás de la panadería había una tiendecita que arreglaba capas de superhéroes, y los sábados {childName} ayudaba a coser las letras brillantes.",
+        "fr": "Derrière la boulangerie se cachait une minuscule boutique qui réparait les capes de super-héros, et le samedi, {childName} aidait à coudre les lettres brillantes.",
+        "it": "Dietro la panetteria c’era una botteguccia che riparava i mantelli dei supereroi, e il sabato {childName} aiutava a cucire le lettere luccicanti.",
+        "de": "Hinter der Bäckerei lag ein winziger Laden, der Superheldenumhänge flickte, und samstags half {childName}, die glänzenden Buchstaben anzunähen.",
+        "v5": True,
+    },
+    {
+        "family": "hero_rooftop_garden",
+        "en": "Up on the town's tallest roof grew a secret garden, where retired superheroes watered their tomatoes and {childName} was allowed to visit after school.",
+        "es": "En el tejado más alto del pueblo crecía un jardín secreto, donde los superhéroes jubilados regaban sus tomates y {childName} podía ir de visita después del cole.",
+        "fr": "Sur le plus haut toit de la ville poussait un jardin secret, où les super-héros à la retraite arrosaient leurs tomates, et {childName} avait le droit d’y venir après l’école.",
+        "it": "Sul tetto più alto del paese cresceva un giardino segreto, dove i supereroi in pensione annaffiavano i pomodori e {childName} poteva andare dopo la scuola.",
+        "de": "Auf dem höchsten Dach der Stadt wuchs ein geheimer Garten, in dem pensionierte Superhelden ihre Tomaten gossen, und {childName} durfte nach der Schule vorbeikommen.",
+        "v5": True,
+    },
+]
+OPENING_SEED_FAMILIES.extend(OPENING_SEED_FAMILIES_V5)
+
 # Backward-compatible English seed list kept for any older imports/tests.
 OPENING_SEEDS = [seed["en"] for seed in OPENING_SEED_FAMILIES]
 
@@ -679,6 +882,12 @@ AGE_SEED_FAMILY_ALLOWLIST = {
     },
     "11_12": set(),
 }
+
+# 10 Nov 2026: new v5 openings by age band.
+AGE_SEED_FAMILY_ALLOWLIST['3_4'].update(['animal_country_bus', 'dinosaur_school_bus', 'dragon_laundry', 'forest_firefly_bridge', 'princess_royal_kitchen', 'underwater_submarine_bakery', 'winter_sock_sledge'])
+AGE_SEED_FAMILY_ALLOWLIST['5_6'].update(['adventure_kite_hill', 'adventure_wet_ink_maps', 'animal_country_bus', 'animal_night_vet', 'dinosaur_egg_nursery', 'dinosaur_school_bus', 'dragon_laundry', 'dragon_lost_property', 'forest_acorn_library', 'forest_firefly_bridge', 'hero_cape_repair', 'hero_rooftop_garden', 'magic_weather_umbrellas', 'magic_wizard_cafe', 'princess_moving_maze', 'princess_royal_kitchen', 'space_comet_lake', 'space_lunchbox_rocket', 'underwater_bottle_post', 'underwater_submarine_bakery', 'winter_owl_skating', 'winter_sock_sledge'])
+AGE_SEED_FAMILY_ALLOWLIST['7_8'].update(['adventure_kite_hill', 'adventure_wet_ink_maps', 'animal_country_bus', 'animal_night_vet', 'dinosaur_egg_nursery', 'dinosaur_school_bus', 'dragon_laundry', 'dragon_lost_property', 'forest_acorn_library', 'forest_firefly_bridge', 'hero_cape_repair', 'hero_rooftop_garden', 'magic_weather_umbrellas', 'magic_wizard_cafe', 'princess_moving_maze', 'princess_royal_kitchen', 'space_comet_lake', 'space_lunchbox_rocket', 'underwater_bottle_post', 'underwater_submarine_bakery', 'winter_owl_skating', 'winter_sock_sledge'])
+AGE_SEED_FAMILY_ALLOWLIST['9_10'].update(['adventure_kite_hill', 'adventure_wet_ink_maps', 'animal_country_bus', 'animal_night_vet', 'dinosaur_egg_nursery', 'dinosaur_school_bus', 'dragon_laundry', 'dragon_lost_property', 'forest_acorn_library', 'forest_firefly_bridge', 'hero_cape_repair', 'hero_rooftop_garden', 'magic_weather_umbrellas', 'magic_wizard_cafe', 'princess_moving_maze', 'princess_royal_kitchen', 'space_comet_lake', 'space_lunchbox_rocket', 'underwater_bottle_post', 'underwater_submarine_bakery', 'winter_owl_skating', 'winter_sock_sledge'])
 
 AGE_HUMOUR_PROFILES = {
     "0_2": {
@@ -2280,11 +2489,14 @@ GENERAL OXFORD-INSPIRED CALIBRATION RULE:
         """
         band = self._age_band_key(age)
         allowed = AGE_SEED_FAMILY_ALLOWLIST.get(band) or set()
+        seeds = OPENING_SEED_FAMILIES if _quality.prompts_v5_enabled() else [
+            seed for seed in OPENING_SEED_FAMILIES if not seed.get("v5")
+        ]
         if not allowed:
-            return OPENING_SEED_FAMILIES
+            return seeds
 
-        filtered = [seed for seed in OPENING_SEED_FAMILIES if seed.get("family") in allowed]
-        return filtered or OPENING_SEED_FAMILIES
+        filtered = [seed for seed in seeds if seed.get("family") in allowed]
+        return filtered or seeds
 
     def _age_humour_profile(self, age: Any) -> dict:
         return AGE_HUMOUR_PROFILES.get(self._age_band_key(age), AGE_HUMOUR_PROFILES["5_6"])
@@ -3385,6 +3597,43 @@ FINAL QUALITY CHECK:
         }
         state["opening_seed"] = selected
         return selected
+
+    def _alternate_opening_seeds(self, request: GenerateStoryRequest, count: int, exclude: set) -> list[dict]:
+        """Different openings for the other Page 1 candidates (best-of, 10 Nov 2026).
+
+        Same theme and age rules as _select_opening_seed; openings this child has not heard
+        recently come first, then the ones heard longest ago. Local and instant.
+        """
+        if count <= 0:
+            return []
+        child = request.childName or "the child"
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
+        age_pool = self._seed_pool_for_age(request.age)
+        allowed_for_theme, _label = _quality.resolve_theme_seed_families(request.theme, request.customTheme)
+        if allowed_for_theme:
+            themed_pool = [seed for seed in age_pool if seed.get("family") in allowed_for_theme]
+            if themed_pool:
+                age_pool = themed_pool
+        history = self._recent_story_history(request)
+        order = list(history.get("family_order") or [])
+        recent = history.get("families") or set()
+        pool = [seed for seed in age_pool if seed.get("family") not in exclude]
+        random.shuffle(pool)
+        pool.sort(key=lambda seed: (
+            seed.get("family") in recent,
+            -(order.index(seed.get("family")) if seed.get("family") in order else len(order)),
+        ))
+        picked: list[dict] = []
+        for seed in pool:
+            if len(picked) >= count:
+                break
+            if seed.get("family") in {p["family"] for p in picked}:
+                continue
+            template = seed.get(language_code) or seed.get("en") or ""
+            if not template:
+                continue
+            picked.append({"family": seed.get("family", "place_entry"), "sentence": template.replace("{childName}", child)})
+        return picked
 
     def _recent_story_history(self, request: GenerateStoryRequest) -> dict:
         """Recent Standard Bedtime titles/names/seeds for this child (cached per request)."""
@@ -4581,7 +4830,7 @@ REVIEW RULES:
         try:
             response = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self._gen("planner", request),
+                    self._gen("canon_review", request),
                     prompt,
                     self._canon_continuation_review_response_schema(),
                     1200,
@@ -4675,7 +4924,7 @@ REVIEW RULES:
 """
         try:
             response = await asyncio.to_thread(
-                self._gen("planner", request),
+                self._gen("canon_review", request),
                 prompt,
                 self._canon_ending_review_response_schema(),
                 1600,
@@ -7399,12 +7648,26 @@ Return ONLY valid JSON:
         t_start = time.time()
         history = self._recent_story_history(request)
         hooks = _quality.choose_hooks(count, history.get("hooks") or [])
+        # Each candidate also starts from a different opening world (same theme), so the judge
+        # chooses between genuinely different stories, not three versions of one first sentence.
+        state = _quality.get_state(request)
+        base_seed = state.get("opening_seed") if isinstance(state.get("opening_seed"), dict) else None
+        seeds: list[Optional[dict]] = [base_seed] * len(hooks)
+        prompts = [prompt] * len(hooks)
+        quoted = f'"{base_seed["sentence"]}"' if base_seed and base_seed.get("sentence") else None
+        if quoted and quoted in prompt:
+            alternates = self._alternate_opening_seeds(request, len(hooks) - 1, {base_seed.get("family")})
+            for index, alt in enumerate(alternates, start=1):
+                seeds[index] = alt
+                prompts[index] = prompt.replace(quoted, f'"{alt["sentence"]}"').replace(
+                    f"'{base_seed.get('family')}'", f"'{alt['family']}'"
+                )
         tasks = [
             asyncio.ensure_future(self._generate_first_page_response_with_retry(
-                request=request, prompt=_quality.inject_hook(prompt, hook),
+                request=request, prompt=_quality.inject_hook(prompts[index], hook),
                 response_schema=response_schema, soft_limit_seconds=soft_limit_seconds,
             ))
-            for hook in hooks
+            for index, hook in enumerate(hooks)
         ]
         done, pending = await asyncio.wait(tasks, timeout=soft_limit_seconds, return_when=asyncio.FIRST_COMPLETED)
         if pending:
@@ -7420,7 +7683,7 @@ Return ONLY valid JSON:
                 if exc is None:
                     data = task.result()
                     if isinstance(data, dict) and (data.get("pages") or [""])[0]:
-                        candidates.append({**data, "_hook": hooks[index]})
+                        candidates.append({**data, "_hook": hooks[index], "_seed": seeds[index]})
                 else:
                     last_exc = exc
         if not candidates:
@@ -7435,6 +7698,7 @@ Return ONLY valid JSON:
         record: Dict[str, Any] = {
             "candidates": [
                 {"hook": c["_hook"], "title": c.get("title"), "opening": (c.get("pages") or [""])[0][:90],
+                 "seed": (c.get("_seed") or {}).get("family"),
                  **({"title_flags": c["_title_flags"]} if c["_title_flags"] else {})}
                 for c in candidates
             ],
@@ -7447,7 +7711,7 @@ Return ONLY valid JSON:
             try:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
-                        self._gen("planner", request),
+                        self._gen("judge", request),
                         _quality.build_page1_judge_prompt(
                             request, candidates, self._safe_child_age(request.age),
                             age_standard=self._age_vocabulary_block(request.age),
@@ -7479,11 +7743,17 @@ Return ONLY valid JSON:
         record["total_ms"] = int((time.time() - t_start) * 1000)
         _quality.trace_set(request, "page1_best_of", record)
         _quality.trace_set(request, "page1_hook", chosen["_hook"])
-        state = _quality.get_state(request)
         state["opening_notes"] = notes
         state["page1_hook"] = chosen["_hook"]
+        chosen_seed = chosen.get("_seed")
+        if chosen_seed and base_seed and chosen_seed.get("family") != base_seed.get("family"):
+            # Record the opening actually used, so tomorrow's story avoids it.
+            state["opening_seed"] = chosen_seed
+            seed_trace = _quality.get_trace(request).setdefault("seed", {})
+            seed_trace["family"] = chosen_seed.get("family")
+            seed_trace["first_choice"] = base_seed.get("family")
         print(f"[QUALITY] page1_best_of candidates={len(candidates)} chosen={record.get('chosen')} hook={chosen['_hook']} ms={record['total_ms']}")
-        return {k: v for k, v in chosen.items() if k not in ("_hook", "_title_flags")}
+        return {k: v for k, v in chosen.items() if k not in ("_hook", "_title_flags", "_seed")}
 
     async def _generate_first_page_response_with_retry(
         self,
@@ -7875,7 +8145,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 try:
                     response = await asyncio.wait_for(
                         asyncio.to_thread(
-                            self._gen("planner", request), attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA,
+                            self._gen("planner", request), attempt_prompt, _quality.plan_response_schema(),
                             _quality.PLAN_MAX_OUTPUT_TOKENS if thinking else 1600, thinking,
                         ),
                         timeout=_quality.PLAN_TIMEOUT_SECONDS if thinking else _quality.PLAN_FAST_TIMEOUT_SECONDS,
@@ -7888,7 +8158,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                     thinking = 0
                     response = await asyncio.wait_for(
                         asyncio.to_thread(
-                            self._gen("planner", request), attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA, 1600, 0,
+                            self._gen("planner", request), attempt_prompt, _quality.plan_response_schema(), 1600, 0,
                         ),
                         timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
                     )
@@ -7989,6 +8259,14 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
             )
             check = _quality.evaluate_plan_check(self._clean_json_response(getattr(response, "text", "") or ""))
+            structural = _quality.structural_plan_issues(plan)
+            if structural:
+                check["passed"] = False
+                check["structural"] = [k for k, _ in structural]
+                for key, _ in structural:
+                    if key != "signature_delight" and key not in check["failed_critical"]:
+                        check["failed_critical"].append(key)
+                check["issues"] = [*[issue for _, issue in structural], *check["issues"]][:8]
             record = {"status": "passed" if check["passed"] else "failed", **check}
             if not check["passed"]:
                 response = await asyncio.wait_for(
@@ -7998,7 +8276,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                             plan_prompt, plan, check,
                             locked_first_beat=(plan.get("beats") or [""])[0] if lock_first_beat else None,
                         ),
-                        _quality.PLAN_RESPONSE_SCHEMA, 1600, 0,
+                        _quality.plan_response_schema(), 1600, 0,
                     ),
                     timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
                 )
@@ -8309,7 +8587,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
             )
             response = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self._gen("planner", request), prompt, _quality.SCORE_RESPONSE_SCHEMA, 1200
+                    self._gen("scorer", request), prompt, _quality.SCORE_RESPONSE_SCHEMA, 1200
                 ),
                 timeout=_quality.SCORE_TIMEOUT_SECONDS,
             )
