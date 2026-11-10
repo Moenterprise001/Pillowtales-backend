@@ -8649,6 +8649,26 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
             print(f"[QUALITY] continuation_name_freshness_failed error={str(exc)[:200]}")
             return pages
 
+    def _remember_story(self, request: GenerateStoryRequest, story_id: str, user_id: str, title: str,
+                        metadata: Optional[dict]) -> None:
+        """Keep this Bedtime story's labels (no text) after it leaves the library. Never breaks saving."""
+        if self._is_canon_request(request) or self._is_folk_adventure_request(request):
+            return
+        if getattr(request, "storyWorldSlug", None):
+            return
+        try:
+            client = getattr(getattr(self, "story_repo", None), "client", None)
+            if client is None or not user_id:
+                return
+            row = _quality.story_memory_row(
+                request, story_id, user_id, title, (metadata or {}).get("characters") if isinstance(metadata, dict) else None,
+            )
+            client.table(_quality.STORY_MEMORY_TABLE).insert(row).execute()
+            _quality.trace_set(request, "story_memory_saved", True)
+        except Exception as exc:
+            _quality.trace_set(request, "story_memory_saved", f"failed:{str(exc)[:120]}")
+            print(f"[QUALITY] story_memory_save_failed story_id={story_id} error={str(exc)[:200]}")
+
     def persist_generation_trace(self, request: GenerateStoryRequest, story_id: str, user_id: str) -> None:
         """Fix 5: save the trace. Never breaks story saving (e.g. before migration)."""
         try:
@@ -9111,6 +9131,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
                 print(f"[PERF] metadata_extract skipped story_id={story_id}: {metadata_exc}")
 
             if not is_dynamic_canon:
+                self._remember_story(request, story_id, user_id, title, locals().get("metadata"))
                 try:
                     _banned = _quality.avoid_names_for(
                         request, _quality.get_state(request).get("history") or {}, companion

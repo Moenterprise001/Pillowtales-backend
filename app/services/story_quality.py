@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -267,8 +267,8 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
     rows = None
     column_sets = [
         # Only the trace fields needed, so 30 rows stay small and Page 1 is not slowed down.
-        "title,characters,seed_family:generation_trace->seed->>family,trace_hook:generation_trace->>page1_hook,first_page:pages->>0",
-        "title,characters,generation_trace,first_page:pages->>0",
+        "id,created_at,title,characters,seed_family:generation_trace->seed->>family,trace_hook:generation_trace->>page1_hook,first_page:pages->>0",
+        "id,created_at,title,characters,generation_trace,first_page:pages->>0",
         "title,characters,generation_trace",
         "title,characters",  # column not migrated yet
     ]
@@ -281,6 +281,22 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
             last_exc = exc
     if rows is None:
         history["error"] = str(last_exc)[:200]
+        rows = []
+
+    # Story memory (10 Nov 2026): labels of stories that have left the library still count.
+    memory_rows = load_story_memory(client, user_id, child_name, limit)
+    history["memory_rows"] = len(memory_rows)
+    if memory_rows:
+        in_library = {str(r.get("id")) for r in rows if r.get("id")}
+        extra = [m for m in memory_rows if not m.get("story_id") or str(m.get("story_id")) not in in_library]
+        merged = [*rows, *[{
+            "created_at": m.get("created_at"), "title": m.get("title"),
+            "characters": [{"name": n} for n in (m.get("names") or [])],
+            "seed_family": m.get("seed_family"), "trace_hook": m.get("page1_hook"),
+        } for m in extra]]
+        merged.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
+        rows = merged[:limit]
+    if not rows and history.get("error"):
         return history
 
     child_key = _normalise_text(child_name)
@@ -313,6 +329,43 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
                 history["family_order"].append(family)  # most recent first
     history["loaded"] = True
     return history
+
+
+STORY_MEMORY_TABLE = "story_memory"
+
+
+def load_story_memory(client: Any, user_id: Any, child_name: Any, limit: int = RECENT_HISTORY_LIMIT) -> List[Dict[str, Any]]:
+    """Recent memory rows for this child (newest first). Fails open (table missing -> [])."""
+    try:
+        query = (
+            client.table(STORY_MEMORY_TABLE).select("story_id,created_at,title,seed_family,page1_hook,names")
+            .eq("user_id", str(user_id)).order("created_at", desc=True).limit(limit)
+        )
+        if child_name:
+            query = query.eq("child_name", str(child_name))
+        return list(query.execute().data or [])
+    except Exception:
+        return []
+
+
+def story_memory_row(request: Any, story_id: Any, user_id: Any, title: Any, characters: Any) -> Dict[str, Any]:
+    """The labels kept for one story: never any story text."""
+    names: List[str] = []
+    child_key = _normalise_text(getattr(request, "childName", ""))
+    for character in characters or []:
+        name = str((character or {}).get("name") if isinstance(character, dict) else character or "").strip()
+        if name and _normalise_text(name) != child_key and name not in names:
+            names.append(name[:60])
+    trace = get_trace(request)
+    return {
+        "user_id": str(user_id),
+        "child_name": str(getattr(request, "childName", "") or ""),
+        "story_id": str(story_id) if story_id else None,
+        "title": str(title or "")[:200],
+        "seed_family": (trace.get("seed") or {}).get("family"),
+        "page1_hook": trace.get("page1_hook"),
+        "names": names[:12],
+    }
 
 
 # Titles and role words saved as "character names" (e.g. "The Princess", "Princess Lily",
