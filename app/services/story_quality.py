@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -288,6 +288,24 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
     return history
 
 
+# Titles and role words saved as "character names" (e.g. "The Princess", "Princess Lily",
+# "Captain Thistle") must not ban the word itself: a princess story could not say "Princess".
+ROLE_WORDS = {
+    "the", "a", "an", "princess", "prince", "king", "queen", "captain", "elder", "old", "young", "little", "baby", "big",
+    "mr", "mrs", "ms", "miss", "mister", "lady", "lord", "sir", "dame", "dr", "doctor", "professor", "uncle", "aunt",
+    "auntie", "granny", "grandma", "grandpa", "grandad", "grandmother", "grandfather", "nan", "nana", "mum", "mummy",
+    "mom", "mommy", "dad", "daddy", "papa", "mama", "farmer", "wizard", "witch", "fairy", "mermaid", "dragon", "giant",
+    "royal", "announcer", "advisor", "guard", "knight", "teacher", "chef", "baker", "keeper", "star", "painter",
+}
+
+
+def clean_character_name(name: Any) -> str:
+    """'Princess Lily' -> 'Lily'; 'The Princess' -> ''; 'Captain Thistle' -> 'Thistle'."""
+    words = str(name or "").split()
+    kept = [w for w in words if re.sub(r"[^a-z]", "", w.lower()) not in ROLE_WORDS]
+    return " ".join(kept).strip()
+
+
 def avoid_names_for(request: Any, history: Dict[str, Any], companion: Optional[dict]) -> List[str]:
     keep = {_normalise_text(getattr(request, "childName", ""))}
     if companion:
@@ -297,8 +315,9 @@ def avoid_names_for(request: Any, history: Dict[str, Any], companion: Optional[d
         keep.add(_normalise_text(getattr(character, "name", "")))
     names: List[str] = []
     # Overused names first: they must never be pushed out by a long history.
-    for name in [*OVERUSED_DEFAULT_NAMES, *sorted(COMPANION_SHORT_NAMES), *history.get("names", [])]:
-        if _normalise_text(name) in keep or name in names:
+    history_names = [clean_character_name(n) for n in history.get("names", [])]
+    for name in [*OVERUSED_DEFAULT_NAMES, *sorted(COMPANION_SHORT_NAMES), *history_names]:
+        if not name or _normalise_text(name) in keep or name in names:
             continue
         # Skip generic family labels such as Nan / Daddy / Grandma.
         if _normalise_text(name) in {"nan", "nana", "daddy", "mummy", "mommy", "mum", "mom", "dad", "grandma", "grandad", "grandpa", "granny"}:
@@ -660,6 +679,30 @@ def freshen_page_one_names(title: str, page_one: str, banned: Iterable[str], ext
         title = re.sub(pattern, new, title)
         page_one = re.sub(pattern, new, page_one)
     return title, page_one, mapping
+
+
+def rename_names_in_plan(plan: Any, names: Iterable[str], extra_avoid: Iterable[str] = (), keep_text: str = "") -> tuple:
+    """Swap banned names in a plan for fresh ones (whole word, every field). Returns (plan, {old: new})."""
+    import json as _json
+    import random as _random
+    names = [n for n in names if n]
+    if not names:
+        return plan, {}
+    text = _json.dumps(plan, ensure_ascii=False)
+    avoid = {_normalise_text(n) for n in [*names, *extra_avoid]}
+    present = set(re.findall(r"[A-Za-z]+", text + " " + keep_text))
+    pool = [n for n in FRESH_NAME_POOL if _normalise_text(n) not in avoid and n not in present]
+    _random.shuffle(pool)
+    mapping: Dict[str, str] = {}
+    for old in names:
+        if not pool:
+            break
+        mapping[old] = pool.pop()
+        text = re.sub(r"(?<![\w])" + re.escape(old) + r"(?![\w])", mapping[old], text)
+    try:
+        return _json.loads(text), mapping
+    except Exception:
+        return plan, {}
 
 
 def freshen_continuation_names(pages: List[str], banned: Iterable[str], state: Dict[str, Any],
@@ -1047,9 +1090,29 @@ PAGE1_JUDGE_SCHEMA = {
         "childs_want": {"type": "string"},
         "stakes_seed": {"type": "string"},
         "spare_ideas": {"type": "array", "items": {"type": "string"}},
+        "fresh_title": {"type": "string"},
     },
     "required": ["best", "reason", "story_promise", "childs_want", "stakes_seed", "spare_ideas"],
 }
+
+
+def _title_key(title: Any, child_name: Any = "") -> str:
+    words = re.findall(r"[a-z]+", str(title or "").lower())
+    drop = {"and", "the", "a", "an", "of", "s"} | set(re.findall(r"[a-z]+", str(child_name or "").lower()))
+    return " ".join(w for w in words if w not in drop)
+
+
+def title_flags(title: Any, recent_titles: Iterable[str], child_name: Any = "", moral: Any = "") -> List[str]:
+    """Why a Page 1 title should be replaced: repeats a recent title, overused words, the moral word."""
+    flags = []
+    key = _title_key(title, child_name)
+    if key and any(key == _title_key(t, child_name) for t in recent_titles or []):
+        flags.append("repeats a recent title")
+    flags += [f"overused word '{w}'" for w in overused_title_words_in(title)]
+    moral_word = str(moral or "").strip().lower()
+    if moral_word and moral_word in re.findall(r"[a-z]+", str(title or "").lower()):
+        flags.append("contains the moral word")
+    return flags
 
 # Each hook implies its own natural climax; the plan is told which shape to aim for.
 HOOK_CLIMAX_SHAPES: Dict[str, str] = {
@@ -1085,7 +1148,10 @@ def opening_notes_block(notes: Optional[Dict[str, Any]], hook: Optional[str]) ->
 def build_page1_judge_prompt(request: Any, candidates: List[Dict[str, Any]], age: int, age_standard: str = "") -> str:
     theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
     listing = "\n\n".join(
-        f"CANDIDATE {i + 1}\nTitle: {c.get('title')}\nPage 1: {(c.get('pages') or [''])[0]}" for i, c in enumerate(candidates)
+        f"CANDIDATE {i + 1}\nTitle: {c.get('title')}"
+        + (f"  (TITLE PROBLEM: {'; '.join(c.get('_title_flags') or [])})" if c.get("_title_flags") else "")
+        + f"\nPage 1: {(c.get('pages') or [''])[0]}"
+        for i, c in enumerate(candidates)
     )
     return f"""You are choosing the opening page for a seven-page children's bedtime story (listener age {age}, theme "{theme}").
 Pick the candidate most likely to become an outstanding story. Return only JSON matching the schema:
@@ -1094,6 +1160,8 @@ Pick the candidate most likely to become an outstanding story. Return only JSON 
 - childs_want: what the child wants or must do, in one sentence.
 - stakes_seed: the bedtime-safe loss that could happen if the child fails, in one sentence.
 - spare_ideas: 1-3 short, specific ideas from the OTHER candidates worth reusing later (a funny detail, image or character habit), compatible with the winner.
+- fresh_title: ONLY if the winner's title has a TITLE PROBLEM, a new title for it (up to 7 words, includes the child's name,
+  specific to this Page 1, none of the overused words, not the moral). Otherwise "".
 
 JUDGE BY:
 - A clear, specific hook that makes a child want to hear Page 2.

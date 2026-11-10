@@ -1029,6 +1029,9 @@ CANON_DYNAMIC_ABNORMAL_PAGE_LIMIT = 12
 ENABLE_FOLK_ADVENTURES = os.getenv("ENABLE_FOLK_ADVENTURES", "false").strip().lower() in {"1", "true", "yes", "on"}
 
 
+# story_id -> {pages shown: epoch} for timing in generation_trace (in-memory, bounded).
+_PAGE_SHOWN_LOG: Dict[str, Dict[int, float]] = {}
+
 class StoryService:
     def __init__(self, story_repo: StoryRepository, story_world_repo: Optional[StoryWorldRepository] = None):
         self.story_repo = story_repo
@@ -3959,7 +3962,13 @@ OUTPUT RULES:
 
         cleaned = re.sub(r"[ \t]+", " ", cleaned)
         cleaned = re.sub(r"\n\s*\n\s*\n+", "\n\n", cleaned)
-        return cleaned.strip()
+        cleaned = cleaned.strip()
+        # A page always starts a sentence ("parade day was tomorrow" reached the app, 10 Nov 2026).
+        first_letter = re.search(r"[^\W\d_]", cleaned)
+        if first_letter and first_letter.group(0).islower() and re.fullmatch(r"[\s\"'“‘«¿¡(\-—–…\.]*", cleaned[:first_letter.start()]):
+            i = first_letter.start()
+            cleaned = cleaned[:i] + cleaned[i].upper() + cleaned[i + 1:]
+        return cleaned
 
     def _sanitize_generated_pages(self, pages: Any) -> list[str]:
         if not isinstance(pages, list):
@@ -5460,6 +5469,9 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
             f"[PERF] story_update_partial START story_id={story_id} "
             f"pages={len(working_pages)}/{expected_pages}"
         )
+        _PAGE_SHOWN_LOG.setdefault(story_id, {}).setdefault(len(working_pages), time.time())
+        if len(_PAGE_SHOWN_LOG) > 300:
+            _PAGE_SHOWN_LOG.pop(next(iter(_PAGE_SHOWN_LOG)), None)
         payload = {
             'pages': working_pages,
             'full_text': partial_text,
@@ -7410,9 +7422,15 @@ Return ONLY valid JSON:
             if last_exc:
                 raise last_exc
             raise asyncio.TimeoutError()
+        recent_titles = history.get("titles") or []
+        for c in candidates:
+            c["_title_flags"] = _quality.title_flags(
+                c.get("title"), recent_titles, request.childName, request.moral if self._moral_requested(request) else "",
+            )
         record: Dict[str, Any] = {
             "candidates": [
-                {"hook": c["_hook"], "title": c.get("title"), "opening": (c.get("pages") or [""])[0][:90]}
+                {"hook": c["_hook"], "title": c.get("title"), "opening": (c.get("pages") or [""])[0][:90],
+                 **({"title_flags": c["_title_flags"]} if c["_title_flags"] else {})}
                 for c in candidates
             ],
             "generated_ms": int((time.time() - t_start) * 1000),
@@ -7438,6 +7456,14 @@ Return ONLY valid JSON:
                 if 1 <= best <= len(candidates):
                     chosen = candidates[best - 1]
                 notes = {k: verdict.get(k) for k in ("story_promise", "childs_want", "stakes_seed", "spare_ideas")}
+                fresh = re.sub(r"\s+", " ", str(verdict.get("fresh_title") or "")).strip().strip('"')
+                if (
+                    chosen.get("_title_flags") and fresh and len(fresh.split()) <= 9
+                    and not _quality.title_flags(fresh, recent_titles, request.childName,
+                                                 request.moral if self._moral_requested(request) else "")
+                ):
+                    record["title_replaced"] = {"from": chosen.get("title"), "to": fresh}
+                    chosen = {**chosen, "title": fresh}
                 record.update({"chosen": best, "reason": str(verdict.get("reason") or "")[:300]})
             except Exception as exc:
                 record.update({"chosen": 1, "judge_error": str(exc)[:160]})
@@ -7452,7 +7478,7 @@ Return ONLY valid JSON:
         state["opening_notes"] = notes
         state["page1_hook"] = chosen["_hook"]
         print(f"[QUALITY] page1_best_of candidates={len(candidates)} chosen={record.get('chosen')} hook={chosen['_hook']} ms={record['total_ms']}")
-        return {k: v for k, v in chosen.items() if k != "_hook"}
+        return {k: v for k, v in chosen.items() if k not in ("_hook", "_title_flags")}
 
     async def _generate_first_page_response_with_retry(
         self,
@@ -7872,9 +7898,20 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 ]
                 plan = candidate
                 _quality.trace_set(request, "plan_attempts", plan_attempt)
+                if banned_used:
+                    _quality.trace_event(request, "plan_banned_names", attempt=plan_attempt, names=", ".join(banned_used))
+                if banned_used and _quality.prompts_v5_enabled():
+                    # Swap the names instead of writing the whole plan again (saves a full plan call).
+                    renamed, mapping = _quality.rename_names_in_plan(
+                        plan, banned_used, extra_avoid=history.get("names") or [], keep_text=current_pages[0],
+                    )
+                    if mapping and _quality.plan_is_valid(renamed):
+                        plan = renamed
+                        state.setdefault("continuation_name_map", {}).update(mapping)
+                        _quality.trace_set(request, "plan_renamed", mapping)
+                        banned_used = []
                 if not banned_used:
                     break
-                _quality.trace_event(request, "plan_banned_names", attempt=plan_attempt, names=", ".join(banned_used))
             if banned_used:
                 _quality.trace_set(request, "plan_banned_names_kept", banned_used)
             plan["beats"] = _quality.clean_beats(plan["beats"][:6])
@@ -7965,6 +8002,12 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                     name for name in _quality.banned_names_in_text(_quality.plan_text(revised), banned)
                     if not _quality.banned_names_in_text(page_one, [name])
                 ]
+                if new_banned and _quality.plan_is_valid(revised):
+                    renamed, mapping = _quality.rename_names_in_plan(revised, new_banned, keep_text=page_one)
+                    if mapping:
+                        revised = renamed
+                        _quality.get_state(request).setdefault("continuation_name_map", {}).update(mapping)
+                        new_banned = []
                 if _quality.plan_is_valid(revised) and not new_banned:
                     revised["beats"] = _quality.clean_beats(revised["beats"][:6])
                     if lock_first_beat and plan.get("beats") and revised["beats"]:
@@ -8328,6 +8371,11 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
         try:
             trace = _quality.get_trace(request)
             trace["persisted_at_epoch"] = round(time.time(), 3)
+            # Seconds after Page 1 appeared at which each page count was first shown (10 Nov 2026).
+            started = trace.get("background_start_epoch")
+            shown = _PAGE_SHOWN_LOG.get(story_id) or {}
+            if started and shown:
+                trace["page_shown_s"] = {str(n): round(t - started, 1) for n, t in sorted(shown.items())}
             self.story_repo.update(story_id, user_id, {"generation_trace": trace})
         except Exception as exc:
             print(f"[QUALITY] generation_trace_persist_failed story_id={story_id} error={str(exc)[:200]}")
@@ -8343,6 +8391,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
         expected_pages: int,
     ) -> None:
         start_total = time.time()
+        _quality.trace_set(request, "background_start_epoch", round(start_total, 3))
         print(f"[PERF] complete_story_background START story_id={story_id}")
 
         # Migrated Canon stories are already complete editorial content. Publish
@@ -8759,6 +8808,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
             t_update = time.time()
             print(f"[PERF] story_update_complete START story_id={story_id}")
             self.story_repo.update(story_id, user_id, update_payload)
+            _PAGE_SHOWN_LOG.setdefault(story_id, {}).setdefault(len(all_pages), time.time())
             print(f"[PERF] story_update_complete DONE story_id={story_id} total={time.time() - t_update:.2f}s")
 
             try:
