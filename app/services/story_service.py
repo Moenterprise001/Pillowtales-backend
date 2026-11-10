@@ -2816,6 +2816,8 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
                 "narrative_progression": self._bedtime_narrative_progression_rules(),
                 "ending_engine": self._ending_engine_rules(),
                 "age_lock": self._first_page_age_prompt_rules(request.age),
+                "oxford_profile": self._oxford_inspired_age_profile_block(request.age),
+                "oxford_vocabulary": self._age_vocabulary_block(request.age),
             }
             trace["rules"] = {key: _quality.fingerprint(value) for key, value in rules.items()}
             trace["rules_combined"] = _quality.fingerprint("|".join(trace["rules"].values()))
@@ -4912,6 +4914,8 @@ REQUIRED CHANGES — APPLY EVERY ONE:
         title: str,
         working_pages: list[str],
         batch_count: int,
+        timeout_seconds: Optional[float] = None,
+        max_attempts_override: Optional[int] = None,
     ) -> list[str]:
         """Generate and validate a continuation batch.
 
@@ -4931,6 +4935,9 @@ REQUIRED CHANGES — APPLY EVERY ONE:
             if is_final_page_batch
             else (3 if self._is_canon_request(request) else BACKGROUND_PAGE_MAX_ATTEMPTS)
         )
+        if max_attempts_override:
+            max_attempts = max(1, int(max_attempts_override))
+        page_timeout = float(timeout_seconds or BACKGROUND_PAGE_TIMEOUT_SECONDS)
         last_error: Optional[str] = None
         last_required_changes: list[str] = []
 
@@ -5043,13 +5050,13 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
                         prompt,
                         self._story_response_schema(batch_count, include_title=False),
                     ),
-                    timeout=BACKGROUND_PAGE_TIMEOUT_SECONDS,
+                    timeout=page_timeout,
                 )
             except asyncio.TimeoutError:
                 elapsed = time.time() - t_gemini
                 last_error = (
                     f"Gemini continuation timed out after "
-                    f"{BACKGROUND_PAGE_TIMEOUT_SECONDS}s on Page {next_page_number}"
+                    f"{page_timeout:.0f}s on Page {next_page_number}"
                 )
                 last_required_changes = []
                 print(
@@ -6195,6 +6202,10 @@ JSON ONLY:
             request, self._recent_story_history(request), companion
         )
         self._record_rule_fingerprints(request)
+        oxford_vocab_block = (
+            self._age_vocabulary_block(request.age).strip() + "\n"
+            if _quality.prompts_v5_enabled() else ""
+        )
         custom_theme_text = str(request.customTheme or "").strip()
         if custom_theme_text:
             # A parent-typed theme is specific ("Horse summer camp"); a preset
@@ -6234,7 +6245,7 @@ STORY WORLD ISOLATION:
 {self._natural_name_pronoun_rules()}
 {self._standard_bedtime_first_page_quality_rules(request)}
 {self._natural_read_aloud_cadence_rules()}
-{freshness_block}
+{oxford_vocab_block}{freshness_block}
 PAGE 1 JOB:
 - Write like a relaxed children's author starting a favourite bedtime adventure.
 {opening_instruction}
@@ -6886,10 +6897,27 @@ Return ONLY valid JSON:
             next_page_number,
             request.storyLanguageCode,
         )
-        page_role = _quality.v5_page_role(self._very_young_bedtime_page_role(request.age, next_page_number))
+        if remaining_page_count > 1:
+            # Multi-page draft: give every page its own role.
+            page_role = "\n\n".join(
+                _quality.v5_page_role(self._very_young_bedtime_page_role(request.age, n))
+                for n in range(next_page_number, final_page_number + 1)
+            )
+        else:
+            page_role = _quality.v5_page_role(self._very_young_bedtime_page_role(request.age, next_page_number))
         very_young_override = self._very_young_bedtime_override(request.age)
         includes_final_page = next_page_number <= intended_final_page <= final_page_number
-        if includes_final_page:
+        if includes_final_page and remaining_page_count > 1:
+            ending_job = f"""THIS BATCH CONTAINS THE WHOLE REST OF THE STORY:
+- Write Pages {next_page_number}-{final_page_number} as one continuous, well-paced story. Follow the locked plan beat for every page.
+- Page {intended_final_page - 1} brings the main problem to its decisive moment and resolves it through the child's own action.
+- Page {intended_final_page} is the ending only: resolution result, brief story-specific afterglow, safe settling, final image.
+- On the final page, do not add a new character, named friend, place, task, object, clue, problem, secret, or surprise.
+- The final story sentence must be a concrete image, action, sound, or callback from earlier pages.
+- Finish the final page with exactly: The End.
+
+{self._ending_engine_rules()}"""
+        elif includes_final_page:
             ending_job = f"""FINAL PAGE MODE — THIS STORY ENDS NOW:
 - You are writing ONLY the ending of the story shown above.
 - Do not continue the adventure as though another page follows.
@@ -6945,7 +6973,8 @@ STORY FACTS:
 EXISTING PAGES:
 {existing_pages_text}
 
-{_quality.v5_age_block(age)}
+{self._oxford_inspired_age_profile_block(request.age)}
+{self._age_vocabulary_block(request.age)}
 
 {craft_block}
 {self._bedtime_narrative_progression_rules()}
@@ -6961,7 +6990,7 @@ ENDING JOB FOR THIS BATCH:
 
 PAGE LENGTH:
 - Each continuation page must be a real story page, not a caption or summary.
-- For Page {next_page_number}, aim for {bedtime_budget['target_min']}-{bedtime_budget['target_max']} {bedtime_budget['unit_label']}. HARD MAXIMUM: {hard_max}.
+- For {("each page" if remaining_page_count > 1 else "Page " + str(next_page_number))}, aim for {bedtime_budget['target_min']}-{bedtime_budget['target_max']} {bedtime_budget['unit_label']}. HARD MAXIMUM: {hard_max}.
 - If the page approaches its maximum, remove repetition or unnecessary description before removing plot progression, character, humour, complication, discovery or emotional meaning. Do not shrink a developing scene into a thin summary.
 - Use about 5-7 read-aloud sentences in natural paragraphs, normally 2-3, split where the action, focus, speaker or emotional beat changes. Never return a single-sentence page.
 - The final page may be slightly shorter if complete, satisfying and naturally settled.
@@ -7304,6 +7333,111 @@ Return ONLY valid JSON:
 
         return True, "ok"
 
+    def _best_of_applies(self, request: GenerateStoryRequest) -> bool:
+        return (
+            bool(self.model)
+            and _quality.prompts_v5_enabled()
+            and not self._is_canon_request(request)
+            and not self._is_folk_adventure_request(request)
+            and self._safe_child_age(request.age) >= 3
+        )
+
+    async def _first_page_best_of(
+        self,
+        request: GenerateStoryRequest,
+        prompt: str,
+        response_schema: dict,
+        soft_limit_seconds: float,
+    ) -> Dict[str, Any]:
+        """Best-of-N Page 1 (2026-11-10): N candidates with different hook types,
+        written in parallel; a fast judge picks one and writes notes for the plan.
+
+        Falls back to the single-candidate path when switched off
+        (BEDTIME_PAGE1_CANDIDATES=1) and to the first finished candidate if the
+        judge is slow or fails. Never waits longer than the existing soft limit
+        plus a few seconds for slower candidates.
+        """
+        count = _quality.page1_candidate_count() if self._best_of_applies(request) else 1
+        if count <= 1:
+            return await self._generate_first_page_response_with_retry(
+                request=request, prompt=prompt, response_schema=response_schema,
+                soft_limit_seconds=soft_limit_seconds,
+            )
+        t_start = time.time()
+        history = self._recent_story_history(request)
+        hooks = _quality.choose_hooks(count, history.get("hooks") or [])
+        tasks = [
+            asyncio.ensure_future(self._generate_first_page_response_with_retry(
+                request=request, prompt=_quality.inject_hook(prompt, hook),
+                response_schema=response_schema, soft_limit_seconds=soft_limit_seconds,
+            ))
+            for hook in hooks
+        ]
+        done, pending = await asyncio.wait(tasks, timeout=soft_limit_seconds, return_when=asyncio.FIRST_COMPLETED)
+        if pending:
+            more_done, pending = await asyncio.wait(pending, timeout=_quality.PAGE1_EXTRA_WAIT_SECONDS)
+            done |= more_done
+        for task in pending:
+            task.cancel()
+        candidates: list[Dict[str, Any]] = []
+        last_exc: Optional[BaseException] = None
+        for index, task in enumerate(tasks):
+            if task in done and not task.cancelled():
+                exc = task.exception()
+                if exc is None:
+                    data = task.result()
+                    if isinstance(data, dict) and (data.get("pages") or [""])[0]:
+                        candidates.append({**data, "_hook": hooks[index]})
+                else:
+                    last_exc = exc
+        if not candidates:
+            if last_exc:
+                raise last_exc
+            raise asyncio.TimeoutError()
+        record: Dict[str, Any] = {
+            "candidates": [
+                {"hook": c["_hook"], "title": c.get("title"), "opening": (c.get("pages") or [""])[0][:90]}
+                for c in candidates
+            ],
+            "generated_ms": int((time.time() - t_start) * 1000),
+        }
+        chosen = candidates[0]
+        notes: Dict[str, Any] = {}
+        if len(candidates) > 1:
+            t_judge = time.time()
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._gen("planner", request),
+                        _quality.build_page1_judge_prompt(
+                            request, candidates, self._safe_child_age(request.age),
+                            age_standard=self._age_vocabulary_block(request.age),
+                        ),
+                        _quality.PAGE1_JUDGE_SCHEMA, 900, 0,
+                    ),
+                    timeout=_quality.PAGE1_JUDGE_TIMEOUT_SECONDS,
+                )
+                verdict = self._clean_json_response(getattr(response, "text", "") or "")
+                best = int(verdict.get("best") or 1)
+                if 1 <= best <= len(candidates):
+                    chosen = candidates[best - 1]
+                notes = {k: verdict.get(k) for k in ("story_promise", "childs_want", "stakes_seed", "spare_ideas")}
+                record.update({"chosen": best, "reason": str(verdict.get("reason") or "")[:300]})
+            except Exception as exc:
+                record.update({"chosen": 1, "judge_error": str(exc)[:160]})
+            record["judge_ms"] = int((time.time() - t_judge) * 1000)
+        else:
+            record["chosen"] = 1
+        record["notes"] = notes
+        record["total_ms"] = int((time.time() - t_start) * 1000)
+        _quality.trace_set(request, "page1_best_of", record)
+        _quality.trace_set(request, "page1_hook", chosen["_hook"])
+        state = _quality.get_state(request)
+        state["opening_notes"] = notes
+        state["page1_hook"] = chosen["_hook"]
+        print(f"[QUALITY] page1_best_of candidates={len(candidates)} chosen={record.get('chosen')} hook={chosen['_hook']} ms={record['total_ms']}")
+        return {k: v for k, v in chosen.items() if k != "_hook"}
+
     async def _generate_first_page_response_with_retry(
         self,
         request: GenerateStoryRequest,
@@ -7557,7 +7691,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 # enough JSON output headroom for the JSON structured
                 # output path, plus one fast retry if parsing fails. The whole
                 # operation remains bounded by FIRST_PAGE_SOFT_LIMIT_SECONDS.
-                story_data = await self._generate_first_page_response_with_retry(
+                story_data = await self._first_page_best_of(
                     request=request,
                     prompt=prompt,
                     response_schema=self._story_response_schema(1, include_title=True),
@@ -7669,7 +7803,10 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 title=title,
                 page_one=current_pages[0],
                 moral_requested=self._moral_requested(request),
-                avoid_block=_quality.avoid_repeats_block(request, history, companion),
+                avoid_block=(
+                    _quality.opening_notes_block(state.get("opening_notes"), state.get("page1_hook"))
+                    + _quality.avoid_repeats_block(request, history, companion)
+                ),
                 age=self._safe_child_age(request.age),
             )
             plan = None
@@ -7791,6 +7928,216 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             print(f"[QUALITY] plan_check status={record.get('status')} failed={record.get('failed_critical')}")
         return plan
 
+    def _draft_revise_applies(self, request: GenerateStoryRequest) -> bool:
+        return _quality.draft_revise_enabled() and self._best_of_applies(request)
+
+    def _build_rewrite_prompt(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+        title: str,
+        pages: list[str],
+        targets: list[Dict[str, Any]],
+    ) -> str:
+        blocks = self._language_and_character_blocks(request, companion)
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
+        state = _quality.get_state(request)
+        plan = state.get("plan") or {}
+        beats = plan.get("beats") or []
+        total = len(pages)
+        story = "\n\n".join(
+            f"Page {i + 1}{' (FIXED)' if (i + 1) not in {t['page'] for t in targets} else ' (REWRITE)'}: {p}"
+            for i, p in enumerate(pages)
+        )
+        jobs = []
+        for t in targets:
+            n = t["page"]
+            budget = self._standard_bedtime_page_budget(request.age, n, request.storyLanguageCode)
+            beat = beats[n - 2] if 0 <= n - 2 < len(beats) else ""
+            jobs.append(
+                f"PAGE {n}:\n- Problem: {t['problem']}\n- Fix: {t['fix']}\n"
+                + (f"- Planned beat: {beat}\n" if beat else "")
+                + f"- Length: {budget['target_min']}-{budget['target_max']} {budget['unit_label']}"
+                + (f" (hard maximum {budget['hard_max']})" if budget.get('hard_max') else "")
+                + "\n" + _quality.v5_page_role(self._very_young_bedtime_page_role(request.age, n))
+            )
+        ending = self._ending_engine_rules() if any(t["page"] == total for t in targets) else ""
+        return f"""Revise specific pages of this bedtime story. Write ONLY in {blocks['language_name']}.
+{self._bedtime_native_editorial_block(language_code)}
+The pages marked FIXED will be read exactly as they are, so each rewritten page must flow naturally from the page before it
+and into the page after it, keep every name, object and fact consistent, and fix ONLY the stated problem while keeping what works.
+
+STORY FACTS:
+- Title: {title}
+- Child: {request.childName}
+- Theme: {blocks['effective_theme']}
+- Moral: {request.moral}
+
+{self._story_spine_block(request=request, title=title, first_page=pages[0])}
+{_quality.v5_craft_block(self._moral_requested(request), request.moral)}
+{self._oxford_inspired_age_profile_block(request.age)}
+{self._age_vocabulary_block(request.age)}
+{_quality.avoid_repeats_block(request, state.get("history") or {}, companion)}
+{ending}
+
+CURRENT DRAFT:
+{story}
+
+PAGES TO REWRITE:
+{chr(10).join(jobs)}
+
+OUTPUT: return only JSON {{"pages":[{{"page":<number>,"text":"..."}}]}} with exactly one entry per page listed above.
+Plain prose only. {"The final page must end with exactly: The End." if ending else ""}
+"""
+
+    async def _draft_and_revise_pages(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+        title: str,
+        working_pages: list[str],
+        story_id: str,
+        user_id: str,
+        expected_pages: int,
+    ) -> list[str]:
+        """Draft-and-revise (2026-11-10): write Pages 2-N in one call, publish
+        Page 2, let an editor read the whole draft, rewrite up to 3 flagged
+        pages (3-N), keep the existing Page 7 review, and return Pages 2-N.
+
+        Returns [] on any failure (the normal page-by-page loop then runs), or
+        Pages 2-6 if Page 7 does not pass its checks (the loop then writes
+        Page 7 the established way). Every page still passes the existing
+        validators. Switch off with BEDTIME_DRAFT_REVISE=0.
+        """
+        record: Dict[str, Any] = {"status": "started"}
+        t_start = time.time()
+        try:
+            draft = await self._generate_remaining_pages_batch(
+                request=request,
+                companion=companion,
+                title=title,
+                working_pages=working_pages,
+                batch_count=expected_pages - len(working_pages),
+                timeout_seconds=_quality.DRAFT_TIMEOUT_SECONDS,
+                max_attempts_override=1,
+            )
+        except Exception as exc:
+            record.update({"status": "draft_failed", "error": str(exc)[:200]})
+            _quality.trace_set(request, "draft_revise", record)
+            print(f"[QUALITY] draft_failed falling_back_to_page_by_page error={str(exc)[:200]}")
+            return []
+        pages = postprocess_story_pages([*working_pages, *draft])
+        pages = self._sanitize_standard_bedtime_language_pages(request, pages)[:expected_pages]
+        if len(pages) < expected_pages:
+            record.update({"status": "draft_incomplete", "pages": len(pages)})
+            _quality.trace_set(request, "draft_revise", record)
+            return []
+        pages[-1] = self._ensure_the_end(pages[-1])
+        record["draft_ms"] = int((time.time() - t_start) * 1000)
+
+        # Page 2 goes live now; Pages 3-7 are revised while it is read aloud.
+        self._publish_partial_story_pages(
+            story_id=story_id, user_id=user_id, working_pages=pages[:len(working_pages) + 1],
+            expected_pages=expected_pages, generation_error=None,
+        )
+
+        # Editor: read the whole draft.
+        targets: list[Dict[str, Any]] = []
+        t_edit = time.time()
+        try:
+            response = await asyncio.wait_for(
+                asyncio.to_thread(
+                    self._gen("planner", request),
+                    _quality.build_editor_prompt(
+                        request, title, pages, _quality.get_state(request).get("plan"),
+                        self._safe_child_age(request.age), self._moral_requested(request),
+                        age_standard=self._age_vocabulary_block(request.age),
+                    ),
+                    _quality.EDITOR_SCHEMA, 2500, _quality.EDITOR_THINKING_BUDGET,
+                ),
+                timeout=_quality.EDITOR_TIMEOUT_SECONDS,
+            )
+            review = self._clean_json_response(getattr(response, "text", "") or "")
+            targets = _quality.editor_rewrite_targets(review, len(pages))
+            record["editor_notes"] = [str(n)[:200] for n in (review.get("overall_notes") or [])][:4]
+        except Exception as exc:
+            record["editor_error"] = str(exc)[:160]
+        record["editor_ms"] = int((time.time() - t_edit) * 1000)
+
+        # Deterministic final-page check always feeds the rewrite list.
+        final_ok, final_reason = self._validate_final_page(pages[-1], pages[:-1], request.storyLanguageCode, request=request)
+        if not final_ok and not any(t["page"] == len(pages) for t in targets):
+            targets.append({"page": len(pages), "problem": final_reason, "fix": "Rewrite the final page as a complete, settled ending with no new events."})
+            targets = sorted(targets, key=lambda t: t["page"])[-_quality.MAX_REWRITE_PAGES:]
+        record["rewrite_requested"] = [{"page": t["page"], "problem": t["problem"][:160]} for t in targets]
+
+        # Rewrite only the flagged pages, each re-validated; failures keep the draft page.
+        accepted: list[int] = []
+        if targets:
+            t_rw = time.time()
+            try:
+                response = await asyncio.wait_for(
+                    asyncio.to_thread(
+                        self._gen("pages", request),
+                        self._build_rewrite_prompt(request, companion, title, pages, targets),
+                        _quality.REWRITE_SCHEMA,
+                    ),
+                    timeout=_quality.REWRITE_TIMEOUT_SECONDS,
+                )
+                result = self._clean_json_response(getattr(response, "text", "") or "")
+                wanted = {t["page"] for t in targets}
+                for item in result.get("pages") or []:
+                    try:
+                        n = int(item.get("page"))
+                    except Exception:
+                        continue
+                    if n not in wanted:
+                        continue
+                    candidate = self._valid_generated_pages([str(item.get("text") or "")], 1, request=request, start_page_number=n)
+                    if not candidate:
+                        continue
+                    text = self._sanitize_generated_pages(candidate)[0]
+                    if self._standard_bedtime_moral_leak_reason(request, title=title, pages=[text]):
+                        continue
+                    if n == len(pages):
+                        text = self._ensure_the_end(text)
+                        ok, _ = self._validate_final_page(text, pages[:-1], request.storyLanguageCode, request=request)
+                        if not ok:
+                            continue
+                    text = self._freshen_continuation_names(request, [text], pages[:1], companion)[0]
+                    pages[n - 1] = text
+                    accepted.append(n)
+            except Exception as exc:
+                record["rewrite_error"] = str(exc)[:160]
+            record["rewrite_ms"] = int((time.time() - t_rw) * 1000)
+        record["rewritten_pages"] = accepted
+
+        # Keep the established Page 7 review as the final safety net.
+        final_ok, final_reason = self._validate_final_page(pages[-1], pages[:-1], request.storyLanguageCode, request=request)
+        semantic_ok = True
+        if final_ok:
+            try:
+                semantic_ok, semantic_reason, _changes, checks = await self._review_final_page_semantics(
+                    request=request, title=title, existing_pages=pages[:-1], candidate_page=pages[-1],
+                )
+                _quality.trace_event(
+                    request, "page7_review", attempt=0, valid=bool(semantic_ok), reason=str(semantic_reason)[:200],
+                    failed=[k for k, v in (checks or {}).items() if not v],
+                )
+            except Exception as exc:
+                semantic_ok = True
+                record["page7_review_error"] = str(exc)[:160]
+        record["total_ms"] = int((time.time() - t_start) * 1000)
+        if not final_ok or not semantic_ok:
+            record["status"] = "revised_page7_regenerated_normally"
+            _quality.trace_set(request, "draft_revise", record)
+            print("[QUALITY] draft_revise page7_failed_review regenerating_page7_normally")
+            return pages[len(working_pages):-1]
+        record["status"] = "revised" if accepted else "draft_accepted"
+        _quality.trace_set(request, "draft_revise", record)
+        print(f"[QUALITY] draft_revise status={record['status']} rewritten={accepted} ms={record['total_ms']}")
+        return pages[len(working_pages):]
+
     async def _score_story(self, request: GenerateStoryRequest, title: str, pages: list[str]) -> None:
         """Fix 2: score the finished story (score only; pages are already live)."""
         if os.getenv("BEDTIME_STORY_SCORE_ENABLED", "1").strip().lower() in {"0", "false", "no", "off"}:
@@ -7802,7 +8149,8 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         t_start = time.time()
         try:
             prompt = _quality.build_score_prompt(
-                request, title, pages, self._moral_requested(request), self._safe_child_age(request.age)
+                request, title, pages, self._moral_requested(request), self._safe_child_age(request.age),
+                age_standard=self._age_vocabulary_block(request.age),
             )
             response = await asyncio.wait_for(
                 asyncio.to_thread(
@@ -7974,6 +8322,27 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                     # Save in stages so an interrupted task still leaves the plan on record.
                     _quality.trace_set(request, "final_status", "planning_done")
                     self.persist_generation_trace(request, story_id, user_id)
+
+                if (
+                    not is_dynamic_canon
+                    and len(working_pages) == 1
+                    and expected_pages > 2
+                    and self._draft_revise_applies(request)
+                ):
+                    drafted = await self._draft_and_revise_pages(
+                        request, companion, title, working_pages, story_id, user_id, expected_pages,
+                    )
+                    if drafted:
+                        combined = postprocess_story_pages([*working_pages, *drafted])
+                        combined = self._sanitize_standard_bedtime_language_pages(request, combined)
+                        added = combined[len(working_pages):expected_pages]
+                        working_pages = combined[:expected_pages]
+                        remaining.extend(added)
+                        if len(working_pages) < expected_pages:
+                            self._publish_partial_story_pages(
+                                story_id=story_id, user_id=user_id, working_pages=working_pages,
+                                expected_pages=expected_pages, generation_error=None,
+                            )
 
                 while is_dynamic_canon or len(working_pages) < expected_pages:
                     preferred_batch_count = (

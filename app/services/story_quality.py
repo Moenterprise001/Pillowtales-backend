@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -271,6 +271,8 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
             if name and _normalise_text(name) != child_key and name not in history["names"]:
                 history["names"].append(name)
         trace = row.get("generation_trace") or {}
+        if isinstance(trace, dict) and trace.get("page1_hook"):
+            history.setdefault("hooks", []).append(trace.get("page1_hook"))
         family = ((trace.get("seed") or {}).get("family")) if isinstance(trace, dict) else None
         if family:
             history["families"].add(family)
@@ -579,7 +581,8 @@ SCORE_RESPONSE_SCHEMA = {
 }
 
 
-def build_score_prompt(request: Any, title: str, pages: List[str], moral_requested: bool, age: int) -> str:
+def build_score_prompt(request: Any, title: str, pages: List[str], moral_requested: bool, age: int,
+                       age_standard: str = "") -> str:
     theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
     moral = getattr(request, "moral", "") if moral_requested else "none requested (score moral_shown_not_told as 10)"
     criteria = "\n".join(f"- {key}: {desc}" for key, desc in SCORE_CRITERIA)
@@ -596,7 +599,7 @@ CALIBRATION:
 Be strict and consistent. Do not reward length or pretty words. Judge only what is on the page.
 
 STORY FACTS: title "{title}"; theme {theme}; moral {moral}.
-
+{("AGE STANDARD (score age_fit_language against this; lower it for words or sentences above this age band):" + chr(10) + age_standard.strip() + chr(10)) if age_standard else ""}
 CRITERIA:
 {criteria}
 - weakest_page: the page number (1-{len(pages)}) that most needs improvement.
@@ -620,7 +623,7 @@ def summarise_score(result: Dict[str, Any]) -> Dict[str, Any]:
         "criteria": scores,
         "weakest_page": result.get("weakest_page"),
         "top_issues": [str(i)[:200] for i in (result.get("top_issues") or [])][:4],
-        "rubric_version": "20261110",
+        "rubric_version": "20261110b",
     }
 
 
@@ -961,3 +964,216 @@ def record_usage(role: Optional[str], model_name: str, response: Any, fallback_f
             bucket["fallback_from"] = fallback_from
     except Exception:
         pass
+
+
+# ===========================================================================
+# Best-of-N Page 1 + draft-and-revise (2026-11-10)
+#   BEDTIME_PAGE1_CANDIDATES  number of Page 1 candidates (default 3; 1 = off)
+#   BEDTIME_DRAFT_REVISE      draft Pages 2-7 in one call, edit, revise (default on)
+# Standard Bedtime, ages 3+, only while BEDTIME_PROMPTS_V5 is on.
+# ===========================================================================
+BEST_OF_BUILD = "page1_best_of=20261110 draft_revise=20261110"
+PAGE1_EXTRA_WAIT_SECONDS = 3.0     # after the first candidate, wait this long for the others
+PAGE1_JUDGE_TIMEOUT_SECONDS = 6
+DRAFT_TIMEOUT_SECONDS = 45
+EDITOR_TIMEOUT_SECONDS = 20
+REWRITE_TIMEOUT_SECONDS = 35
+MAX_REWRITE_PAGES = 3
+EDITOR_THINKING_BUDGET = 1024
+
+HOOK_TYPES: Dict[str, str] = {
+    "funny_wish": "a funny or ambitious WISH the child badly wants to come true",
+    "mistake": "a small, funny MISTAKE (by the child or a friend) that now has to be put right",
+    "job": "a JOB or responsibility the child has been trusted with for the first time",
+    "misunderstanding": "a MISUNDERSTANDING between characters that only the child notices",
+    "rule_puzzle": "a strange RULE or PUZZLE in this world that the child must work out",
+    "challenge": "a CONTEST, race or challenge the child wants to take part in",
+    "promise": "a PROMISE the child made that has suddenly become hard to keep",
+    "visitor": "an unexpected VISITOR who needs something that only the child can give or do",
+    "found_object": "something unusual the child FINDS (only if it leads to a choice, not a simple return)",
+}
+
+
+def page1_candidate_count() -> int:
+    import os
+    try:
+        return max(1, min(4, int(os.getenv("BEDTIME_PAGE1_CANDIDATES", "3"))))
+    except Exception:
+        return 3
+
+
+def draft_revise_enabled() -> bool:
+    return _env_on("BEDTIME_DRAFT_REVISE")
+
+
+def choose_hooks(count: int, recent_hooks: Iterable[str] = ()) -> List[str]:
+    import random as _random
+    recent = list(recent_hooks or [])
+    pool = [h for h in HOOK_TYPES if h != "found_object" and h not in recent[:4]]
+    if len(pool) < count:
+        pool = [h for h in HOOK_TYPES if h != "found_object"]
+    _random.shuffle(pool)
+    hooks = pool[:count]
+    # The found-object hook is allowed only occasionally, and never twice in a row.
+    if count >= 3 and "found_object" not in recent[:3] and _random.random() < 0.15:
+        hooks[-1] = "found_object"
+    return hooks
+
+
+def hook_block(hook: str) -> str:
+    return (
+        "HOOK FOR THIS STORY (use this kind of hook, made specific to this child, theme and world):\n"
+        f"- {HOOK_TYPES.get(hook, hook)}.\n"
+        "- The hook must give the child something to WANT or DO, so that later the child, not a helper, can solve it.\n"
+    )
+
+
+def inject_hook(prompt: str, hook: str) -> str:
+    marker = "PAGE 1 JOB:"
+    block = hook_block(hook)
+    return prompt.replace(marker, block + marker, 1) if marker in prompt else prompt + "\n" + block
+
+
+PAGE1_JUDGE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "best": {"type": "integer"},
+        "reason": {"type": "string"},
+        "story_promise": {"type": "string"},
+        "childs_want": {"type": "string"},
+        "stakes_seed": {"type": "string"},
+        "spare_ideas": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["best", "reason", "story_promise", "childs_want", "stakes_seed", "spare_ideas"],
+}
+
+# Each hook implies its own natural climax; the plan is told which shape to aim for.
+HOOK_CLIMAX_SHAPES: Dict[str, str] = {
+    "funny_wish": "the wish comes true in an unexpected way because of something the child does, not by magic alone",
+    "mistake": "the child puts the mistake right with their own idea, and owns up to it",
+    "job": "the child completes the job in their own clever way when the usual way fails",
+    "misunderstanding": "the child works out the truth and brings the characters together",
+    "rule_puzzle": "the child works out the rule and uses it at the decisive moment",
+    "challenge": "the child wins, or wins something better, through a clever or kind choice rather than strength",
+    "promise": "the child keeps the promise even though it costs them something",
+    "visitor": "the child gives the visitor what only they could, at some cost to themselves",
+    "found_object": "the child makes a real choice about the object instead of simply returning it",
+}
+
+
+def opening_notes_block(notes: Optional[Dict[str, Any]], hook: Optional[str]) -> str:
+    """Editor notes from the Page 1 judge, passed into the plan."""
+    if not notes and not hook:
+        return ""
+    lines = ["OPENING NOTES FROM THE EDITOR (use them):"]
+    if hook and hook in HOOK_CLIMAX_SHAPES:
+        lines.append(f"- Hook type: {hook}. Aim for this climax shape on Page 6: {HOOK_CLIMAX_SHAPES[hook]}.")
+    for key, label in (("story_promise", "What this opening promises"), ("childs_want", "What the child wants"), ("stakes_seed", "Seed of the stakes")):
+        value = str((notes or {}).get(key) or "").strip()
+        if value:
+            lines.append(f"- {label}: {value}")
+    spare = [str(i).strip() for i in ((notes or {}).get("spare_ideas") or []) if str(i).strip()][:3]
+    if spare:
+        lines.append("- Strong ideas from the openings not chosen; use one or two where they genuinely fit (never contradict Page 1): " + "; ".join(spare))
+    return "\n".join(lines) + "\n"
+
+
+def build_page1_judge_prompt(request: Any, candidates: List[Dict[str, Any]], age: int, age_standard: str = "") -> str:
+    theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
+    listing = "\n\n".join(
+        f"CANDIDATE {i + 1}\nTitle: {c.get('title')}\nPage 1: {(c.get('pages') or [''])[0]}" for i, c in enumerate(candidates)
+    )
+    return f"""You are choosing the opening page for a seven-page children's bedtime story (listener age {age}, theme "{theme}").
+Pick the candidate most likely to become an outstanding story. Return only JSON matching the schema:
+- best: the winning candidate number; reason: why, in one sentence.
+- story_promise: what the winning Page 1 promises the listener, in one sentence.
+- childs_want: what the child wants or must do, in one sentence.
+- stakes_seed: the bedtime-safe loss that could happen if the child fails, in one sentence.
+- spare_ideas: 1-3 short, specific ideas from the OTHER candidates worth reusing later (a funny detail, image or character habit), compatible with the winner.
+
+JUDGE BY:
+- A clear, specific hook that makes a child want to hear Page 2.
+- The child has something to want or do, so the child (not a helper) can solve it later.
+- Room for real but bedtime-safe stakes (something could be lost, missed or spoiled).
+- Freshness: an original premise, not a generic "found something, return it" set-up.
+- The theme is literally present and matters.
+- Language fits the age standard below and reads aloud beautifully.
+- Avoid candidates with overused names (Barnaby, Pip, Sparkle...) or overused title words (Whispering, Secret, Lost...).
+{("AGE STANDARD:" + chr(10) + age_standard.strip()) if age_standard else ""}
+
+{listing}
+"""
+
+
+EDITOR_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "pages_to_rewrite": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"page": {"type": "integer"}, "problem": {"type": "string"}, "fix": {"type": "string"}},
+                "required": ["page", "problem", "fix"],
+            },
+        },
+        "overall_notes": {"type": "array", "items": {"type": "string"}},
+    },
+    "required": ["pages_to_rewrite", "overall_notes"],
+}
+
+EDITOR_CHECKLIST = """- Stakes: by Page 3 the listener SEES what will be lost, missed or spoiled, and it nearly happens at the setback.
+- The child's own idea or action causes the solution on Page 6 (planted earlier); no helper, adult, magic or luck solves it.
+- Page 7 is aftermath only: result, callback, calm bedtime landing. No new events, arrivals, rescues or explanations.
+- Every question and thread is answered by Page 6; the hidden explanation is revealed on the page.
+- Continuity: no contradictions; nobody knows a name or fact before learning it; objects and names stay consistent.
+- Age fit: words and sentences match the age standard; replace words from older bands.
+- The moral is shown through action, never stated, explained or lectured.
+- No stock phrases (tummy flip-flops, sparkling eyes...), no repetition of the same image or idea, no crammed page.
+- The theme and title promise are delivered."""
+
+
+def build_editor_prompt(request: Any, title: str, pages: List[str], plan: Optional[dict], age: int,
+                        moral_requested: bool, age_standard: str = "") -> str:
+    theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
+    moral = getattr(request, "moral", "") if moral_requested else "none requested"
+    story = "\n\n".join(f"Page {i + 1}: {p}" for i, p in enumerate(pages))
+    return f"""You are the senior editor of a children's bedtime story app. Read this complete draft as a whole, the way a parent will hear it,
+and decide which pages need rewriting before anyone hears them. Pages 1 and 2 are already published and FIXED; only Pages 3-{len(pages)} may be rewritten.
+Return only JSON matching the schema. List at most {MAX_REWRITE_PAGES} pages, the ones that matter most. For each, name the specific problem and an
+exact, actionable fix that keeps the rest of the story consistent. If the draft is already excellent, return an empty list. Do not rewrite for taste alone.
+
+STORY FACTS: title "{title}"; theme {theme}; private moral {moral}; listener age {age}.
+PLAN THE STORY WAS WRITTEN FROM:
+{plan_text(plan) if plan else "(none)"}
+
+CHECKLIST:
+{EDITOR_CHECKLIST}
+{("AGE STANDARD:" + chr(10) + age_standard.strip()) if age_standard else ""}
+
+DRAFT:
+{story}
+"""
+
+
+REWRITE_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "pages": {
+            "type": "array",
+            "items": {"type": "object", "properties": {"page": {"type": "integer"}, "text": {"type": "string"}}, "required": ["page", "text"]},
+        }
+    },
+    "required": ["pages"],
+}
+
+
+def editor_rewrite_targets(result: Any, page_count: int) -> List[Dict[str, Any]]:
+    targets: List[Dict[str, Any]] = []
+    for item in (result or {}).get("pages_to_rewrite") or []:
+        try:
+            page = int(item.get("page"))
+        except Exception:
+            continue
+        if 3 <= page <= page_count and page not in {t["page"] for t in targets}:
+            targets.append({"page": page, "problem": str(item.get("problem") or "")[:400], "fix": str(item.get("fix") or "")[:600]})
+    return sorted(targets, key=lambda t: t["page"])[:MAX_REWRITE_PAGES]
