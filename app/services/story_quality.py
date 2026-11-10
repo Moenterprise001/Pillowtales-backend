@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -40,7 +40,8 @@ PLAN_TIMEOUT_SECONDS = 20          # thinking plan (first attempt)
 PLAN_FAST_TIMEOUT_SECONDS = 12     # fast fallback / banned-name retry
 PLAN_MAX_OUTPUT_TOKENS = 6000      # thinking tokens share this budget
 SCORE_TIMEOUT_SECONDS = 30
-RECENT_HISTORY_LIMIT = 10
+RECENT_HISTORY_LIMIT = 30  # openings/titles/hooks (was 10: a busy child recycled openings within a day)
+NAME_HISTORY_LIMIT = 10    # names to avoid come from the most recent stories only
 MAX_TRACE_EVENTS = 80
 
 
@@ -230,7 +231,7 @@ def seed_text_signatures(seed_families: Iterable[dict]) -> Dict[str, str]:
 
 def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: int = RECENT_HISTORY_LIMIT,
                         seed_signatures: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
-    history: Dict[str, Any] = {"families": set(), "titles": [], "names": [], "loaded": False}
+    history: Dict[str, Any] = {"families": set(), "family_order": [], "titles": [], "names": [], "loaded": False}
     if not story_repo or not user_id:
         return history
     client = getattr(story_repo, "client", None)
@@ -249,41 +250,53 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
             query = query.eq("child_name", str(child_name))
         return query.execute().data or []
 
-    try:
+    rows = None
+    column_sets = [
+        # Only the trace fields needed, so 30 rows stay small and Page 1 is not slowed down.
+        "title,characters,seed_family:generation_trace->seed->>family,trace_hook:generation_trace->>page1_hook,first_page:pages->>0",
+        "title,characters,generation_trace,first_page:pages->>0",
+        "title,characters,generation_trace",
+        "title,characters",  # column not migrated yet
+    ]
+    last_exc: Optional[Exception] = None
+    for columns in column_sets:
         try:
-            rows = _query("title,characters,generation_trace,first_page:pages->>0")
-        except Exception:
-            try:
-                rows = _query("title,characters,generation_trace")
-            except Exception:
-                rows = _query("title,characters")  # column not migrated yet
-    except Exception as exc:
-        history["error"] = str(exc)[:200]
+            rows = _query(columns)
+            break
+        except Exception as exc:
+            last_exc = exc
+    if rows is None:
+        history["error"] = str(last_exc)[:200]
         return history
 
     child_key = _normalise_text(child_name)
-    for row in rows:
+    for index, row in enumerate(rows):
         title = str(row.get("title") or "").strip()
         if title:
             history["titles"].append(title)
-        for character in row.get("characters") or []:
-            name = str((character or {}).get("name") if isinstance(character, dict) else character or "").strip()
-            if name and _normalise_text(name) != child_key and name not in history["names"]:
-                history["names"].append(name)
+        if index < NAME_HISTORY_LIMIT:
+            for character in row.get("characters") or []:
+                name = str((character or {}).get("name") if isinstance(character, dict) else character or "").strip()
+                if name and _normalise_text(name) != child_key and name not in history["names"]:
+                    history["names"].append(name)
         trace = row.get("generation_trace") or {}
-        if isinstance(trace, dict) and trace.get("page1_hook"):
-            history.setdefault("hooks", []).append(trace.get("page1_hook"))
-        family = ((trace.get("seed") or {}).get("family")) if isinstance(trace, dict) else None
-        if family:
-            history["families"].add(family)
-        elif row.get("first_page") and seed_signatures:
+        trace = trace if isinstance(trace, dict) else {}
+        hook = row.get("trace_hook") or trace.get("page1_hook")
+        if hook:
+            history.setdefault("hooks", []).append(hook)
+        family = row.get("seed_family") or (trace.get("seed") or {}).get("family")
+        if not family and row.get("first_page") and seed_signatures:
             # Stories made before the trace existed: recognise the opening from Page 1.
             page_one = " ".join(re.findall(r"[a-z']+", _normalise_text(row.get("first_page"))))
             for fam, signature in seed_signatures.items():
                 if signature and signature in page_one:
-                    history["families"].add(fam)
+                    family = fam
                     history.setdefault("families_from_text", []).append(fam)
                     break
+        if family:
+            history["families"].add(family)
+            if family not in history["family_order"]:
+                history["family_order"].append(family)  # most recent first
     history["loaded"] = True
     return history
 

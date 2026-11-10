@@ -3359,6 +3359,11 @@ FINAL QUALITY CHECK:
         excluded = len(age_pool) - len(fresh_pool)
         if fresh_pool:
             age_pool = fresh_pool
+        elif history.get("family_order"):
+            # Every opening for this theme was heard recently: use the one heard longest ago.
+            order = history["family_order"]
+            oldest = max(order.index(seed.get("family")) if seed.get("family") in order else len(order) for seed in age_pool)
+            age_pool = [seed for seed in age_pool if (order.index(seed.get("family")) if seed.get("family") in order else len(order)) == oldest]
 
         seed = random.choice(age_pool)
         _quality.trace_set(request, "seed", {
