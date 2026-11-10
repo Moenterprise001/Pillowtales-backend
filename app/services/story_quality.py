@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "bedtime_prompts_v5b=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -218,7 +218,18 @@ OVERUSED_DEFAULT_NAMES = [
 COMPANION_SHORT_NAMES = {"Luna", "Milo", "Spark", "Stella", "Bramble"}
 
 
-def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: int = RECENT_HISTORY_LIMIT) -> Dict[str, Any]:
+def seed_text_signatures(seed_families: Iterable[dict]) -> Dict[str, str]:
+    """A distinctive lowercase phrase from each opening, used to spot it in old Page 1 text."""
+    signatures: Dict[str, str] = {}
+    for seed in seed_families or []:
+        words = re.findall(r"[a-z']+", _normalise_text(str(seed.get("en") or "").replace("{childName}", "")))
+        if len(words) >= 8:
+            signatures[seed.get("family")] = " ".join(words[2:8])
+    return signatures
+
+
+def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: int = RECENT_HISTORY_LIMIT,
+                        seed_signatures: Optional[Dict[str, str]] = None) -> Dict[str, Any]:
     history: Dict[str, Any] = {"families": set(), "titles": [], "names": [], "loaded": False}
     if not story_repo or not user_id:
         return history
@@ -240,9 +251,12 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
 
     try:
         try:
-            rows = _query("title,characters,generation_trace")
+            rows = _query("title,characters,generation_trace,first_page:pages->>0")
         except Exception:
-            rows = _query("title,characters")  # column not migrated yet
+            try:
+                rows = _query("title,characters,generation_trace")
+            except Exception:
+                rows = _query("title,characters")  # column not migrated yet
     except Exception as exc:
         history["error"] = str(exc)[:200]
         return history
@@ -260,6 +274,14 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
         family = ((trace.get("seed") or {}).get("family")) if isinstance(trace, dict) else None
         if family:
             history["families"].add(family)
+        elif row.get("first_page") and seed_signatures:
+            # Stories made before the trace existed: recognise the opening from Page 1.
+            page_one = " ".join(re.findall(r"[a-z']+", _normalise_text(row.get("first_page"))))
+            for fam, signature in seed_signatures.items():
+                if signature and signature in page_one:
+                    history["families"].add(fam)
+                    history.setdefault("families_from_text", []).append(fam)
+                    break
     history["loaded"] = True
     return history
 
@@ -272,14 +294,15 @@ def avoid_names_for(request: Any, history: Dict[str, Any], companion: Optional[d
     for character in getattr(request, "characters", None) or []:
         keep.add(_normalise_text(getattr(character, "name", "")))
     names: List[str] = []
-    for name in [*history.get("names", []), *OVERUSED_DEFAULT_NAMES, *sorted(COMPANION_SHORT_NAMES)]:
+    # Overused names first: they must never be pushed out by a long history.
+    for name in [*OVERUSED_DEFAULT_NAMES, *sorted(COMPANION_SHORT_NAMES), *history.get("names", [])]:
         if _normalise_text(name) in keep or name in names:
             continue
         # Skip generic family labels such as Nan / Daddy / Grandma.
         if _normalise_text(name) in {"nan", "nana", "daddy", "mummy", "mommy", "mum", "mom", "dad", "grandma", "grandad", "grandpa", "granny"}:
             continue
         names.append(name)
-    return names[:25]
+    return names[:40]
 
 
 # Data-driven (Supabase, 10 Nov 2026): "whispering" was in 22 bedtime titles,

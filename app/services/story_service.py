@@ -3336,12 +3336,14 @@ FINAL QUALITY CHECK:
             getattr(self, "story_repo", None),
             getattr(request, "userId", None),
             getattr(request, "childName", None),
+            seed_signatures=_quality.seed_text_signatures(OPENING_SEED_FAMILIES),
         )
         state["history"] = history
         _quality.trace_set(request, "history", {
             "loaded": history.get("loaded"),
             "recent_titles": len(history.get("titles") or []),
             "recent_families": sorted(history.get("families") or []),
+            "families_from_text": history.get("families_from_text") or [],
             "ms": int((time.time() - t_start) * 1000),
             "error": history.get("error"),
         })
