@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -893,3 +893,71 @@ def build_plan_revision_prompt(original_prompt: str, plan: dict, check: Dict[str
         + "\n".join(problems)
         + "\n\nPLAN TO REVISE:\n" + plan_text(plan) + "\n"
     )
+
+
+# ===========================================================================
+# Model routing (2026-11-10). Every Gemini call is labelled with a role, so
+# each role can use its own model, set in Render's environment:
+#   GEMINI_PAGES_MODEL    Pages 2+ of every story type (Bedtime, Story Worlds, ...)
+#   GEMINI_PAGE1_MODEL    Page 1 (leave unset to keep the fast default)
+#   GEMINI_PLANNER_MODEL  plan, plan check, Page 7 review, quality score
+#   GEMINI_PAGES_THINKING_BUDGET  thinking tokens for Pages 2+ (default 0;
+#                                 -1 = the model's own default)
+# Unset -> GEMINI_MODEL, exactly as before. A role model that errors falls
+# back to GEMINI_MODEL automatically.
+# ===========================================================================
+import contextvars as _contextvars
+
+GEN_CTX: "_contextvars.ContextVar" = _contextvars.ContextVar("pillowtales_gen_ctx", default=None)
+MODEL_ROUTING_BUILD = "model_routing=20261110"
+
+_ROLE_ENV = {
+    "pages": "GEMINI_PAGES_MODEL",
+    "page1": "GEMINI_PAGE1_MODEL",
+    "planner": "GEMINI_PLANNER_MODEL",
+}
+
+
+def role_model(role: Optional[str]) -> str:
+    import os
+    env = _ROLE_ENV.get(role or "")
+    return (os.getenv(env, "") if env else "").strip()
+
+
+def role_thinking_budget(role: Optional[str], requested: Optional[int]) -> Optional[int]:
+    """Only the pages role can be overridden; everything else keeps what the caller asked for."""
+    import os
+    if role != "pages":
+        return requested
+    raw = os.getenv("GEMINI_PAGES_THINKING_BUDGET", "").strip()
+    if not raw:
+        return requested
+    try:
+        value = int(raw)
+    except Exception:
+        return requested
+    return -1 if value < 0 else min(value, 8192)
+
+
+def record_usage(role: Optional[str], model_name: str, response: Any, fallback_from: Optional[str] = None) -> None:
+    """Add this call's model and token counts to the story's trace (best effort)."""
+    try:
+        ctx = GEN_CTX.get()
+        request = ctx[1] if ctx else None
+        if request is None:
+            return
+        meta = getattr(response, "usage_metadata", None)
+        tokens_in = int(getattr(meta, "prompt_token_count", 0) or 0)
+        tokens_out = int(getattr(meta, "candidates_token_count", 0) or 0)
+        tokens_think = int(getattr(meta, "thoughts_token_count", 0) or 0)
+        usage = get_trace(request).setdefault("usage", {})
+        bucket = usage.setdefault(role or "other", {"model": model_name, "calls": 0, "in": 0, "out": 0, "thinking": 0})
+        bucket["model"] = model_name
+        bucket["calls"] += 1
+        bucket["in"] += tokens_in
+        bucket["out"] += tokens_out
+        bucket["thinking"] += tokens_think
+        if fallback_from:
+            bucket["fallback_from"] = fallback_from
+    except Exception:
+        pass

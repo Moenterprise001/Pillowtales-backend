@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import functools
 import json
 import os
 import random
@@ -1705,9 +1706,13 @@ LIVING WORLD HARD RULES:
             # PillowTales needs fast, complete JSON rather than long internal reasoning.
             # Gemini 2.5 Flash otherwise spends much of the output budget on thinking,
             # which can truncate Page 1 and delay every continuation page.
-            # Only the background story-plan call opts into thinking.
+            # Only the background story-plan call opts into thinking (or the
+            # pages role via GEMINI_PAGES_THINKING_BUDGET).
             "thinking_config": types.ThinkingConfig(thinking_budget=int(thinking_budget or 0)),
         }
+        if thinking_budget == -1:
+            # Model's own default thinking (used for newer models that reject a budget).
+            kwargs.pop("thinking_config", None)
         if max_output_tokens:
             kwargs["max_output_tokens"] = max_output_tokens
         if response_schema:
@@ -1842,7 +1847,9 @@ LIVING WORLD HARD RULES:
         """
         configured = (self.model_name or "").strip()
         candidates: list[str] = []
+        ctx = _quality.GEN_CTX.get()
         for model in (
+            _quality.role_model(ctx[0] if ctx else None),
             configured,
             os.getenv("GEMINI_FALLBACK_MODEL", "").strip(),
             "gemini-3.5-flash",
@@ -1870,6 +1877,18 @@ LIVING WORLD HARD RULES:
             ),
         )
 
+    def _gen(self, role: str, request: Any = None):
+        """A labelled Gemini caller for asyncio.to_thread: routes the call to the
+        role's model (see story_quality model routing) and logs its tokens."""
+        return functools.partial(self._generate_content_role_sync, role, request)
+
+    def _generate_content_role_sync(self, role: str, request: Any, prompt: str, *args, **kwargs):
+        token = _quality.GEN_CTX.set((role, request))
+        try:
+            return self._generate_content_sync(prompt, *args, **kwargs)
+        finally:
+            _quality.GEN_CTX.reset(token)
+
     def _generate_content_sync(
         self,
         prompt: str,
@@ -1886,35 +1905,67 @@ LIVING WORLD HARD RULES:
         if not self.client or not self.model_name:
             raise ValueError("Gemini client is not configured")
 
+        ctx = _quality.GEN_CTX.get()
+        role = ctx[0] if ctx else None
+        routed_model = _quality.role_model(role)
+        requested_thinking = thinking_budget
+        thinking_budget = _quality.role_thinking_budget(role, thinking_budget)
+        if thinking_budget != requested_thinking and max_output_tokens:
+            # Thinking tokens share the output limit: add room so pages are never truncated.
+            max_output_tokens = int(max_output_tokens) + (thinking_budget if thinking_budget and thinking_budget > 0 else 4096)
         last_exc: Optional[Exception] = None
+        fallback_from: Optional[str] = None
         for model_name in self._model_candidates():
             try:
-                if model_name != self.model_name:
+                if model_name != self.model_name and model_name != routed_model:
                     print(f"[PERF] genai_model_fallback_try model={model_name}")
-                return self._generate_content_once_sync(
-                    model_name,
-                    prompt,
-                    response_schema,
-                    max_output_tokens,
-                    thinking_budget,
-                )
+                try:
+                    response = self._generate_content_once_sync(
+                        model_name,
+                        prompt,
+                        response_schema,
+                        max_output_tokens,
+                        thinking_budget,
+                    )
+                except Exception as thinking_exc:
+                    # Some newer models reject an explicit thinking budget; retry
+                    # once with the model's own default thinking setting.
+                    if "thinking" in str(thinking_exc).lower() and thinking_budget != -1:
+                        print(f"[PERF] genai_thinking_config_rejected model={model_name} retrying_with_model_default")
+                        response = self._generate_content_once_sync(
+                            model_name, prompt, response_schema,
+                            (int(max_output_tokens) + 4096) if max_output_tokens else None, -1,
+                        )
+                    else:
+                        raise
+                _quality.record_usage(role, model_name, response, fallback_from)
+                return response
             except Exception as exc:
                 last_exc = exc
                 err = str(exc)
                 is_not_found = "404" in err or "NOT_FOUND" in err or "not found" in err.lower() or "no longer available" in err.lower()
+
+                # A role-specific model (e.g. GEMINI_PAGES_MODEL) that fails for
+                # any reason falls back to the configured default model.
+                if routed_model and model_name == routed_model and routed_model != (self.model_name or ""):
+                    print(f"[PERF] genai_role_model_failed role={role} model={model_name} falling_back error={err[:200]}")
+                    fallback_from = model_name
+                    continue
 
                 # If the schema/config was rejected, keep the existing one-shot
                 # retry without schema. Do not waste the no-schema retry on a
                 # missing model; try the next model candidate instead.
                 if response_schema and not is_not_found:
                     print(f"[PERF] genai_schema_call_failed retrying_without_schema error={err[:200]}")
-                    return self._generate_content_once_sync(
+                    response = self._generate_content_once_sync(
                         model_name,
                         prompt,
                         None,
                         max_output_tokens,
                         thinking_budget,
                     )
+                    _quality.record_usage(role, model_name, response, fallback_from)
+                    return response
 
                 if is_not_found:
                     print(f"[PERF] genai_model_not_found model={model_name} trying_next error={err[:200]}")
@@ -4509,7 +4560,7 @@ REVIEW RULES:
         try:
             response = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self._generate_content_sync,
+                    self._gen("planner", request),
                     prompt,
                     self._canon_continuation_review_response_schema(),
                     1200,
@@ -4603,7 +4654,7 @@ REVIEW RULES:
 """
         try:
             response = await asyncio.to_thread(
-                self._generate_content_sync,
+                self._gen("planner", request),
                 prompt,
                 self._canon_ending_review_response_schema(),
                 1600,
@@ -4770,7 +4821,7 @@ REVIEW RULES:
 """
         try:
             response = await asyncio.to_thread(
-                self._generate_content_sync,
+                self._gen("planner", request),
                 prompt,
                 self._ending_review_response_schema(include_moral=moral_required),
                 1400,
@@ -4988,7 +5039,7 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
             try:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
-                        self._generate_content_sync,
+                        self._gen("pages", request),
                         prompt,
                         self._story_response_schema(batch_count, include_title=False),
                     ),
@@ -7312,7 +7363,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             t_attempt = time.time()
             response = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self._generate_content_sync,
+                    self._gen("page1", request),
                     attempt_prompt,
                     response_schema,
                     2048,
@@ -7635,7 +7686,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 try:
                     response = await asyncio.wait_for(
                         asyncio.to_thread(
-                            self._generate_content_sync, attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA,
+                            self._gen("planner", request), attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA,
                             _quality.PLAN_MAX_OUTPUT_TOKENS if thinking else 1600, thinking,
                         ),
                         timeout=_quality.PLAN_TIMEOUT_SECONDS if thinking else _quality.PLAN_FAST_TIMEOUT_SECONDS,
@@ -7648,7 +7699,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                     thinking = 0
                     response = await asyncio.wait_for(
                         asyncio.to_thread(
-                            self._generate_content_sync, attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA, 1600, 0,
+                            self._gen("planner", request), attempt_prompt, _quality.PLAN_RESPONSE_SCHEMA, 1600, 0,
                         ),
                         timeout=_quality.PLAN_FAST_TIMEOUT_SECONDS,
                     )
@@ -7701,7 +7752,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             age = self._safe_child_age(request.age)
             response = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self._generate_content_sync,
+                    self._gen("planner", request),
                     _quality.build_plan_check_prompt(request, page_one, plan, age),
                     _quality.PLAN_CHECK_SCHEMA, 800, 0,
                 ),
@@ -7712,7 +7763,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             if not check["passed"]:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
-                        self._generate_content_sync,
+                        self._gen("planner", request),
                         _quality.build_plan_revision_prompt(plan_prompt, plan, check),
                         _quality.PLAN_RESPONSE_SCHEMA, 1600, 0,
                     ),
@@ -7755,7 +7806,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             )
             response = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self._generate_content_sync, prompt, _quality.SCORE_RESPONSE_SCHEMA, 1200
+                    self._gen("planner", request), prompt, _quality.SCORE_RESPONSE_SCHEMA, 1200
                 ),
                 timeout=_quality.SCORE_TIMEOUT_SECONDS,
             )
@@ -8313,7 +8364,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         print(f"[PERF] prompt built in {time.time() - t_prompt:.2f}s chars={len(prompt)}")
 
         t_gemini = time.time()
-        response = self._generate_content_sync(
+        response = self._gen("other", request)(
             prompt,
             self._story_response_schema(7, include_title=True),
         )
@@ -8371,7 +8422,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         try:
             t_gemini = time.time()
             response = await asyncio.to_thread(
-                self._generate_content_sync,
+                self._gen("other", None),
                 prompt,
                 self._metadata_response_schema(),
             )
