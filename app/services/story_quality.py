@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -331,6 +331,106 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
     return history
 
 
+# ---- Invented family (11 Nov 2026): "why mention Emily's grandfather when Emily may not have a grandparent?" ----
+FAMILY_GROUPS = {
+    "grandparent": r"grand(?:ma|pa|mother|father|mama|papa|ad|dad|parents?)|granny|gran|nana|nan|great[- ]grand\w+",
+    "parent": r"mum|mummy|mom|mommy|mother|dad|daddy|father|parents",
+    "sibling": r"brother|sister|siblings?",
+    "extended": r"aunt|auntie|aunty|uncle|cousin",
+}
+_RELATION_TO_GROUP = [
+    (r"grand|granny|gran\b|nana|nan\b", "grandparent"),
+    (r"mum|mom|mother|mam|dad|father|papa|parent|step", "parent"),
+    (r"brother|sister|sibling|twin", "sibling"),
+    (r"aunt|uncle|cousin", "extended"),
+]
+
+
+def allowed_family_groups(request: Any) -> set:
+    groups = set()
+    for character in getattr(request, "characters", None) or []:
+        relation = str(getattr(character, "relationship", "") or "").lower()
+        for pattern, group in _RELATION_TO_GROUP:  # first match only: "grandmother" is not "mother"
+            if re.search(pattern, relation):
+                groups.add(group)
+                break
+    return groups
+
+
+def invented_family_mentions(text: Any, request: Any, already_told: Any = "") -> List[str]:
+    """The child's own family members mentioned in English text that the parent did not add.
+
+    Catches "her grandpa", "Emily's mum", "his grandmother" and family words used as names
+    ("Grandpa said", "Nana's tea set", "Uncle Jed"). A creature's family ("the dragon's mother") is fine.
+    """
+    if str(getattr(request, "storyLanguageCode", "en") or "en").lower()[:2] != "en":
+        return []
+    raw = str(text or "")
+    allowed = allowed_family_groups(request)
+    child = re.escape(str(getattr(request, "childName", "") or "").strip()) or "zzzz"
+    found: List[str] = []
+    for group, words in FAMILY_GROUPS.items():
+        if group in allowed:
+            continue
+        possessive = re.compile(
+            rf"\b(?:her|his|their|your|{child}['’]s)\s+(?:(?:dear|old|kind|sweet|beloved|own|favou?rite|wise|little|big|baby|clever|gentle)\s+)*(?:{words})\b",
+            re.IGNORECASE,
+        )
+        as_name = re.compile(
+            rf"(?<![Tt]he )(?<![Aa] )(?<![Hh]er )(?<![Hh]is )\b(?:{words.replace('mother|', '').replace('father|', '')})\b"
+            rf"(?=['’]s\b|\s+(?:said|smiled|laughed|whispered|told|says|had|was|used|always|would|gave|hugged|called)\b|\s+(?-i:[A-Z][a-z]+)|[,.!?])",
+            re.IGNORECASE,
+        )
+        for m in possessive.finditer(raw):
+            found.append(m.group(0))
+        for m in as_name.finditer(raw):
+            word = m.group(0)
+            if word[:1].isupper():
+                found.append(word)
+        # A capitalised family word in mid-sentence is being used as a name ("a promise to Grandpa", "with Nana").
+        name_words = words.replace('mother|', '').replace('father|', '')
+        for m in re.finditer(rf"\b(?:{name_words})\b", raw, re.IGNORECASE):
+            word = m.group(0)
+            if not word[:1].isupper():
+                continue
+            before = raw[:m.start()].rstrip()
+            prev = (re.findall(r"[A-Za-z’']+$", before) or [""])[0].lower()
+            if before and before[-1] not in '.!?"“\n:' and prev not in ("the", "a", "an", "her", "his", "their", "my", "your", "our"):
+                found.append(word)
+    # Family already on a published page (Page 1) must stay consistent: do not flag it again.
+    told = str(already_told or "").lower()
+    seen: List[str] = []
+    for f in found:
+        key_word = f.split()[-1].lower().replace("’s", "").replace("'s", "")
+        if told and re.search(rf"\b{re.escape(key_word)}\b", told):
+            continue
+        if f.lower() not in [x.lower() for x in seen]:
+            seen.append(f)
+    return seen
+
+
+# ---- Story length by age (11 Nov 2026) ----
+# Picture books (ages 3-8) are usually under 1,000 words, most often 300-800; bedtime reading guidance is
+# about 3-5 minutes at 2-3, 8-12 at 4-5 and longer from 6. Seven pages at every age; Page 1 a little lighter.
+# (target_min, target_max, hard_max) words for (Page 1, Pages 2-6, Page 7). Ages 0-2 keep their own budgets.
+AGE_PAGE_BUDGETS = {
+    # The hard maximum sits ~30% above the target so normal overshoot never costs a retry; the target steers length.
+    3: ((35, 50, 65), (45, 65, 85), (45, 65, 85)),          # ~400 words, ~4 min
+    4: ((45, 65, 85), (60, 80, 104), (60, 80, 104)),        # ~520 words, ~5 min
+    5: ((65, 85, 110), (80, 105, 137), (80, 105, 137)),     # ~690 words, ~6 min
+    6: ((65, 85, 110), (80, 105, 137), (80, 105, 137)),
+    7: ((85, 110, 143), (100, 135, 176), (100, 135, 176)),  # ~850 words, ~7 min
+    8: ((85, 110, 143), (100, 135, 176), (100, 135, 176)),
+    9: ((100, 130, 145), (115, 155, 170), (115, 155, 170)),  # unchanged, ~950 words
+    10: ((100, 130, 145), (115, 155, 170), (115, 155, 170)),
+    11: ((110, 140, 175), (125, 165, 200), (125, 165, 200)),  # ~1,050 words, ~9 min
+    12: ((110, 140, 175), (125, 165, 200), (125, 165, 200)),
+}
+# Thin-page floor (words, sentences) for Pages 2-7, kept below each age's target minimum.
+AGE_MIN_PAGE_WORDS = {3: (32, 3), 4: (42, 3), 5: (60, 4), 6: (60, 4), 7: (75, 4), 8: (75, 4),
+                      9: (90, 4), 10: (90, 4), 11: (95, 4), 12: (95, 4)}
+
+
 STORY_MEMORY_TABLE = "story_memory"
 
 
@@ -504,7 +604,7 @@ def _mentions(beat: Any, key_words: List[str]) -> bool:
     return any(re.search(r"(?<![a-z])" + re.escape(w[:max(4, len(w) - 2)]), text) for w in key_words)
 
 
-def structural_plan_issues(plan: Any) -> List[tuple]:
+def structural_plan_issues(plan: Any, request_for_family: Any = None, page_one: str = "") -> List[tuple]:
     """Deterministic v5 checks: the solution is planted on Page 2 or 3 and used on Page 6, the stake is
     visible by Page 3 and worse at the setback, and the signature delight returns. Returns [(key, issue)]."""
     if not isinstance(plan, dict) or not prompts_v5_enabled():
@@ -530,6 +630,12 @@ def structural_plan_issues(plan: Any) -> List[tuple]:
             issues.append(("stake_felt", f"The visible stake sign ({plan.get('stake_sign')}) is not in the Page 2 or Page 3 beat."))
         if not (_mentions(beats[2], sign) or _mentions(beats[3], sign)):
             issues.append(("stake_felt", f"The stake sign ({plan.get('stake_sign')}) must get visibly worse in the Page 4 or Page 5 setback beat."))
+    if request_for_family is not None:
+        import json as _json
+        fam = invented_family_mentions(_json.dumps(plan, ensure_ascii=False), request_for_family, already_told=page_one)
+        if fam:
+            issues.append(("invented_family", "The plan gives the child family the parent did not add (" + ", ".join(fam[:4])
+                           + "). Replace them with a story character (a kindly keeper, a neighbour, a creature friend) or the child's own memory."))
     delight = _key_words(plan.get("signature_delight"))
     if delight and sum(1 for b in beats[:6] if _mentions(b, delight)) < 2:
         issues.append(("signature_delight", f"The signature delight ({plan.get('signature_delight')}) should return in at least two beats, including Page 7."))
@@ -968,6 +1074,7 @@ Characters and dialogue
 - Give characters personality through what they say, notice, misunderstand, attempt and choose. Let the protagonist hesitate, guess wrongly or make a harmless mistake when it strengthens the eventual solution.
 - Prefer short dialogue, action and funny behaviour over narrator explanation. Dialogue must sound spoken and must change something: a decision, clue, disagreement, plan or relationship. Never use it only to explain the plot.
 - A quoted line and its attribution are one beat: write "Where is it?" she wondered. Never start a new paragraph with a short speech tag or reaction that belongs to the line before.
+- FAMILY: Only family the parent added may appear: never invent the child's mum, dad, grandparents, brothers, sisters, aunts, uncles or cousins, and never say one is away, missing or has died (not every child has them). For warmth, wisdom or a promise, use a story character instead (a kindly keeper, a neighbour, a creature friend), the child's own memory or habit, or a favourite toy.
 - Introduce the child clearly by name, then prefer natural pronouns. Bring the name back after a change of focus or when pronouns could be unclear. Avoid several sentences in a row that start with the same name or pronoun.
 - Nobody knows a new character's name until it is given on the page (they say it, someone introduces them, or it is written somewhere). Until then, call them by what they look like.
 
@@ -1043,6 +1150,7 @@ V5_PLAN_RULES = """- PAGE 6 COMPLETES THE SOLUTION: the child's decisive act on 
   abstract or far-away loss such as "the kingdom's magic fades".
 - stake_sign: the visible sign of that loss coming closer (the lantern dims, the egg grows colder, the music slows).
   Show it in the Page 2 or 3 beat and make it visibly worse in the setback beat.
+- FAMILY: Only family the parent added may appear: never invent the child's mum, dad, grandparents, brothers, sisters, aunts, uncles or cousins, and never say one is away, missing or has died (not every child has them). For warmth, wisdom or a promise, use a story character instead (a kindly keeper, a neighbour, a creature friend), the child's own memory or habit, or a favourite toy. This applies to every field, including stake_for_child.
 - signature_delight: one funny or wonderful thing a child will want to hear again tomorrow night (a creature's odd habit,
   a silly sound, a running joke). Use it in at least two beats, and let it return on Page 7.
 - Make the listener desperate to know what happens next on every page: end each beat with a question, a surprise or a
@@ -1250,6 +1358,7 @@ def hook_block(hook: str) -> str:
         f"- {HOOK_TYPES.get(hook, hook)}.\n"
         "- The hook must give the child something to WANT or DO, so that later the child, not a helper, can solve it.\n"
         "- Begin the very first sentence in a fresh way: never with the child's name followed by lived, loved or visited.\n"
+        "- Do not give the child a mum, dad, grandparent, brother, sister, aunt or uncle unless the parent added them above.\n"
         "  Start with a sound, an action, a line of dialogue, a surprising detail or the place itself.\n"
     )
 
@@ -1372,7 +1481,8 @@ EDITOR_SCHEMA = {
     "required": ["pages_to_rewrite", "overall_notes"],
 }
 
-EDITOR_CHECKLIST = """- Stakes: by Page 3 the listener SEES what will be lost, missed or spoiled, and it nearly happens at the setback.
+EDITOR_CHECKLIST = """- Family: no invented family for the child (mum, dad, grandparents, siblings, aunts, uncles, cousins) unless the parent added them.
+- Stakes: by Page 3 the listener SEES what will be lost, missed or spoiled, and it nearly happens at the setback.
 - The child's own idea or action causes the solution on Page 6 (planted earlier); no helper, adult, magic or luck solves it.
 - Page 7 is aftermath only: result, callback, calm bedtime landing. No new events, arrivals, rescues or explanations.
 - Every question and thread is answered by Page 6; the hidden explanation is revealed on the page.

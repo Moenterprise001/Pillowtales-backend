@@ -4347,6 +4347,10 @@ OUTPUT RULES:
             first = (25, 42, 55)
             middle = (30, 50, 62)
             final = (30, 55, 68)
+        elif _quality.prompts_v5_enabled() and child_age in _quality.AGE_PAGE_BUDGETS:
+            # 11 Nov 2026: length now grows with age (picture-book and bedtime
+            # read-aloud guidance); see story_quality.AGE_PAGE_BUDGETS.
+            first, middle, final = _quality.AGE_PAGE_BUDGETS[child_age]
         else:
             # Ages 3-12: reading age changes HOW the story is written, not how
             # much story the child receives. Keep a substantial seven-page
@@ -4456,6 +4460,8 @@ OUTPUT RULES:
                         min_words, min_sentences = 15, 3
                     elif child_age == 2:
                         min_words, min_sentences = 20, 3
+                    elif _quality.prompts_v5_enabled() and child_age in _quality.AGE_MIN_PAGE_WORDS:
+                        min_words, min_sentences = _quality.AGE_MIN_PAGE_WORDS[child_age]
                     else:
                         # Ages 3-12 should not pass as thin caption-like pages.
                         # Keep this below the 115-word writing target so normal
@@ -7690,6 +7696,14 @@ Return ONLY valid JSON:
             if last_exc:
                 raise last_exc
             raise asyncio.TimeoutError()
+        # Prefer openings that do not invent family for the child (11 Nov 2026).
+        clean = [c for c in candidates if not _quality.invented_family_mentions((c.get("pages") or [""])[0], request)]
+        if clean and len(clean) < len(candidates):
+            _quality.trace_set(request, "page1_dropped_family", [
+                {"hook": c["_hook"], "family": _quality.invented_family_mentions((c.get("pages") or [""])[0], request)}
+                for c in candidates if c not in clean
+            ])
+            candidates = clean
         recent_titles = history.get("titles") or []
         for c in candidates:
             c["_title_flags"] = _quality.title_flags(
@@ -8259,12 +8273,12 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 timeout=_quality.PLAN_CHECK_TIMEOUT_SECONDS,
             )
             check = _quality.evaluate_plan_check(self._clean_json_response(getattr(response, "text", "") or ""))
-            structural = _quality.structural_plan_issues(plan)
+            structural = _quality.structural_plan_issues(plan, request, page_one)
             if structural:
                 check["passed"] = False
                 check["structural"] = [k for k, _ in structural]
                 for key, _ in structural:
-                    if key != "signature_delight" and key not in check["failed_critical"]:
+                    if key not in ("signature_delight",) and key not in check["failed_critical"]:
                         check["failed_critical"].append(key)
                 check["issues"] = [*[issue for _, issue in structural], *check["issues"]][:8]
             record = {"status": "passed" if check["passed"] else "failed", **check}
@@ -8465,6 +8479,12 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
              "fix": f"Remove the word {request.moral!r} and any explanation of the lesson; keep the same events and show the idea only through what the characters do."}
             for n in leaks
         ]
+        for n in range(first_new, len(pages) + 1):
+            fam = _quality.invented_family_mentions(pages[n - 1], request, already_told=pages[0])
+            if fam and n not in {t["page"] for t in forced}:
+                forced.append({"page": n, "problem": "The page gives the child family the parent did not add: " + ", ".join(fam[:3]) + ".",
+                               "fix": "Replace them with a story character already in the story (or the child's own memory or habit); keep the same events."})
+                record.setdefault("invented_family_pages", []).append(n)
         if complete:
             final_ok, final_reason = self._validate_final_page(pages[-1], pages[:-1], request.storyLanguageCode, request=request)
             if not final_ok and expected_pages not in leaks:
@@ -8515,6 +8535,8 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
                     text = self._sanitize_generated_pages(candidate)[0]
                     if self._standard_bedtime_moral_leak_reason(request, title=title, pages=[text]):
                         continue
+                    if _quality.invented_family_mentions(text, request, already_told=pages[0]):
+                        continue  # a rewrite must never add (or keep) invented family
                     if complete and n == expected_pages:
                         text = self._ensure_the_end(text)
                         ok, _ = self._validate_final_page(text, pages[:-1], request.storyLanguageCode, request=request)
