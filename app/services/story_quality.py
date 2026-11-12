@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "v7b_pro_tuning=20261112 story_craft_v7=20261112 plot_shapes=20261112 draft_role=20261112 base_model_38=20261112 page2_opens_with_event=20261112 opening_role=20261112 pronouns_from_gender=20261112 momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "bedtime_v8=20261112(switch BEDTIME_V8) v7b_pro_tuning=20261112 story_craft_v7=20261112 plot_shapes=20261112 draft_role=20261112 base_model_38=20261112 page2_opens_with_event=20261112 opening_role=20261112 pronouns_from_gender=20261112 momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -626,6 +626,8 @@ def structural_plan_issues(plan: Any, request_for_family: Any = None, page_one: 
     visible by Page 3 and worse at the setback, and the signature delight returns. Returns [(key, issue)]."""
     if not isinstance(plan, dict) or not prompts_v5_enabled():
         return []
+    if _v8():
+        return _v8().structural_plan_issues(plan, request_for_family, page_one)
     beats = list(plan.get("beats") or [])
     if len(beats) < 6:
         return []
@@ -677,6 +679,8 @@ def _age_stakes_line(age: int) -> str:
 
 
 def build_plan_prompt(request: Any, title: str, page_one: str, moral_requested: bool, avoid_block: str, age: int) -> str:
+    if _v8():
+        return _v8().build_plan_prompt(request, title, page_one, moral_requested, avoid_block, age)
     theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
     moral = getattr(request, "moral", "")
     moral_line = (
@@ -807,6 +811,8 @@ def plan_spine_block(plan: Optional[dict]) -> str:
     """Appended to the story spine: seen by every continuation page and by the Page 7 reviewer."""
     if not plan_is_valid(plan):
         return ""
+    if _v8():
+        return _v8().plan_spine_block(plan)
     beats = "\n".join(f"  - Page {index + 2}: {str(beat).strip()}" for index, beat in enumerate(plan["beats"][:6]))
     threads = "; ".join(str(t).strip() for t in (plan.get("threads_to_close") or []) if str(t).strip()) or "none listed"
     return f"""
@@ -844,9 +850,10 @@ def plan_page_focus_block(plan: Optional[dict], next_page_number: int, batch_cou
     tail = (
         f"- Do not jump ahead to the beats reserved for {', '.join(later)}."
         if later else
-        "- This is the final page: deliver the planned answer, close every listed thread, use the callback and land on the final image."
+        ("- This is the final page: show the happy result, use the callback and land on the final image." if _v8() else
+         "- This is the final page: deliver the planned answer, close every listed thread, use the callback and land on the final image.")
     )
-    precedence = ("\n" + V5_PLAN_PRECEDENCE) if prompts_v5_enabled() else ""
+    precedence = ("\n" + (_v8().PLAN_PRECEDENCE_V8 if _v8() else V5_PLAN_PRECEDENCE)) if prompts_v5_enabled() else ""
     return "THIS PAGE'S JOB FROM THE LOCKED PLAN:\n" + "\n".join(lines) + "\n" + tail + precedence + "\n"
 
 
@@ -887,13 +894,22 @@ SCORE_RESPONSE_SCHEMA = {
 }
 
 
+def score_criteria() -> list:
+    return _v8().SCORE_CRITERIA_V8 if _v8() else SCORE_CRITERIA
+
+
+def score_response_schema() -> dict:
+    return _v8().SCORE_RESPONSE_SCHEMA_V8 if _v8() else SCORE_RESPONSE_SCHEMA
+
+
 def build_score_prompt(request: Any, title: str, pages: List[str], moral_requested: bool, age: int,
                        age_standard: str = "") -> str:
     theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
     moral = getattr(request, "moral", "") if moral_requested else "none requested (score moral_shown_not_told as 10)"
-    criteria = "\n".join(f"- {key}: {desc}" for key, desc in SCORE_CRITERIA)
+    criteria = "\n".join(f"- {key}: {desc}" for key, desc in score_criteria())
     story = "\n\n".join(f"Page {i + 1}: {page}" for i, page in enumerate(pages))
-    return f"""You are a demanding children's book editor. Score this bedtime story for a {age}-year-old listener.
+    kind = "PillowTales story (read at bedtime; adventure and excitement are wanted)" if _v8() else "bedtime story"
+    return f"""You are a demanding children's book editor. Score this {kind} for a {age}-year-old listener.
 Return only JSON matching the schema. Score each criterion 0-10 (one decimal allowed).
 
 CALIBRATION:
@@ -918,7 +934,7 @@ STORY:
 
 def summarise_score(result: Dict[str, Any]) -> Dict[str, Any]:
     scores: Dict[str, float] = {}
-    for key, _ in SCORE_CRITERIA:
+    for key, _ in score_criteria():
         try:
             scores[key] = max(0.0, min(10.0, float(result.get(key))))
         except Exception:
@@ -929,7 +945,7 @@ def summarise_score(result: Dict[str, Any]) -> Dict[str, Any]:
         "criteria": scores,
         "weakest_page": result.get("weakest_page"),
         "top_issues": [str(i)[:200] for i in (result.get("top_issues") or [])][:4],
-        "rubric_version": "20261112",
+        "rubric_version": _v8().RUBRIC_VERSION_V8 if _v8() else "20261112",
     }
 
 
@@ -1031,6 +1047,12 @@ def freshen_continuation_names(pages: List[str], banned: Iterable[str], state: D
 # ===========================================================================
 
 V5_BUILD = "bedtime_prompts_v5=20261110 plan_check=20261110"
+
+
+def _v8():
+    """The v8 module when BEDTIME_V8 is on, else None (imported lazily: story_v8 imports this module)."""
+    from app.services import story_v8 as _V8
+    return _V8 if _V8.v8_enabled() else None
 
 
 def _env_on(name: str, default: str = "1") -> bool:
@@ -1397,7 +1419,17 @@ PLAN_CHECK_SCHEMA = {
 }
 
 
+def plan_check_keys() -> list:
+    return _v8().PLAN_CHECK_KEYS_V8 if _v8() else PLAN_CHECK_KEYS
+
+
+def plan_check_schema() -> dict:
+    return _v8().PLAN_CHECK_SCHEMA_V8 if _v8() else PLAN_CHECK_SCHEMA
+
+
 def build_plan_check_prompt(request: Any, page_one: str, plan: dict, age: int) -> str:
+    if _v8():
+        return _v8().build_plan_check_prompt(request, page_one, plan, age)
     theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
     checks = "\n".join(f"- {key}: {desc}" for key, _, desc in PLAN_CHECK_KEYS)
     return f"""You are a strict children's book editor checking a story plan before any page is written.
@@ -1420,8 +1452,9 @@ CHECKS:
 
 def evaluate_plan_check(result: Any) -> Dict[str, Any]:
     result = result if isinstance(result, dict) else {}
-    failed_critical = [key for key, critical, _ in PLAN_CHECK_KEYS if critical and result.get(key) is not True]
-    failed_other = [key for key, critical, _ in PLAN_CHECK_KEYS if not critical and result.get(key) is not True]
+    keys = plan_check_keys()
+    failed_critical = [key for key, critical, _ in keys if critical and result.get(key) is not True]
+    failed_other = [key for key, critical, _ in keys if not critical and result.get(key) is not True]
     return {
         "passed": not failed_critical,
         "failed_critical": failed_critical,
@@ -1432,7 +1465,7 @@ def evaluate_plan_check(result: Any) -> Dict[str, Any]:
 
 def build_plan_revision_prompt(original_prompt: str, plan: dict, check: Dict[str, Any],
                                locked_first_beat: Optional[str] = None) -> str:
-    descriptions = {key: desc for key, _, desc in PLAN_CHECK_KEYS}
+    descriptions = {key: desc for key, _, desc in plan_check_keys()}
     problems = [f"- {key}: {descriptions[key]}" for key in check["failed_critical"] + check["failed_other"] if key in descriptions]
     problems += [f"- {issue}" for issue in check["issues"]]
     return (
@@ -1757,7 +1790,8 @@ def build_editor_prompt(request: Any, title: str, pages: List[str], plan: Option
     if final_page_number and len(pages) < final_page_number:
         partial += (f"NOTE: this draft stops at Page {len(pages)}; the story continues to Page {final_page_number} afterwards. "
                    "Do not judge the ending or ask for it to be wrapped up; judge only the pages shown.\n")
-    return f"""You are the senior editor of a children's bedtime story app. Read this complete draft as a whole, the way a parent will hear it,
+    app_kind = "PillowTales, a children's story app read at bedtime" if _v8() else "a children's bedtime story app"
+    return f"""You are the senior editor of {app_kind}. Read this complete draft as a whole, the way a parent will hear it,
 and decide which pages need rewriting before anyone hears them. Pages 1 and 2 are already published and FIXED; only Pages 3-{len(pages)} may be rewritten.
 Return only JSON matching the schema. List at most {MAX_REWRITE_PAGES} pages, the ones that matter most. For each, name the specific problem and an
 exact, actionable fix that keeps the rest of the story consistent. If the draft is already excellent, return an empty list. Do not rewrite for taste alone.
@@ -1767,7 +1801,7 @@ PLAN THE STORY WAS WRITTEN FROM:
 {plan_text(plan) if plan else "(none)"}
 
 CHECKLIST:
-{EDITOR_CHECKLIST}
+{_v8().EDITOR_CHECKLIST_V8 if _v8() else EDITOR_CHECKLIST}
 {("AGE STANDARD:" + chr(10) + age_standard.strip()) if age_standard else ""}
 
 DRAFT:

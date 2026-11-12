@@ -34,6 +34,7 @@ from app.repositories.story_repository import StoryRepository
 from app.repositories.story_world_repository import StoryWorldRepository
 from app.utils.story_text import postprocess_story_pages
 from app.services import story_quality as _quality
+from app.services import story_v8 as _v8mod
 
 
 OPENING_SEED_FAMILIES = [
@@ -3002,6 +3003,15 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 - Never save the basic cause, culprit or entire solution for an unexplained last-page invention.
 """
 
+        if self._v8_applies(request):
+            moral_v8 = f"- Private moral: {request.moral} (shown through the child's choices, never stated).\n" if self._moral_requested(request) else ""
+            return f"""STORY SPINE:
+{moral_v8}- Page 1 is the fixed opening promise:
+  {opening_excerpt}
+- Keep Page 1's one central want alive on every page; every event moves toward it. Do not swap it for a different,
+  more convenient plot.
+""" + _quality.plan_spine_block(_quality.get_state(request).get("plan"))
+
         moral_lines = (
             f"""- Requested moral: {request.moral}
 - The requested moral must remain recognisable through the child's choices and consequences, but must never be lectured or repeatedly named.
@@ -5107,6 +5117,8 @@ REVIEW RULES:
 - satisfying_ending: the result feels like the natural destination of Pages 1-6 and includes a brief settled afterglow, not simply a stopped scene.
 - required_changes: give 1-6 short imperative repairs using only established material from Pages 1-6.
 """
+        if self._v8_applies(request):
+            prompt = _v8mod.adjust_review_prompt(prompt)
         try:
             response = await asyncio.to_thread(
                 self._gen("planner", request),
@@ -6453,6 +6465,8 @@ JSON ONLY:
             return self._build_canon_first_page_prompt(request, companion)
         if self._is_folk_adventure_request(request):
             return self._build_folk_adventure_first_page_prompt(request, companion)
+        if self._v8_applies(request):
+            return self._build_first_page_prompt_v8(request, companion)
 
         blocks = self._language_and_character_blocks(request, companion)
 
@@ -6590,6 +6604,111 @@ JSON ONLY:
 {{"title":"The Sleepy Dragon","pages":["page 1 text"]}}
 - Replace "The Sleepy Dragon" with a real short title for this story.
 - Never return placeholder titles such as "Short title", "Title", or "Story Title".
+"""
+
+    def _v8_applies(self, request: GenerateStoryRequest) -> bool:
+        """v8 (BEDTIME_V8=1): standard Bedtime Stories, ages 3+ only."""
+        return (
+            _v8mod.v8_enabled()
+            and not self._is_canon_request(request)
+            and not self._is_folk_adventure_request(request)
+            and self._safe_child_age(request.age) >= 3
+        )
+
+    def _age_standard(self, request: GenerateStoryRequest) -> str:
+        """The age standard given to the judge, editor and scorer (v8: the same cleaned standard the writer gets)."""
+        block = self._age_vocabulary_block(request.age)
+        return _v8mod.clean_vocabulary(block) if self._v8_applies(request) else block
+
+    def _store_v8_outline(self, request: GenerateStoryRequest, story_data: Dict[str, Any]) -> None:
+        """Keep the chosen story's outline for the planner (best-of already stored it; this covers one candidate)."""
+        state = _quality.get_state(request)
+        if not state.get("v8_outline"):
+            outline = _v8mod.clean_outline((story_data or {}).get("outline"))
+            if outline:
+                shapes = state.get("v8_shape_options") or []
+                if shapes and outline.get("plot_shape") not in shapes:
+                    outline["plot_shape"] = shapes[0]
+                state["v8_outline"] = outline
+        (story_data or {}).pop("outline", None)
+        _quality.trace_set(request, "v8_outline", state.get("v8_outline") or "missing")
+
+    def _build_first_page_prompt_v8(self, request: GenerateStoryRequest, companion: Optional[dict]) -> str:
+        """v8 Page 1: one instruction per idea, plus a private outline of the whole story in the same call."""
+        blocks = self._language_and_character_blocks(request, companion)
+        opening_seed = self._select_opening_seed(request)
+        opening = opening_seed["sentence"]
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
+        child_age = self._safe_child_age(request.age)
+        budget = self._standard_bedtime_page_budget(request.age, 1, request.storyLanguageCode)
+        max_chars = "520" if child_age <= 5 else "560" if child_age <= 6 else "620" if child_age <= 8 else "700"
+        history = self._recent_story_history(request)
+        state = _quality.get_state(request)
+        shapes = _v8mod.choose_shapes(child_age, history.get("plot_shapes") or [], count=max(1, _quality.page1_candidate_count()))
+        state["v8_shape_options"] = shapes
+        _quality.trace_set(request, "prompt_version", "v8")
+        _quality.trace_set(request, "v8_build", _v8mod.V8_BUILD)
+        self._record_rule_fingerprints(request)
+        custom_theme_text = str(request.customTheme or "").strip()
+        if custom_theme_text:
+            opening_instruction = (
+                f'- Open directly inside the parent\'s chosen theme: "{custom_theme_text}". Build the setting, '
+                "the first image and the hook from that theme itself; do not open somewhere unrelated and travel to it."
+            )
+            _quality.get_trace(request).setdefault("seed", {})["prompt_opening"] = "custom_theme_direct"
+        else:
+            opening_instruction = f'- Start from this theme-matched opening idea, rewritten naturally: "{opening}"'
+        moral_line = f"- Moral (private; never name it or explain it): {request.moral}\n" if self._moral_requested(request) else ""
+        comfort = _quality.comfort_theme_block(request)
+        hard_max = budget["hard_max"] if budget["hard_max"] is not None else max_chars
+        return f"""Write Page 1 only of a seven-page PillowTales story, plus a short private outline of the whole story. Return only JSON.
+
+LANGUAGE:
+- Write only in {blocks['language_name']}.
+- {self._first_page_language_style_block(language_code)}
+{self._bedtime_native_editorial_block(language_code, compact=True)}
+
+STORY FACTS:
+- Child: {request.childName}
+- Theme: {blocks['effective_theme']}
+{moral_line}- This is a standard PillowTales story: do not import characters, places or terms from any Story World.
+{self._story_world_prompt_block(request)}
+{_v8mod.design_block(child_age)}
+
+{_v8mod.language_block(child_age, self._age_vocabulary_block(request.age))}
+{_v8mod.voice_block(child_age)}
+
+{_v8mod.peril_block(child_age)}
+
+{_quality.pronoun_block(request)}{_quality.avoid_repeats_block(request, history, companion)}{(comfort + chr(10)) if comfort else ""}
+{_v8mod.shape_line(shapes[0], child_age) if shapes else ""}
+
+PAGE 1 JOB:
+{opening_instruction}
+- Begin the first sentence in a fresh way (a sound, an action, a line of dialogue, a surprising detail or the place
+  itself), never with the child's name followed by lived, loved or visited.
+- Show who the story is about, where they are and what makes today different. If the world has an unusual custom,
+  show in one short sentence why the child is part of it (their job, their turn, their favourite place).
+- Bring the theme in now, give the child something to want or do, and include one funny or surprising detail.
+- End with a reason to hear Page 2. Do not solve anything yet.
+- Only family the parent added may appear (never invent a mum, dad, grandparent, sibling, aunt or uncle).
+
+LENGTH: target {budget['target_min']}-{budget['target_max']} {budget['unit_label']}; hard maximum {hard_max} {budget['unit_label'] if budget['hard_max'] is not None else 'characters'}; at most {max_chars} characters; 4-6 read-aloud sentences. An opening page, not a mini-chapter.
+
+COMPANION:
+- {blocks['companion_line']}
+
+CHARACTERS:
+- {blocks['character_instruction']}
+
+{_v8mod.TROPE_BANS_V8}
+
+{_v8mod.OUTLINE_INSTRUCTIONS}
+
+JSON ONLY:
+{{"title":"<a short, specific title>","pages":["page 1 text"],"outline":{{"want":"...","solution_object":"...","solution_seen_on_page":2,"big_moment":"...","ending":"...","time_of_day":"...","plot_shape":"..."}}}}
+- The title names the specific thing this story is about; never a placeholder such as "Title" or "Story Title".
+- Story text is plain prose only: no Markdown or formatting symbols.
 """
 
     def _build_living_world_first_page_fallback(self, request: GenerateStoryRequest, companion: Optional[dict]) -> Dict[str, Any]:
@@ -6955,6 +7074,16 @@ JSON ONLY:
                 next_page_number=next_page_number,
             )
 
+        if self._v8_applies(request):
+            _quality.trace_set(request, "prompt_version", "v8")
+            return self._build_remaining_pages_prompt_v8(
+                request=request,
+                companion=companion,
+                title=title,
+                existing_pages=existing_pages,
+                remaining_page_count=remaining_page_count,
+                next_page_number=next_page_number,
+            )
         if _quality.prompts_v5_enabled() and self._safe_child_age(request.age) >= 3:
             _quality.trace_set(request, "prompt_version", "v5")
             return self._build_remaining_pages_prompt_v5(
@@ -7156,6 +7285,105 @@ Return ONLY valid JSON:
 - The pages array must contain exactly {remaining_page_count} strings.
 - No markdown, notes, explanations, or extra keys. Story strings must be plain prose with no asterisks, underscores, headings, bullets, backticks, or formatting notation.
 - Silently check that every page progresses the story and feels fun, warm, and age-appropriate.
+"""
+
+    def _v8_rules_text(self, request: GenerateStoryRequest) -> str:
+        """Every v8 writing rule, each once: design, language, voice, adventure, story rules, tropes, comfort."""
+        age = self._safe_child_age(request.age)
+        comfort = _quality.comfort_theme_block(request)
+        text = (
+            _v8mod.design_block(age) + "\n\n"
+            + _v8mod.language_block(age, self._age_vocabulary_block(request.age)) + "\n"
+            + _v8mod.voice_block(age) + "\n\n"
+            + _v8mod.peril_block(age) + "\n\n"
+            + _v8mod.story_rules_block(request, self._moral_requested(request), request.moral) + "\n\n"
+            + _v8mod.TROPE_BANS_V8 + "\n"
+            + ("\n" + _quality.pronoun_block(request) if _quality.pronoun_block(request) else "")
+            + ("\n" + comfort + "\n" if comfort else "")
+        )
+        _quality.get_trace(request).setdefault("rules", {}).setdefault("v8_rules", _quality.fingerprint(text))
+        return text
+
+    def _v8_plot_shape(self, request: GenerateStoryRequest) -> Optional[str]:
+        state = _quality.get_state(request)
+        plan = state.get("plan") if isinstance(state.get("plan"), dict) else {}
+        for value in ((plan or {}).get("plot_shape"), (state.get("v8_outline") or {}).get("plot_shape")):
+            if str(value or "") in _quality._PLOT_SHAPE_TEXT:
+                return str(value)
+        return None
+
+    def _build_remaining_pages_prompt_v8(
+        self,
+        request: GenerateStoryRequest,
+        companion: Optional[dict],
+        title: str,
+        existing_pages: list[str],
+        remaining_page_count: int,
+        next_page_number: int,
+    ) -> str:
+        """v8 continuation prompt (BEDTIME_V8=1): the same contract as v5 (spine + plan, budget, output),
+        with every rule stated once, a page map from the plot shape, and the v8 ending."""
+        blocks = self._language_and_character_blocks(request, companion)
+        age = self._safe_child_age(request.age)
+        language_code = (request.storyLanguageCode or "en").lower()[:2]
+        existing_pages_text = "\n\n".join(f"Page {i + 1}: {page}" for i, page in enumerate(existing_pages or []))
+        story_spine = self._story_spine_block(request=request, title=title, first_page=(existing_pages or [""])[0])
+        final_page_number = next_page_number + remaining_page_count - 1
+        intended_final_page = self._intended_page_count(request)
+        budget = self._standard_bedtime_page_budget(request.age, next_page_number, request.storyLanguageCode)
+        includes_final_page = next_page_number <= intended_final_page <= final_page_number
+        if includes_final_page:
+            ending = _v8mod.ending_block(intended_final_page)
+        elif final_page_number == intended_final_page - 1:
+            ending = (_v8mod.ending_block(intended_final_page).split("\n- Page " + str(intended_final_page) + ":")[0]
+                      + f"\n- Leave Page {intended_final_page} for the happy result only.")
+        else:
+            ending = _v8mod.NOT_FINAL_BLOCK
+        page_map = _v8mod.page_map_block(self._v8_plot_shape(request), age, range(next_page_number, final_page_number + 1))
+        hard_max = (
+            f"{budget['hard_max']} {budget['unit_label']}" if budget['hard_max'] is not None
+            else "follow the existing age-appropriate character guidance"
+        )
+        pages_word = "page" if remaining_page_count == 1 else "pages"
+        moral_fact = f"- Moral (private): {request.moral}\n" if self._moral_requested(request) else ""
+        return f"""Continue this PillowTales story from the existing pages.
+
+LANGUAGE:
+- Write ONLY in {blocks['language_name']}; do not mix languages.
+{self._bedtime_native_editorial_block(language_code)}
+
+STORY FACTS:
+- Title: {title}
+- Child: {request.childName}
+- Theme: {blocks['effective_theme']}
+{moral_fact}
+{story_spine}
+EXISTING PAGES:
+{existing_pages_text}
+
+{self._v8_rules_text(request)}
+{page_map}
+
+{ending}
+
+THIS JOB:
+- Write exactly {remaining_page_count} new {pages_word}: Page {next_page_number} through Page {final_page_number}, continuing from the latest page without recapping or contradicting it.
+
+PAGE LENGTH:
+- For {("each page" if remaining_page_count > 1 else "Page " + str(next_page_number))}, aim for {budget['target_min']}-{budget['target_max']} {budget['unit_label']}. HARD MAXIMUM: {hard_max}.
+- About 5-7 read-aloud sentences in natural paragraphs (normally 2-3). Near the maximum, cut description before events, humour or character. Never a single-sentence page; the final page may be a little shorter.
+
+COMPANION:
+- {blocks['companion_line']}
+
+CHARACTERS:
+- {blocks['character_instruction']}
+
+OUTPUT FORMAT STRICT:
+Return ONLY valid JSON:
+{{"pages":["new page text","new page text"]}}
+- The pages array must contain exactly {remaining_page_count} strings.
+- No markdown, notes, explanations, or extra keys.
 """
 
     def _build_remaining_pages_prompt_v5(
@@ -7681,10 +7909,28 @@ Return ONLY valid JSON:
                 prompts[index] = prompt.replace(quoted, f'"{alt["sentence"]}"').replace(
                     f"'{base_seed.get('family')}'", f"'{alt['family']}'"
                 )
+        v8 = self._v8_applies(request)
+        shapes: list[Optional[str]] = [None] * len(hooks)
+        if v8:
+            # v8: each candidate is a different whole story: its own hook, opening world and plot shape.
+            options = list(state.get("v8_shape_options") or [])
+            age_now = self._safe_child_age(request.age)
+            for index in range(len(hooks)):
+                if options:
+                    shapes[index] = options[index % len(options)]
+                    if index % len(options):
+                        prompts[index] = prompts[index].replace(
+                            _v8mod.shape_line(options[0], age_now), _v8mod.shape_line(shapes[index], age_now), 1)
+            candidate_prompts = [_v8mod.inject_hook(prompts[index], hook) for index, hook in enumerate(hooks)]
+        else:
+            candidate_prompts = [
+                _quality.inject_hook(prompts[index], hook) + _quality.story_craft_v7(request) + (
+                    ("\n\n" + _quality.comfort_theme_block(request)) if _quality.comfort_theme_block(request) else "")
+                for index, hook in enumerate(hooks)
+            ]
         tasks = [
             asyncio.ensure_future(self._generate_first_page_response_with_retry(
-                request=request, prompt=_quality.inject_hook(prompts[index], hook) + _quality.story_craft_v7(request) + (
-                    ("\n\n" + _quality.comfort_theme_block(request)) if _quality.comfort_theme_block(request) else ""),
+                request=request, prompt=candidate_prompts[index],
                 response_schema=response_schema, soft_limit_seconds=soft_limit_seconds,
             ))
             for index, hook in enumerate(hooks)
@@ -7703,7 +7949,12 @@ Return ONLY valid JSON:
                 if exc is None:
                     data = task.result()
                     if isinstance(data, dict) and (data.get("pages") or [""])[0]:
-                        candidates.append({**data, "_hook": hooks[index], "_seed": seeds[index]})
+                        extra: Dict[str, Any] = {}
+                        if v8:
+                            extra = {"_shape": shapes[index], "_outline": _v8mod.clean_outline(data.get("outline"))}
+                            if extra["_outline"] and shapes[index]:
+                                extra["_outline"]["plot_shape"] = shapes[index]
+                        candidates.append({**data, "_hook": hooks[index], "_seed": seeds[index], **extra})
                 else:
                     last_exc = exc
         if not candidates:
@@ -7718,6 +7969,12 @@ Return ONLY valid JSON:
                 for c in candidates if c not in clean
             ])
             candidates = clean
+        if v8:
+            # A candidate without an outline cannot be judged as a whole story; keep it only if none has one.
+            with_outline = [c for c in candidates if c.get("_outline")]
+            if with_outline and len(with_outline) < len(candidates):
+                _quality.trace_event(request, "page1_dropped_no_outline", count=len(candidates) - len(with_outline))
+                candidates = with_outline
         recent_titles = history.get("titles") or []
         for c in candidates:
             c["_title_flags"] = _quality.title_flags(
@@ -7727,6 +7984,7 @@ Return ONLY valid JSON:
             "candidates": [
                 {"hook": c["_hook"], "title": c.get("title"), "opening": (c.get("pages") or [""])[0][:90],
                  "seed": (c.get("_seed") or {}).get("family"),
+                 **({"shape": c.get("_shape"), "outline": c.get("_outline")} if v8 else {}),
                  **({"title_flags": c["_title_flags"]} if c["_title_flags"] else {})}
                 for c in candidates
             ],
@@ -7740,9 +7998,9 @@ Return ONLY valid JSON:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
                         self._gen("judge", request),
-                        _quality.build_page1_judge_prompt(
+                        (_v8mod.build_page1_judge_prompt if v8 else _quality.build_page1_judge_prompt)(
                             request, candidates, self._safe_child_age(request.age),
-                            age_standard=self._age_vocabulary_block(request.age),
+                            age_standard=self._age_standard(request),
                         ),
                         _quality.PAGE1_JUDGE_SCHEMA, 900, 0,
                     ),
@@ -7773,6 +8031,8 @@ Return ONLY valid JSON:
         _quality.trace_set(request, "page1_hook", chosen["_hook"])
         state["opening_notes"] = notes
         state["page1_hook"] = chosen["_hook"]
+        if v8 and chosen.get("_outline"):
+            state["v8_outline"] = chosen["_outline"]
         chosen_seed = chosen.get("_seed")
         if chosen_seed and base_seed and chosen_seed.get("family") != base_seed.get("family"):
             # Record the opening actually used, so tomorrow's story avoids it.
@@ -7781,7 +8041,7 @@ Return ONLY valid JSON:
             seed_trace["family"] = chosen_seed.get("family")
             seed_trace["first_choice"] = base_seed.get("family")
         print(f"[QUALITY] page1_best_of candidates={len(candidates)} chosen={record.get('chosen')} hook={chosen['_hook']} ms={record['total_ms']}")
-        return {k: v for k, v in chosen.items() if k not in ("_hook", "_title_flags", "_seed")}
+        return {k: v for k, v in chosen.items() if k not in ("_hook", "_title_flags", "_seed", "_shape", "_outline")}
 
     async def _generate_first_page_response_with_retry(
         self,
@@ -8036,12 +8296,17 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 # enough JSON output headroom for the JSON structured
                 # output path, plus one fast retry if parsing fails. The whole
                 # operation remains bounded by FIRST_PAGE_SOFT_LIMIT_SECONDS.
+                page1_schema = self._story_response_schema(1, include_title=True)
+                if self._v8_applies(request):
+                    page1_schema = _v8mod.page1_schema(page1_schema)
                 story_data = await self._first_page_best_of(
                     request=request,
                     prompt=prompt,
-                    response_schema=self._story_response_schema(1, include_title=True),
+                    response_schema=page1_schema,
                     soft_limit_seconds=FIRST_PAGE_SOFT_LIMIT_SECONDS,
                 )
+                if self._v8_applies(request):
+                    self._store_v8_outline(request, story_data)
             except asyncio.TimeoutError:
                 elapsed = time.time() - t_gemini
                 if self._is_canon_request(request):
@@ -8148,7 +8413,16 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         try:
             history = self._recent_story_history(request)
             banned = _quality.avoid_names_for(request, history, companion)
-            if _quality.prompts_v5_enabled():
+            v8_outline = state.get("v8_outline") if self._v8_applies(request) else None
+            if v8_outline and v8_outline.get("plot_shape") in _quality._PLOT_SHAPE_TEXT:
+                state["plot_shape_options"] = [v8_outline["plot_shape"]]
+                _quality.trace_set(request, "plot_shape_options", state["plot_shape_options"])
+            elif self._v8_applies(request):
+                state["plot_shape_options"] = _v8mod.choose_shapes(
+                    self._safe_child_age(request.age), history.get("plot_shapes") or [],
+                )
+                _quality.trace_set(request, "plot_shape_options", state["plot_shape_options"])
+            elif _quality.prompts_v5_enabled():
                 state["plot_shape_options"] = _quality.choose_plot_shapes(
                     self._safe_child_age(request.age), history.get("plot_shapes") or [],
                 )
@@ -8159,7 +8433,8 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 page_one=current_pages[0],
                 moral_requested=self._moral_requested(request),
                 avoid_block=(
-                    _quality.opening_notes_block(state.get("opening_notes"), state.get("page1_hook"))
+                    (_v8mod.opening_notes_block(state.get("opening_notes")) if self._v8_applies(request)
+                     else _quality.opening_notes_block(state.get("opening_notes"), state.get("page1_hook")))
                     + _quality.avoid_repeats_block(request, history, companion)
                 ),
                 age=self._safe_child_age(request.age),
@@ -8223,6 +8498,8 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
             if banned_used:
                 _quality.trace_set(request, "plan_banned_names_kept", banned_used)
             plan["beats"] = _quality.clean_beats(plan["beats"][:6])
+            if v8_outline and v8_outline.get("plot_shape") in _quality._PLOT_SHAPE_TEXT:
+                plan["plot_shape"] = v8_outline["plot_shape"]  # the outline already chose the shape
             if background_check and _quality.plan_check_enabled():
                 state["plan"] = plan
                 _quality.trace_set(request, "plan_status", "ok")
@@ -8287,7 +8564,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 asyncio.to_thread(
                     self._gen("planner", request),
                     _quality.build_plan_check_prompt(request, page_one, plan, age),
-                    _quality.PLAN_CHECK_SCHEMA, 800, 0,
+                    _quality.plan_check_schema(), 800, 0,
                 ),
                 timeout=_quality.PLAN_CHECK_TIMEOUT_SECONDS,
             )
@@ -8378,6 +8655,45 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
                 + "\n" + _quality.v5_page_role(self._very_young_bedtime_page_role(request.age, n))
             )
         final_page_number = final_page_number or total
+        if self._v8_applies(request):
+            v8_jobs = []
+            shape = self._v8_plot_shape(request)
+            for t in targets:
+                n = t["page"]
+                budget = self._standard_bedtime_page_budget(request.age, n, request.storyLanguageCode)
+                beat = beats[n - 2] if 0 <= n - 2 < len(beats) else ""
+                v8_jobs.append(
+                    f"PAGE {n}:\n- Problem: {t['problem']}\n- Fix: {t['fix']}\n"
+                    + (f"- Planned beat: {beat}\n" if beat else "")
+                    + f"- Length: {budget['target_min']}-{budget['target_max']} {budget['unit_label']}"
+                    + (f" (hard maximum {budget['hard_max']})" if budget.get('hard_max') else "")
+                    + "\n" + _v8mod.page_map_block(shape, self._safe_child_age(request.age), [n])
+                )
+            final_in = any(t["page"] == final_page_number for t in targets)
+            return f"""Revise specific pages of this PillowTales story. Write ONLY in {blocks['language_name']}.
+{self._bedtime_native_editorial_block(language_code)}
+The pages marked FIXED will be read exactly as they are, so each rewritten page must flow naturally from the page before it
+and into the page after it, keep every name, object and fact consistent, and fix ONLY the stated problem while keeping what works.
+
+STORY FACTS:
+- Title: {title}
+- Child: {request.childName}
+- Theme: {blocks['effective_theme']}
+{("- Moral (private): " + str(request.moral) + chr(10)) if self._moral_requested(request) else ""}
+{self._story_spine_block(request=request, title=title, first_page=pages[0])}
+{self._v8_rules_text(request)}
+{_quality.avoid_repeats_block(request, state.get("history") or {}, companion)}
+{_v8mod.ending_block(final_page_number) if final_in else ""}
+
+CURRENT DRAFT:
+{story}
+
+PAGES TO REWRITE:
+{chr(10).join(v8_jobs)}
+
+OUTPUT: return only JSON {{"pages":[{{"page":<number>,"text":"..."}}]}} with exactly one entry per page listed above.
+Plain prose only. {"The final page must end with exactly: The End." if final_in else ""}
+"""
         ending = self._ending_engine_rules() if any(t["page"] == final_page_number for t in targets) else ""
         return f"""Revise specific pages of this bedtime story. Write ONLY in {blocks['language_name']}.
 {self._bedtime_native_editorial_block(language_code)}
@@ -8479,7 +8795,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
                         _quality.build_editor_prompt(
                             request, title, pages, state.get("plan"),
                             self._safe_child_age(request.age), self._moral_requested(request),
-                            age_standard=self._age_vocabulary_block(request.age),
+                            age_standard=self._age_standard(request),
                             final_page_number=expected_pages,
                         ),
                         _quality.EDITOR_SCHEMA, 2500, _quality.EDITOR_THINKING_BUDGET,
@@ -8625,11 +8941,11 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
         try:
             prompt = _quality.build_score_prompt(
                 request, title, pages, self._moral_requested(request), self._safe_child_age(request.age),
-                age_standard=self._age_vocabulary_block(request.age),
+                age_standard=self._age_standard(request),
             )
             response = await asyncio.wait_for(
                 asyncio.to_thread(
-                    self._gen("scorer", request), prompt, _quality.SCORE_RESPONSE_SCHEMA, 1200
+                    self._gen("scorer", request), prompt, _quality.score_response_schema(), 1200
                 ),
                 timeout=_quality.SCORE_TIMEOUT_SECONDS,
             )
