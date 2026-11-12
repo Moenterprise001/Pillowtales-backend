@@ -6533,7 +6533,7 @@ STORY WORLD ISOLATION:
 {self._natural_name_pronoun_rules()}
 {self._standard_bedtime_first_page_quality_rules(request)}
 {self._natural_read_aloud_cadence_rules()}
-{oxford_vocab_block}{freshness_block}
+{oxford_vocab_block}{_quality.pronoun_block(request)}{freshness_block}
 PAGE 1 JOB:
 - Write like a relaxed children's author starting a favourite bedtime adventure.
 {opening_instruction}

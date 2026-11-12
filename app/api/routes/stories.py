@@ -83,6 +83,7 @@ async def generate_story(request: GenerateStoryRequest, user_id: str = Depends(g
         'moral_branch': story_service._moral_requested(request),
         'language': request.storyLanguageCode,
         'calm_level': request.calmLevel,
+        'gender': request.gender,
         'companion_id': request.companionId,
         'extra_characters': len(request.characters or []),
         'story_world_slug': request.storyWorldSlug,

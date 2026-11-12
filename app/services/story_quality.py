@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "pronouns_from_gender=20261112 momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -720,7 +720,7 @@ PLANNING RULES:
 - BEDTIME LANDING: the final image is calm and settled, ideally the child at home, evening or night, with a quiet
   feeling of having made something right.
 
-{(V5_PLAN_RULES + chr(10) + chr(10)) if prompts_v5_enabled() else ""}{(comfort_theme_block(request) + chr(10) + chr(10)) if comfort_theme_block(request) else ""}SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
+{(V5_PLAN_RULES + chr(10) + chr(10)) if prompts_v5_enabled() else ""}{pronoun_block(request)}{(comfort_theme_block(request) + chr(10) + chr(10)) if comfort_theme_block(request) else ""}SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
 1. Is the stakes line heard on the page by Page 3, and does it feel at real risk at the setback?
 2. Could any character other than the child have solved it just as easily? (Must be "no".)
 3. Does every beat move the story forward, with the answer to every thread placed in a specific beat?
@@ -1147,12 +1147,39 @@ def comfort_theme_block(request: Any) -> str:
 - End with the child feeling safe, cared for and soothed, ready for sleep."""
 
 
+# ---- Pronouns from the gender chosen in the app (12 Nov 2026) ----
+_BOY = {"boy", "male", "m", "he", "him", "son", "masculine"}
+_GIRL = {"girl", "female", "f", "she", "her", "daughter", "feminine"}
+
+
+def child_pronouns(request: Any) -> Optional[tuple]:
+    """(subject, object, possessive) for the child, or None when neutral / not set (then pronouns follow the name)."""
+    g = re.sub(r"[^a-z]", "", str(getattr(request, "gender", "") or "").lower())
+    if g in _BOY:
+        return ("he", "him", "his")
+    if g in _GIRL:
+        return ("she", "her", "her")
+    return None
+
+
+def pronoun_block(request: Any) -> str:
+    """Pronouns only: the chosen gender never changes the kind of story."""
+    if not prompts_v5_enabled():
+        return ""
+    p = child_pronouns(request)
+    if not p:
+        return ""
+    name = str(getattr(request, "childName", "") or "the child")
+    return (f"PRONOUNS: {name} is a {'boy' if p[0] == 'he' else 'girl'}; always use {p[0]}/{p[1]}/{p[2]} for {name}. "
+            "This is only about pronouns: it must not change the kind of story, its interests or its tone.\n")
+
+
 def extra_page_rules(request: Any) -> str:
     """Momentum (always, v5) plus the comfort-theme block when it applies."""
     if not prompts_v5_enabled():
         return ""
     comfort = comfort_theme_block(request)
-    return "\n" + MOMENTUM_BLOCK + ("\n\n" + comfort if comfort else "") + "\n"
+    return "\n" + pronoun_block(request) + MOMENTUM_BLOCK + ("\n\n" + comfort if comfort else "") + "\n"
 
 
 def v5_continuation_job(remaining_page_count: int, next_page_number: int, final_page_number: int) -> str:
