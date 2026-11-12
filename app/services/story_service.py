@@ -7683,7 +7683,7 @@ Return ONLY valid JSON:
                 )
         tasks = [
             asyncio.ensure_future(self._generate_first_page_response_with_retry(
-                request=request, prompt=_quality.inject_hook(prompts[index], hook) + (
+                request=request, prompt=_quality.inject_hook(prompts[index], hook) + _quality.story_craft_v7(request) + (
                     ("\n\n" + _quality.comfort_theme_block(request)) if _quality.comfort_theme_block(request) else ""),
                 response_schema=response_schema, soft_limit_seconds=soft_limit_seconds,
             ))
@@ -8148,6 +8148,11 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         try:
             history = self._recent_story_history(request)
             banned = _quality.avoid_names_for(request, history, companion)
+            if _quality.prompts_v5_enabled():
+                state["plot_shape_options"] = _quality.choose_plot_shapes(
+                    self._safe_child_age(request.age), history.get("plot_shapes") or [],
+                )
+                _quality.trace_set(request, "plot_shape_options", state["plot_shape_options"])
             prompt = _quality.build_plan_prompt(
                 request=request,
                 title=title,

@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "draft_role=20261112 base_model_38=20261112 page2_opens_with_event=20261112 opening_role=20261112 pronouns_from_gender=20261112 momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "story_craft_v7=20261112 plot_shapes=20261112 draft_role=20261112 base_model_38=20261112 page2_opens_with_event=20261112 opening_role=20261112 pronouns_from_gender=20261112 momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -267,6 +267,7 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
     rows = None
     column_sets = [
         # Only the trace fields needed, so 30 rows stay small and Page 1 is not slowed down.
+        "id,created_at,title,characters,seed_family:generation_trace->seed->>family,trace_hook:generation_trace->>page1_hook,plot_shape:generation_trace->plan->>plot_shape,first_page:pages->>0",
         "id,created_at,title,characters,seed_family:generation_trace->seed->>family,trace_hook:generation_trace->>page1_hook,first_page:pages->>0",
         "id,created_at,title,characters,generation_trace,first_page:pages->>0",
         "title,characters,generation_trace",
@@ -292,7 +293,7 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
         merged = [*rows, *[{
             "created_at": m.get("created_at"), "title": m.get("title"),
             "characters": [{"name": n} for n in (m.get("names") or [])],
-            "seed_family": m.get("seed_family"), "trace_hook": m.get("page1_hook"),
+            "seed_family": m.get("seed_family"), "trace_hook": m.get("page1_hook"), "plot_shape": m.get("plot_shape"),
         } for m in extra]]
         merged.sort(key=lambda r: str(r.get("created_at") or ""), reverse=True)
         rows = merged[:limit]
@@ -314,6 +315,9 @@ def load_recent_history(story_repo: Any, user_id: Any, child_name: Any, limit: i
         hook = row.get("trace_hook") or trace.get("page1_hook")
         if hook:
             history.setdefault("hooks", []).append(hook)
+        shape = row.get("plot_shape") or (trace.get("plan") or {}).get("plot_shape")
+        if shape:
+            history.setdefault("plot_shapes", []).append(shape)
         family = row.get("seed_family") or (trace.get("seed") or {}).get("family")
         if not family and row.get("first_page") and seed_signatures:
             # Stories made before the trace existed: recognise the opening from Page 1.
@@ -442,16 +446,19 @@ STORY_MEMORY_TABLE = "story_memory"
 
 def load_story_memory(client: Any, user_id: Any, child_name: Any, limit: int = RECENT_HISTORY_LIMIT) -> List[Dict[str, Any]]:
     """Recent memory rows for this child (newest first). Fails open (table missing -> [])."""
-    try:
-        query = (
-            client.table(STORY_MEMORY_TABLE).select("story_id,created_at,title,seed_family,page1_hook,names")
-            .eq("user_id", str(user_id)).order("created_at", desc=True).limit(limit)
-        )
-        if child_name:
-            query = query.eq("child_name", str(child_name))
-        return list(query.execute().data or [])
-    except Exception:
-        return []
+    for columns in ("story_id,created_at,title,seed_family,page1_hook,plot_shape,names",
+                    "story_id,created_at,title,seed_family,page1_hook,names"):  # before the plot_shape column existed
+        try:
+            query = (
+                client.table(STORY_MEMORY_TABLE).select(columns)
+                .eq("user_id", str(user_id)).order("created_at", desc=True).limit(limit)
+            )
+            if child_name:
+                query = query.eq("child_name", str(child_name))
+            return list(query.execute().data or [])
+        except Exception:
+            continue
+    return []
 
 
 def story_memory_row(request: Any, story_id: Any, user_id: Any, title: Any, characters: Any) -> Dict[str, Any]:
@@ -470,6 +477,7 @@ def story_memory_row(request: Any, story_id: Any, user_id: Any, title: Any, char
         "title": str(title or "")[:200],
         "seed_family": (trace.get("seed") or {}).get("family"),
         "page1_hook": trace.get("page1_hook"),
+        "plot_shape": ((trace.get("plan") or {}).get("plot_shape") or None),
         "names": names[:12],
     }
 
@@ -577,6 +585,9 @@ PLAN_V5_EXTRA_FIELDS = {
     "stake_for_child": {"type": "string"},
     "stake_sign": {"type": "string"},
     "signature_delight": {"type": "string"},
+    "plot_shape": {"type": "string"},
+    "child_flaw": {"type": "string"},
+    "comic_trait": {"type": "string"},
 }
 PLAN_RESPONSE_SCHEMA_V5 = {
     "type": "object",
@@ -642,6 +653,10 @@ def structural_plan_issues(plan: Any, request_for_family: Any = None, page_one: 
         if fam:
             issues.append(("invented_family", "The plan gives the child family the parent did not add (" + ", ".join(fam[:4])
                            + "). Replace them with a story character (a kindly keeper, a neighbour, a creature friend) or the child's own memory."))
+    issues.extend(trope_issues(plan))
+    offered = (get_state(request_for_family).get("plot_shape_options") or []) if request_for_family is not None else []
+    if offered and str(plan.get("plot_shape") or "").strip() not in offered:
+        issues.append(("plot_shape", f"plot_shape must be one of {', '.join(offered)}, and the beats must follow that shape."))
     delight = _key_words(plan.get("signature_delight"))
     if delight and sum(1 for b in beats[:6] if _mentions(b, delight)) < 2:
         issues.append(("signature_delight", f"The signature delight ({plan.get('signature_delight')}) should return in at least two beats, including Page 7."))
@@ -720,7 +735,7 @@ PLANNING RULES:
 - BEDTIME LANDING: the final image is calm and settled, ideally the child at home, evening or night, with a quiet
   feeling of having made something right.
 
-{(V5_PLAN_RULES + chr(10) + chr(10)) if prompts_v5_enabled() else ""}{pronoun_block(request)}{(comfort_theme_block(request) + chr(10) + chr(10)) if comfort_theme_block(request) else ""}SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
+{(V5_PLAN_RULES + chr(10) + chr(10)) if prompts_v5_enabled() else ""}{plot_shape_block(get_state(request).get("plot_shape_options") or [])}{(TROPE_BANS + chr(10) + chr(10)) if prompts_v5_enabled() else ""}{pronoun_block(request)}{(comfort_theme_block(request) + chr(10) + chr(10)) if comfort_theme_block(request) else ""}SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
 1. Is the stakes line heard on the page by Page 3, and does it feel at real risk at the setback?
 2. Could any character other than the child have solved it just as easily? (Must be "no".)
 3. Does every beat move the story forward, with the answer to every thread placed in a specific beat?
@@ -856,7 +871,7 @@ SCORE_CRITERIA = [
     ("pacing", "Something NEW happens on every page and the listener always wants the next page. A page that mostly describes scenery, shows getting ready, or repeats the problem from the page before is a serious fault: any such page caps this score at 6, two or more at 5. The ending is not crammed."),
     ("moral_shown_not_told", "The moral (if any) is shown through choices and consequences, never stated or lectured."),
     ("age_fit_language", "Vocabulary and sentence craft match the listener's age, neither babyish nor too adult."),
-    ("imagery_and_humour", "Specific, memorable images and at least one genuinely funny or delightful moment."),
+    ("imagery_and_humour", "A distinct read-aloud voice (refrain, narrator personality or wit, by age), specific surprising images rather than stacked adjectives, and real laughs from character on several pages. Generic description with one mild funny moment scores 7 at most; worn-out tropes (fading/dimming stakes, sneeze/hiccup puffs, shimmering) lower it."),
     ("bedtime_landing", "The ending gives consequence, an earned callback and a calm, settled close."),
     ("originality", "Fresh premise and characters; nothing generic or interchangeable with another story."),
 ]
@@ -914,7 +929,7 @@ def summarise_score(result: Dict[str, Any]) -> Dict[str, Any]:
         "criteria": scores,
         "weakest_page": result.get("weakest_page"),
         "top_issues": [str(i)[:200] for i in (result.get("top_issues") or [])][:4],
-        "rubric_version": "20261111",
+        "rubric_version": "20261112",
     }
 
 
@@ -1149,6 +1164,109 @@ def comfort_theme_block(request: Any) -> str:
 - End with the child feeling safe, cared for and soothed, ready for sleep."""
 
 
+
+# ===========================================================================
+# Story craft v7 (12 Nov 2026): plot-shape rotation, worn-out trope bans, voice by age, real laughs.
+# From the overall review: one plot shape told many times (fading light -> failed try -> give up a treasure
+# -> glow returns), no narrator voice, explaining dialogue, few laughs.
+# ===========================================================================
+PLOT_SHAPES = [
+    # key, min_age, max_age, description
+    ("escalating_tries", 3, 12, "THREE ESCALATING TRIES: the child tries three different ideas, each bigger and funnier than the last; the third works because of what the first two taught."),
+    ("cumulative_tale", 3, 6, "CUMULATIVE TALE: each page adds one more friend or thing to a growing line or pile, with a repeated refrain; the smallest addition finally makes it work (or tips it over, then fixes it)."),
+    ("journey_home", 3, 9, "JOURNEY HOME: the child helps someone small get home through three different places, each with its own little problem."),
+    ("grumpy_won_over", 4, 12, "GRUMPY WON OVER: a grumpy character refuses to help or join in; the comedy is in the grumpiness; the child wins them over with an unexpected, clever kindness."),
+    ("helper_makes_worse", 4, 12, "THE HELPER WHO MAKES IT WORSE: an over-eager helper keeps making things funnier and worse; the child finally turns the helper's odd habit into the answer."),
+    ("too_big_too_small", 3, 8, "WRONG SIZE: something is far too big or too small for where it must go; funny attempts to fix the size; the answer is finding where it truly fits."),
+    ("misunderstanding", 5, 12, "MISUNDERSTANDING: everyone has got the wrong idea about something; the comic confusion grows until the child works out what was really meant."),
+    ("clue_trail", 6, 12, "CLUE TRAIL: a gentle mystery with three clues found in three places; the child puts them together, and the answer is a surprise that was fair all along."),
+    ("funny_rule", 6, 12, "THE FUNNY RULE: this world has one odd rule; the child must solve the problem without breaking it, or discovers why the rule exists and uses it."),
+    ("bargain", 7, 12, "THE BARGAIN: someone will only help in exchange for something strange; the child must work out what they really want, which is not what they first asked for."),
+    ("swap", 6, 12, "THE SWAP: the child and a creature (or two characters) swap places or jobs for one evening; each discovers why the other's job is harder, or better, than it looked."),
+    ("show_goes_wrong", 5, 12, "THE SHOW GOES WRONG: something must be ready for a big event; it goes comically wrong in steps; the imperfect version the child improvises turns out better."),
+]
+_PLOT_SHAPE_TEXT = {key: desc for key, _a, _b, desc in PLOT_SHAPES}
+
+
+def choose_plot_shapes(age: int, recent: Iterable[str] = (), count: int = 3) -> List[str]:
+    """Three shapes for this age that the child has not heard recently (oldest-used first, then random)."""
+    import random as _random
+    fit = [key for key, lo, hi, _d in PLOT_SHAPES if lo <= int(age or 0) <= hi]
+    recent = [r for r in (recent or []) if r]
+    fresh = [k for k in fit if k not in recent]
+    _random.shuffle(fresh)
+    stale = sorted([k for k in fit if k in recent], key=lambda k: -recent.index(k))  # used longest ago first
+    return (fresh + stale)[:count]
+
+
+def plot_shape_block(options: List[str]) -> str:
+    if not options or not prompts_v5_enabled():
+        return ""
+    lines = "\n".join(f"  - {key}: {_PLOT_SHAPE_TEXT[key]}" for key in options if key in _PLOT_SHAPE_TEXT)
+    return f"""PLOT SHAPE (choose ONE that fits Page 1 best, set plot_shape to its key, and build all six beats on it):
+{lines}
+  Do not fall back on the usual shape (something fading -> first try fails -> child gives up a treasure -> it glows again).
+"""
+
+
+TROPE_BANS = """WORN-OUT TROPES (never use these; they are in too many recent stories):
+- Stakes shown as a light, glow or colour fading, dimming or turning grey, or an egg or creature growing cold.
+- A running joke of a creature that sneezes, hiccups or burps puffs, bubbles, sparks or steam.
+- A note, scroll, inscription, carved message or book page that tells the child the answer or the lesson.
+- Sharing shown only as the child giving away a treasured collection; find a fresher, funnier way.
+- Overused words: shimmering, shimmer, glimmer, whispering (as description), iridescent, velvety, twinkling, sparkly."""
+
+
+def voice_block(request: Any) -> str:
+    """How the story should SOUND, by age (v5 only)."""
+    if not prompts_v5_enabled():
+        return ""
+    age = int(getattr(request, "age", 0) or 0)
+    if age < 3:
+        return ""
+    if age <= 5:
+        style = ("- Give the story a REFRAIN: one short, rhythmic line (or a sound) that returns at least three times,\n"
+                 "  changing a little each time, so the child can join in. Use patterns of three.\n"
+                 "- Short, bouncy sentences with sounds to say aloud; one longer sentence now and then for rhythm.")
+    elif age <= 8:
+        style = ("- A narrator with a warm, playful personality who may speak to the listener once or twice\n"
+                 "  (\"Now, you might think that was the end of it. It was not.\").\n"
+                 "- Comic timing: a longer build-up, then a very short punchline sentence.\n"
+                 "- One character has a catchphrase that returns.")
+    else:
+        style = ("- A witty narrator voice: dry humour, surprising specific details, and lines a child repeats at breakfast.\n"
+                 "- Dialogue that crackles: characters tease, argue and joke; each sounds different.\n"
+                 "- One running gag that pays off at the end.")
+    return f"""VOICE (how it sounds when read aloud):
+{style}
+- Dialogue shows who someone is and is funny or surprising; never use dialogue to explain the plot or the rules.
+- One surprising, specific detail beats three adjectives. No more than two adjectives on any noun.
+- A real laugh, from character, on most pages: a habit, a misunderstanding, a comic contrast, a ridiculous detail."""
+
+
+def story_craft_v7(request: Any) -> str:
+    if not prompts_v5_enabled():
+        return ""
+    return "\n" + TROPE_BANS + "\n\n" + voice_block(request) + "\n"
+
+
+_FADING_STAKE = re.compile(r"\b(fad\w*|dim\w*|grey|gray|greyer|duller|dull|flicker\w*|grow\w* cold|cold\w*|cool\w*|go(?:es)? out|lose\w* (?:its|their) (?:light|glow|colou?r))\b", re.IGNORECASE)
+_PUFF_DELIGHT = re.compile(r"\b(sneez\w*|hiccup\w*|burp\w*)\b", re.IGNORECASE)
+
+
+def trope_issues(plan: Any) -> List[tuple]:
+    if not isinstance(plan, dict) or not prompts_v5_enabled():
+        return []
+    issues: List[tuple] = []
+    if _FADING_STAKE.search(str(plan.get("stake_sign") or "")):
+        issues.append(("worn_trope", f"The stake sign ({plan.get('stake_sign')}) is the worn-out fading/dimming/going-cold sign. "
+                                     "Choose a fresher visible sign of the loss (a queue getting longer, a clock striking, guests leaving, a door closing, a creature packing its bag)."))
+    if _PUFF_DELIGHT.search(str(plan.get("signature_delight") or "")):
+        issues.append(("worn_trope", f"The signature delight ({plan.get('signature_delight')}) is the worn-out sneeze/hiccup/burp joke. "
+                                     "Give it a character-based joke instead (a habit, a catchphrase, a funny misunderstanding)."))
+    return issues
+
+
 # ---- Pronouns from the gender chosen in the app (12 Nov 2026) ----
 _BOY = {"boy", "male", "m", "he", "him", "son", "masculine"}
 _GIRL = {"girl", "female", "f", "she", "her", "daughter", "feminine"}
@@ -1181,7 +1299,8 @@ def extra_page_rules(request: Any) -> str:
     if not prompts_v5_enabled():
         return ""
     comfort = comfort_theme_block(request)
-    return "\n" + pronoun_block(request) + MOMENTUM_BLOCK + ("\n\n" + comfort if comfort else "") + "\n"
+    return ("\n" + pronoun_block(request) + MOMENTUM_BLOCK + "\n" + story_craft_v7(request)
+            + ("\n" + comfort if comfort else "") + "\n")
 
 
 def v5_continuation_job(remaining_page_count: int, next_page_number: int, final_page_number: int) -> str:
@@ -1235,6 +1354,10 @@ V5_PLAN_RULES = """- PAGE 6 COMPLETES THE SOLUTION: the child's decisive act on 
   a silly sound, a running joke). Use it in at least two beats, and let it return on Page 7.
 - Make the listener desperate to know what happens next on every page: end each beat with a question, a surprise or a
   choice, never a summary.
+- child_flaw: a small, funny, believable flaw of the child (rushes, wants to win, shows off, is too shy to ask,
+  over-plans) that causes the first try to fail and that the child gets past by Page 6.
+- comic_trait: one side character's strong comic trait (a grumpy dragon who insists he is never grumpy, a snail who
+  narrates his own speed) that creates funny moments on several pages.
 - EVERY BEAT IS A NEW EVENT: start each beat with what HAPPENS (an action, a discovery, a surprise, a choice, a
   consequence) that changes the situation. No beat may only describe a place, show getting ready, or repeat the
   problem. The stake sign may appear in a short clause, never as the beat itself. The Page 4 and Page 5 beats must be
@@ -1605,7 +1728,10 @@ EDITOR_CHECKLIST = """- Family: no invented family for the child (mum, dad, gran
 - The signature delight from the plan returns; every page ends with a reason to turn the page.
 - Momentum (most important): flag ANY page where nothing new happens, that mostly describes scenery or getting ready,
   or that repeats the previous page's problem in new words. Its fix must name the new event that should happen there.
-  A page that repeats information from the page before is always a must-fix, even if everything else is good."""
+  A page that repeats information from the page before is always a must-fix, even if everything else is good.
+- Voice and laughs: flag pages that are plain description with no funny or delightful moment, dialogue that only
+  explains the plot, adjective-stacked sentences, or any worn-out trope (fading/dimming stakes, sneeze/hiccup puffs,
+  a note or inscription giving the answer, "shimmering/whispering/iridescent/velvety")."""
 
 
 def build_editor_prompt(request: Any, title: str, pages: List[str], plan: Optional[dict], age: int,
