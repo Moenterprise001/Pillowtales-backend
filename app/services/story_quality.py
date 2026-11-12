@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "story_craft_v7=20261112 plot_shapes=20261112 draft_role=20261112 base_model_38=20261112 page2_opens_with_event=20261112 opening_role=20261112 pronouns_from_gender=20261112 momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "v7b_pro_tuning=20261112 story_craft_v7=20261112 plot_shapes=20261112 draft_role=20261112 base_model_38=20261112 page2_opens_with_event=20261112 opening_role=20261112 pronouns_from_gender=20261112 momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -1213,7 +1213,8 @@ TROPE_BANS = """WORN-OUT TROPES (never use these; they are in too many recent st
 - Stakes shown as a light, glow or colour fading, dimming or turning grey, or an egg or creature growing cold.
 - A running joke of a creature that sneezes, hiccups or burps puffs, bubbles, sparks or steam.
 - A note, scroll, inscription, carved message or book page that tells the child the answer or the lesson.
-- Sharing shown only as the child giving away a treasured collection; find a fresher, funnier way.
+- The child giving up or handing over a treasured, favourite or prized possession (a blanket, a mitten, a collection)
+  as the climax, for ANY moral. Find a cleverer act: an idea, a skill, a trick, teamwork, a turn, half of something ordinary.
 - Overused words: shimmering, shimmer, glimmer, whispering (as description), iridescent, velvety, twinkling, sparkly."""
 
 
@@ -1251,6 +1252,7 @@ def story_craft_v7(request: Any) -> str:
 
 
 _FADING_STAKE = re.compile(r"\b(fad\w*|dim\w*|grey|gray|greyer|duller|dull|flicker\w*|grow\w* cold|cold\w*|cool\w*|go(?:es)? out|lose\w* (?:its|their) (?:light|glow|colou?r))\b", re.IGNORECASE)
+_TREASURE_ACT = re.compile(r"\b(treasured|prized|precious|cherished|beloved \w+ (?:collection|blanket|toy|mitten|scarf|shell|stone)|gives? up|gave up|giving up|sacrific\w*|parts? with|hands? over (?:her|his|their) own)\b", re.IGNORECASE)
 _PUFF_DELIGHT = re.compile(r"\b(sneez\w*|hiccup\w*|burp\w*)\b", re.IGNORECASE)
 
 
@@ -1261,6 +1263,9 @@ def trope_issues(plan: Any) -> List[tuple]:
     if _FADING_STAKE.search(str(plan.get("stake_sign") or "")):
         issues.append(("worn_trope", f"The stake sign ({plan.get('stake_sign')}) is the worn-out fading/dimming/going-cold sign. "
                                      "Choose a fresher visible sign of the loss (a queue getting longer, a clock striking, guests leaving, a door closing, a creature packing its bag)."))
+    if _TREASURE_ACT.search(str(plan.get("childs_decisive_act") or "")):
+        issues.append(("worn_trope", f"The decisive act ({str(plan.get('childs_decisive_act'))[:120]}) is the worn-out 'child gives up a treasured "
+                                     "possession' climax. Make it a clever idea, skill, trick or teamwork that uses what was planted."))
     if _PUFF_DELIGHT.search(str(plan.get("signature_delight") or "")):
         issues.append(("worn_trope", f"The signature delight ({plan.get('signature_delight')}) is the worn-out sneeze/hiccup/burp joke. "
                                      "Give it a character-based joke instead (a habit, a catchphrase, a funny misunderstanding)."))
@@ -1354,6 +1359,8 @@ V5_PLAN_RULES = """- PAGE 6 COMPLETES THE SOLUTION: the child's decisive act on 
   a silly sound, a running joke). Use it in at least two beats, and let it return on Page 7.
 - Make the listener desperate to know what happens next on every page: end each beat with a question, a surprise or a
   choice, never a summary.
+- NOTHING NEW AT THE CLIMAX: everything the child uses on Page 6 (an object, a place, a helper, an ability) must
+  already be on the page in an earlier beat. No chute, door or tool appears for the first time when it is needed.
 - child_flaw: a small, funny, believable flaw of the child (rushes, wants to win, shows off, is too shy to ask,
   over-plans) that causes the first try to fail and that the child gets past by Page 6.
 - comic_trait: one side character's strong comic trait (a grumpy dragon who insists he is never grumpy, a snail who
@@ -1373,6 +1380,8 @@ PLAN_CHECK_KEYS = [
     ("no_contradictions", True, "Nothing contradicts Page 1 or another part of the plan, and no name or fact is known before it is learned."),
     ("theme_literal", True, "The chosen theme's central subject is literally present and matters to the plot."),
     ("bedtime_landing", False, "The final image is calm and settled, ideally at home in the evening or at night."),
+    ("follows_plot_shape", True, "The six beats clearly follow the plot_shape named in the plan (its description is given below), not the usual 'something fades, first try fails, child gives up a treasure' shape."),
+    ("nothing_new_at_climax", True, "Everything the child uses or needs on Page 6 (objects, places, helpers, abilities) already appears in an earlier beat or on Page 1; nothing appears for the first time at the climax."),
     ("every_beat_is_an_event", True, "Every one of the six beats is a new event that changes the situation (not description, getting ready or a repeat of the problem), and the Page 4 and Page 5 beats are different events."),
     ("stake_felt_by_child", True, "stake_for_child is something the child personally feels (a friend let down, a promise broken, something they will miss), not an abstract or far-away loss, and the beats show it rather than only say it."),
     ("signature_delight", False, "signature_delight is genuinely funny or wonderful and returns in at least two beats."),
@@ -1405,6 +1414,7 @@ PLAN:
 
 CHECKS:
 {checks}
+{("PLOT SHAPE OF THIS PLAN: " + str(plan.get("plot_shape")) + " - " + _PLOT_SHAPE_TEXT[str(plan.get("plot_shape"))]) if isinstance(plan, dict) and str(plan.get("plot_shape")) in _PLOT_SHAPE_TEXT else ""}
 """
 
 
@@ -1492,7 +1502,9 @@ def role_thinking_budget(role: Optional[str], requested: Optional[int]) -> Optio
         return requested
     raw = os.getenv("GEMINI_DRAFT_THINKING_BUDGET", "").strip() if role == "draft" else ""
     if not raw and role == "draft" and draft_model_is_slow():
-        return -1  # let a Pro model think as it is designed to
+        # 12 Nov 2026: Pro thought 5,000-7,000 tokens per story (billed as output) and slowed Page 3.
+        # A 2,048 cap keeps most of the gain; GEMINI_DRAFT_THINKING_BUDGET overrides (-1 = model default).
+        return 2048
     raw = raw or os.getenv("GEMINI_PAGES_THINKING_BUDGET", "").strip()
     if not raw:
         return requested
@@ -1729,6 +1741,8 @@ EDITOR_CHECKLIST = """- Family: no invented family for the child (mum, dad, gran
 - Momentum (most important): flag ANY page where nothing new happens, that mostly describes scenery or getting ready,
   or that repeats the previous page's problem in new words. Its fix must name the new event that should happen there.
   A page that repeats information from the page before is always a must-fix, even if everything else is good.
+- Nothing new at the climax: flag Page 6 (or 7) if the solution uses an object, place, helper or ability that was
+  never mentioned before; the fix plants it on an earlier page in this draft or uses something already there.
 - Voice and laughs: flag pages that are plain description with no funny or delightful moment, dialogue that only
   explains the plot, adjective-stacked sentences, or any worn-out trope (fading/dimming stakes, sneeze/hiccup puffs,
   a note or inscription giving the answer, "shimmering/whispering/iridescent/velvety")."""

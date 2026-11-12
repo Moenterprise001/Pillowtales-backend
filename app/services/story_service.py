@@ -8534,11 +8534,11 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
             try:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
-                        self._gen("draft", request),
+                        self._gen("pages", request),  # small fixes: Flash (Pro took 17-30 s for these)
                         self._build_rewrite_prompt(request, companion, title, pages, targets, final_page_number=expected_pages),
                         _quality.REWRITE_SCHEMA,
                     ),
-                    timeout=_quality.rewrite_timeout_seconds(),
+                    timeout=_quality.REWRITE_TIMEOUT_SECONDS,
                 )
                 result = self._clean_json_response(getattr(response, "text", "") or "")
                 wanted = {t["page"] for t in targets}
