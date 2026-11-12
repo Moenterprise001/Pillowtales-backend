@@ -7233,7 +7233,7 @@ Return ONLY valid JSON:
 - Progress the main problem and leave one clear, bedtime-safe reason to continue.
 - Do not introduce a new subplot, unrelated mystery, or premature return-home ending.
 """
-        craft_block = _quality.v5_craft_block(self._moral_requested(request), request.moral)
+        craft_block = _quality.v5_craft_block(self._moral_requested(request), request.moral) + _quality.extra_page_rules(request)
         trace_rules = _quality.get_trace(request).setdefault("rules", {})
         trace_rules.setdefault("v5_craft", _quality.fingerprint(craft_block))
         hard_max = (
@@ -7670,7 +7670,8 @@ Return ONLY valid JSON:
                 )
         tasks = [
             asyncio.ensure_future(self._generate_first_page_response_with_retry(
-                request=request, prompt=_quality.inject_hook(prompts[index], hook),
+                request=request, prompt=_quality.inject_hook(prompts[index], hook) + (
+                    ("\n\n" + _quality.comfort_theme_block(request)) if _quality.comfort_theme_block(request) else ""),
                 response_schema=response_schema, soft_limit_seconds=soft_limit_seconds,
             ))
             for index, hook in enumerate(hooks)
@@ -8372,7 +8373,7 @@ STORY FACTS:
 - Moral: {request.moral}
 
 {self._story_spine_block(request=request, title=title, first_page=pages[0])}
-{_quality.v5_craft_block(self._moral_requested(request), request.moral)}
+{_quality.v5_craft_block(self._moral_requested(request), request.moral)}{_quality.extra_page_rules(request)}
 {self._oxford_inspired_age_profile_block(request.age)}
 {self._age_vocabulary_block(request.age)}
 {_quality.avoid_repeats_block(request, state.get("history") or {}, companion)}

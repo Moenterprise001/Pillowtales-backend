@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -354,6 +354,12 @@ def allowed_family_groups(request: Any) -> set:
             if re.search(pattern, relation):
                 groups.add(group)
                 break
+    # Family the parent named in their own theme or moral ("Daddy stopped the pain in my stomach") is wanted.
+    typed = " ".join(str(getattr(request, f, "") or "") for f in ("customTheme", "customMoral")).lower()
+    if typed.strip():
+        for group, words in FAMILY_GROUPS.items():
+            if re.search(rf"\b(?:{words})\b", typed):
+                groups.add(group)
     return groups
 
 
@@ -714,7 +720,7 @@ PLANNING RULES:
 - BEDTIME LANDING: the final image is calm and settled, ideally the child at home, evening or night, with a quiet
   feeling of having made something right.
 
-{(V5_PLAN_RULES + chr(10) + chr(10)) if prompts_v5_enabled() else ""}SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
+{(V5_PLAN_RULES + chr(10) + chr(10)) if prompts_v5_enabled() else ""}{(comfort_theme_block(request) + chr(10) + chr(10)) if comfort_theme_block(request) else ""}SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
 1. Is the stakes line heard on the page by Page 3, and does it feel at real risk at the setback?
 2. Could any character other than the child have solved it just as easily? (Must be "no".)
 3. Does every beat move the story forward, with the answer to every thread placed in a specific beat?
@@ -847,7 +853,7 @@ SCORE_CRITERIA = [
     ("child_drives_climax", "The child's own idea or action causes the resolution; not luck, an accident or a helper."),
     ("stakes_and_tension", "There is a concrete, bedtime-safe stake shown on the page (something will be lost, missed, broken or spoiled, and someone will mind), a genuine setback where that loss nearly happens, and a moment of doubt. Do not reward danger or fear: this is a bedtime story, and frightening content should lower this score."),
     ("coherence", "No confusing contradictions, muddled objects or loose threads; every introduced element matters."),
-    ("pacing", "Each page moves the story forward; the middle does not stall and the ending is not crammed."),
+    ("pacing", "Something NEW happens on every page and the listener always wants the next page. A page that mostly describes scenery, shows getting ready, or repeats the problem from the page before is a serious fault: any such page caps this score at 6, two or more at 5. The ending is not crammed."),
     ("moral_shown_not_told", "The moral (if any) is shown through choices and consequences, never stated or lectured."),
     ("age_fit_language", "Vocabulary and sentence craft match the listener's age, neither babyish nor too adult."),
     ("imagery_and_humour", "Specific, memorable images and at least one genuinely funny or delightful moment."),
@@ -908,7 +914,7 @@ def summarise_score(result: Dict[str, Any]) -> Dict[str, Any]:
         "criteria": scores,
         "weakest_page": result.get("weakest_page"),
         "top_issues": [str(i)[:200] for i in (result.get("top_issues") or [])][:4],
-        "rubric_version": "20261110b",
+        "rubric_version": "20261111",
     }
 
 
@@ -1104,6 +1110,51 @@ Plain prose
 """
 
 
+# ---- Momentum (11 Nov 2026): "a bit boring ... over describing and nothing seems to happen" ----
+MOMENTUM_BLOCK = """MOMENTUM (the parent's main complaint is pages where nothing happens):
+- Every page has at least one NEW event the listener did not know before: an action, a discovery, a surprise, a choice
+  or a consequence. A page that only describes, gets ready, waits or repeats the problem is not allowed.
+- At most two sentences of pure scenery or description per page; every other sentence moves the story (action,
+  short dialogue, a decision, a result).
+- Never restate what the listener already knows (the problem, the stakes, what failed last page). Mention the stake
+  sign in one short clause at most ("the lamp flickered lower"), then move on.
+- Get going fast: the first two sentences of each page already move the story.
+- Page 4 and Page 5 must be DIFFERENT events: Page 4 = the first try fails in a new way; Page 5 = a new surprise, a
+  second obstacle or a discovery that points to the answer. Never two pages of being stuck."""
+
+_COMFORT_WORDS = (r"pain|painful|hurt|hurts|hurting|ache|aches|achy|tummy|stomach|sick|ill|poorly|unwell|cough|fever|"
+                  r"doctor|hospital|nurse|medicine|operation|injection|jab|vaccin\w*|dentist|plaster|stitches|"
+                  r"scared|afraid|frightened|fear|fears|nightmare|nightmares|bad dreams?|worried|worry|worries|nervous|"
+                  r"anxious|lonely|sad|crying|monster under|the dark|new school|first day|moving house|new baby|"
+                  r"divorce|bedwetting|wet the bed|grief|passed away|died")
+
+
+def comfort_theme(request: Any) -> bool:
+    """The parent's own theme or moral is about something the child may really be going through."""
+    typed = " ".join(str(getattr(request, f, "") or "") for f in ("customTheme", "customMoral")).lower()
+    return bool(typed.strip()) and bool(re.search(rf"\b(?:{_COMFORT_WORDS})\b", typed))
+
+
+def comfort_theme_block(request: Any) -> str:
+    if not prompts_v5_enabled() or not comfort_theme(request):
+        return ""
+    theme = getattr(request, "customTheme", None) or getattr(request, "customMoral", "")
+    return f"""COMFORT THEME — the parent asked for a story about something the child may really be going through ("{theme}").
+- Treat it gently. Name the feeling once, in soft simple words ("a wobbly, achy tummy"). Never describe pain, illness
+  or fear in vivid physical detail: no cramps, groans, doubling over, sharp, throbbing, crying out, blood or needles.
+- The child is never left alone in distress; someone kind is near, and it starts getting better early.
+- The magic or adventure is a gentle, playful way of understanding the feeling, not a scary version of it.
+- End with the child feeling safe, cared for and soothed, ready for sleep."""
+
+
+def extra_page_rules(request: Any) -> str:
+    """Momentum (always, v5) plus the comfort-theme block when it applies."""
+    if not prompts_v5_enabled():
+        return ""
+    comfort = comfort_theme_block(request)
+    return "\n" + MOMENTUM_BLOCK + ("\n\n" + comfort if comfort else "") + "\n"
+
+
 def v5_continuation_job(remaining_page_count: int, next_page_number: int, final_page_number: int) -> str:
     pages_word = "page" if remaining_page_count == 1 else "pages"
     return f"""CONTINUATION JOB:
@@ -1154,7 +1205,11 @@ V5_PLAN_RULES = """- PAGE 6 COMPLETES THE SOLUTION: the child's decisive act on 
 - signature_delight: one funny or wonderful thing a child will want to hear again tomorrow night (a creature's odd habit,
   a silly sound, a running joke). Use it in at least two beats, and let it return on Page 7.
 - Make the listener desperate to know what happens next on every page: end each beat with a question, a surprise or a
-  choice, never a summary. No sequel hook on Page 7, but a warm ending that makes the child want this story again."""
+  choice, never a summary.
+- EVERY BEAT IS A NEW EVENT: start each beat with what HAPPENS (an action, a discovery, a surprise, a choice, a
+  consequence) that changes the situation. No beat may only describe a place, show getting ready, or repeat the
+  problem. The stake sign may appear in a short clause, never as the beat itself. The Page 4 and Page 5 beats must be
+  different events (Page 4: the first try fails in a new way; Page 5: a new surprise, second obstacle or discovery). No sequel hook on Page 7, but a warm ending that makes the child want this story again."""
 
 
 PLAN_CHECK_KEYS = [
@@ -1166,6 +1221,7 @@ PLAN_CHECK_KEYS = [
     ("no_contradictions", True, "Nothing contradicts Page 1 or another part of the plan, and no name or fact is known before it is learned."),
     ("theme_literal", True, "The chosen theme's central subject is literally present and matters to the plot."),
     ("bedtime_landing", False, "The final image is calm and settled, ideally at home in the evening or at night."),
+    ("every_beat_is_an_event", True, "Every one of the six beats is a new event that changes the situation (not description, getting ready or a repeat of the problem), and the Page 4 and Page 5 beats are different events."),
     ("stake_felt_by_child", True, "stake_for_child is something the child personally feels (a friend let down, a promise broken, something they will miss), not an abstract or far-away loss, and the beats show it rather than only say it."),
     ("signature_delight", False, "signature_delight is genuinely funny or wonderful and returns in at least two beats."),
 ]
@@ -1492,7 +1548,9 @@ EDITOR_CHECKLIST = """- Family: no invented family for the child (mum, dad, gran
 - No stock phrases (tummy flip-flops, sparkling eyes...), no repetition of the same image or idea, no crammed page.
 - The theme and title promise are delivered.
 - The thing that solves the problem on Page 6 is shown clearly by Page 3, and the child can feel what they would lose.
-- The signature delight from the plan returns; every page ends with a reason to turn the page."""
+- The signature delight from the plan returns; every page ends with a reason to turn the page.
+- Momentum (most important): flag ANY page where nothing new happens, that mostly describes scenery or getting ready,
+  or that repeats the previous page's problem in new words. Its fix must name the new event that should happen there."""
 
 
 def build_editor_prompt(request: Any, title: str, pages: List[str], plan: Optional[dict], age: int,
@@ -1500,9 +1558,9 @@ def build_editor_prompt(request: Any, title: str, pages: List[str], plan: Option
     theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
     moral = getattr(request, "moral", "") if moral_requested else "none requested"
     story = "\n\n".join(f"Page {i + 1}: {p}" for i, p in enumerate(pages))
-    partial = ""
+    partial = (comfort_theme_block(request) + "\n") if comfort_theme_block(request) else ""
     if final_page_number and len(pages) < final_page_number:
-        partial = (f"NOTE: this draft stops at Page {len(pages)}; the story continues to Page {final_page_number} afterwards. "
+        partial += (f"NOTE: this draft stops at Page {len(pages)}; the story continues to Page {final_page_number} afterwards. "
                    "Do not judge the ending or ask for it to be wrapped up; judge only the pages shown.\n")
     return f"""You are the senior editor of a children's bedtime story app. Read this complete draft as a whole, the way a parent will hear it,
 and decide which pages need rewriting before anyone hears them. Pages 1 and 2 are already published and FIXED; only Pages 3-{len(pages)} may be rewritten.
