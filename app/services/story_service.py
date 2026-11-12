@@ -545,11 +545,11 @@ OPENING_SEED_FAMILIES_V5 = [
     },
     {
         "family": "space_lunchbox_rocket",
-        "en": "Every Friday, a small silver rocket landed in {childName}'s back garden to collect lunchboxes for the astronauts on the moon.",
-        "es": "Cada viernes, un pequeño cohete plateado aterrizaba en el jardín de {childName} para recoger las fiambreras de los astronautas de la luna.",
-        "fr": "Chaque vendredi, une petite fusée argentée atterrissait dans le jardin de {childName} pour emporter les boîtes à goûter des astronautes de la lune.",
-        "it": "Ogni venerdì, un piccolo razzo d’argento atterrava nel giardino di {childName} per raccogliere i cestini del pranzo degli astronauti sulla luna.",
-        "de": "Jeden Freitag landete eine kleine silberne Rakete in {childName}s Garten, um die Brotdosen für die Astronauten auf dem Mond abzuholen.",
+        "en": "Every Friday, {childName} packed the lunchboxes for the astronauts on the moon and waited in the back garden for the little silver rocket that came to collect them.",
+        "es": "Cada viernes, {childName} preparaba las fiambreras de los astronautas de la luna y esperaba en el jardín al pequeño cohete plateado que venía a recogerlas.",
+        "fr": "Chaque vendredi, {childName} préparait les boîtes à goûter des astronautes de la lune et attendait dans le jardin la petite fusée argentée qui venait les chercher.",
+        "it": "Ogni venerdì, {childName} preparava i cestini del pranzo per gli astronauti sulla luna e aspettava in giardino il piccolo razzo d’argento che veniva a prenderli.",
+        "de": "Jeden Freitag packte {childName} die Brotdosen für die Astronauten auf dem Mond und wartete im Garten auf die kleine silberne Rakete, die sie abholte.",
         "v5": True,
     },
     {
@@ -1250,7 +1250,7 @@ class StoryService:
         # variables so local .env loading issues do not silently disable Gemini.
         # Never print the API key itself.
         gemini_api_key = (getattr(settings, "gemini_api_key", "") or os.getenv("GEMINI_API_KEY", "")).strip()
-        gemini_model = (getattr(settings, "gemini_model", "") or os.getenv("GEMINI_MODEL", "gemini-2.5-flash")).strip()
+        gemini_model = (getattr(settings, "gemini_model", "") or os.getenv("GEMINI_MODEL", "gemini-3.8-flash")).strip()  # 2.5 Flash retires 1 Dec 2026
 
         if gemini_api_key:
             self.client = genai.Client(api_key=gemini_api_key)
@@ -2064,8 +2064,8 @@ LIVING WORLD HARD RULES:
             _quality.role_model(ctx[0] if ctx else None),
             configured,
             os.getenv("GEMINI_FALLBACK_MODEL", "").strip(),
-            "gemini-3.5-flash",
-            "gemini-2.5-flash-lite",
+            "gemini-3.6-flash",        # same price tier as 3.8 Flash (Nov 2026 price list)
+            "gemini-3.5-flash-lite",   # what Google reroutes 2.5 Flash to from 1 Dec 2026
         ):
             if model and model not in candidates:
                 candidates.append(model)
@@ -2169,18 +2169,30 @@ LIVING WORLD HARD RULES:
                 # missing model; try the next model candidate instead.
                 if response_schema and not is_not_found:
                     print(f"[PERF] genai_schema_call_failed retrying_without_schema error={err[:200]}")
-                    response = self._generate_content_once_sync(
-                        model_name,
-                        prompt,
-                        None,
-                        max_output_tokens,
-                        thinking_budget,
-                    )
-                    _quality.record_usage(role, model_name, response, fallback_from)
-                    return response
+                    try:
+                        response = self._generate_content_once_sync(
+                            model_name,
+                            prompt,
+                            None,
+                            max_output_tokens,
+                            thinking_budget,
+                        )
+                        _quality.record_usage(role, model_name, response, fallback_from)
+                        return response
+                    except Exception as retry_exc:
+                        last_exc = retry_exc
+                        err = str(retry_exc)
 
                 if is_not_found:
                     print(f"[PERF] genai_model_not_found model={model_name} trying_next error={err[:200]}")
+                    continue
+
+                # 12 Nov 2026: the main model itself failed (e.g. an outage). With 3.8 Flash as both the
+                # default and the role model there is no older model behind it, so try the next safe model
+                # (GEMINI_FALLBACK_MODEL, 3.6 Flash, 3.5 Flash-Lite) instead of stopping the story.
+                if model_name in (routed_model, self.model_name):
+                    print(f"[PERF] genai_main_model_failed model={model_name} trying_next error={err[:200]}")
+                    fallback_from = fallback_from or model_name
                     continue
 
                 raise
@@ -5191,6 +5203,7 @@ REQUIRED CHANGES — APPLY EVERY ONE:
         timeout_seconds: Optional[float] = None,
         max_attempts_override: Optional[int] = None,
         lenient_draft: bool = False,
+        gen_role: str = "pages",
     ) -> list[str]:
         """Generate and validate a continuation batch.
 
@@ -5325,7 +5338,7 @@ CANON FINAL PAGE REPAIR — ATTEMPT {generation_attempt}:
             try:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
-                        self._gen("pages", request),
+                        self._gen(gen_role, request),
                         prompt,
                         self._story_response_schema(batch_count, include_title=False),
                     ),
@@ -8420,9 +8433,10 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
                 title=title,
                 working_pages=working_pages,
                 batch_count=expected_pages - len(working_pages),
-                timeout_seconds=_quality.DRAFT_TIMEOUT_SECONDS,
+                timeout_seconds=_quality.draft_timeout_seconds(),
                 max_attempts_override=1,
                 lenient_draft=True,
+                gen_role="draft",
             )
         except Exception as exc:
             record.update({"status": "draft_failed", "error": str(exc)[:200]})
@@ -8515,11 +8529,11 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
             try:
                 response = await asyncio.wait_for(
                     asyncio.to_thread(
-                        self._gen("pages", request),
+                        self._gen("draft", request),
                         self._build_rewrite_prompt(request, companion, title, pages, targets, final_page_number=expected_pages),
                         _quality.REWRITE_SCHEMA,
                     ),
-                    timeout=_quality.REWRITE_TIMEOUT_SECONDS,
+                    timeout=_quality.rewrite_timeout_seconds(),
                 )
                 result = self._clean_json_response(getattr(response, "text", "") or "")
                 wanted = {t["page"] for t in targets}

@@ -26,7 +26,7 @@ import unicodedata
 from typing import Any, Dict, Iterable, List, Optional
 
 QUALITY_BUILD = (
-    "pronouns_from_gender=20261112 momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
+    "draft_role=20261112 base_model_38=20261112 page2_opens_with_event=20261112 opening_role=20261112 pronouns_from_gender=20261112 momentum=20261111 comfort_theme=20261111 family_from_theme=20261111 length_by_age=20261111 no_invented_family=20261111 story_memory=20261110 plan_check_timeout=20261110 page1_varied_openings=20261110 more_openings=20261110 plan_solution_stakes=20261110 planner_roles=20261110 names_hotfix=20261110 history30=20261110 role_names_fix=20261110 plan_rename=20261110 title_fresh=20261110 page2_first=20261110c draft_tolerant=20261110b escaped_newline_fix=20261110 page1_best_of=20261110 draft_revise=20261110 oxford_age_standard=20261110 model_routing=20261110 bedtime_prompts_v5c=20261110 plan_check=20261110 opening_seeds=20261110 bedtime_story_plan=20261109b plan_thinking=20261109 page1_name_freshness=20261109 bedtime_story_score=20261109 "
     "bedtime_no_repeat=20261109 custom_moral_passthrough=20261109 "
     "custom_theme_seed_match=20261109 custom_text_safety=20261109 "
     "generation_trace=20261109"
@@ -1119,6 +1119,8 @@ MOMENTUM_BLOCK = """MOMENTUM (the parent's main complaint is pages where nothing
 - Never restate what the listener already knows (the problem, the stakes, what failed last page). Mention the stake
   sign in one short clause at most ("the lamp flickered lower"), then move on.
 - Get going fast: the first two sentences of each page already move the story.
+- Page 2 opens with something happening in its FIRST sentence. It never starts with getting ready, packing, walking
+  over, or repeating what Page 1 already told the listener.
 - Page 4 and Page 5 must be DIFFERENT events: Page 4 = the first try fails in a new way; Page 5 = a new surprise, a
   second obstacle or a discovery that points to the answer. Never two pages of being stuck."""
 
@@ -1333,21 +1335,42 @@ _ROLE_ENV = {
     "judge": "GEMINI_JUDGE_MODEL",       # Page 1 judge (kept fast: Page 1 waits for it)
     "scorer": "GEMINI_SCORER_MODEL",     # quality score (kept stable so scores stay comparable)
     "canon_review": "GEMINI_CANON_REVIEW_MODEL",  # Story Worlds page reviews (unchanged)
+    "draft": "GEMINI_DRAFT_MODEL",       # Bedtime Pages 3-7 draft + editor rewrites (12 Nov: Pro trial); unset -> pages
 }
 
 
 def role_model(role: Optional[str]) -> str:
     import os
     env = _ROLE_ENV.get(role or "")
-    return (os.getenv(env, "") if env else "").strip()
+    value = (os.getenv(env, "") if env else "").strip()
+    if not value and role == "draft":
+        return role_model("pages")  # no draft model set: exactly as before
+    return value
+
+
+def draft_model_is_slow() -> bool:
+    """Pro / flagship models think before writing: give them longer time limits."""
+    name = role_model("draft").lower()
+    return any(tag in name for tag in ("pro", "argon", "ultra"))
+
+
+def draft_timeout_seconds() -> float:
+    return DRAFT_TIMEOUT_SECONDS_SLOW if draft_model_is_slow() else DRAFT_TIMEOUT_SECONDS
+
+
+def rewrite_timeout_seconds() -> float:
+    return REWRITE_TIMEOUT_SECONDS_SLOW if draft_model_is_slow() else REWRITE_TIMEOUT_SECONDS
 
 
 def role_thinking_budget(role: Optional[str], requested: Optional[int]) -> Optional[int]:
     """Only the pages role can be overridden; everything else keeps what the caller asked for."""
     import os
-    if role != "pages":
+    if role not in ("pages", "draft"):
         return requested
-    raw = os.getenv("GEMINI_PAGES_THINKING_BUDGET", "").strip()
+    raw = os.getenv("GEMINI_DRAFT_THINKING_BUDGET", "").strip() if role == "draft" else ""
+    if not raw and role == "draft" and draft_model_is_slow():
+        return -1  # let a Pro model think as it is designed to
+    raw = raw or os.getenv("GEMINI_PAGES_THINKING_BUDGET", "").strip()
     if not raw:
         return requested
     try:
@@ -1391,8 +1414,10 @@ BEST_OF_BUILD = "page1_best_of=20261110 draft_revise=20261110"
 PAGE1_EXTRA_WAIT_SECONDS = 3.0     # after the first candidate, wait this long for the others
 PAGE1_JUDGE_TIMEOUT_SECONDS = 6
 DRAFT_TIMEOUT_SECONDS = 45
+DRAFT_TIMEOUT_SECONDS_SLOW = 120   # Pro draft model (thinks first)
 EDITOR_TIMEOUT_SECONDS = 20
 REWRITE_TIMEOUT_SECONDS = 35
+REWRITE_TIMEOUT_SECONDS_SLOW = 90
 MAX_REWRITE_PAGES = 3
 EDITOR_THINKING_BUDGET = 1024
 
@@ -1442,6 +1467,8 @@ def hook_block(hook: str) -> str:
         "- The hook must give the child something to WANT or DO, so that later the child, not a helper, can solve it.\n"
         "- Begin the very first sentence in a fresh way: never with the child's name followed by lived, loved or visited.\n"
         "- Do not give the child a mum, dad, grandparent, brother, sister, aunt or uncle unless the parent added them above.\n"
+        "- If the opening world has an unusual custom (a rocket that lands, dragons that deliver post), show in one short\n"
+        "  sentence why the child is part of it: their job, their turn, their favourite place, or what they do there.\n"
         "  Start with a sound, an action, a line of dialogue, a surprising detail or the place itself.\n"
     )
 
@@ -1577,7 +1604,8 @@ EDITOR_CHECKLIST = """- Family: no invented family for the child (mum, dad, gran
 - The thing that solves the problem on Page 6 is shown clearly by Page 3, and the child can feel what they would lose.
 - The signature delight from the plan returns; every page ends with a reason to turn the page.
 - Momentum (most important): flag ANY page where nothing new happens, that mostly describes scenery or getting ready,
-  or that repeats the previous page's problem in new words. Its fix must name the new event that should happen there."""
+  or that repeats the previous page's problem in new words. Its fix must name the new event that should happen there.
+  A page that repeats information from the page before is always a must-fix, even if everything else is good."""
 
 
 def build_editor_prompt(request: Any, title: str, pages: List[str], plan: Optional[dict], age: int,
