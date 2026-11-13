@@ -99,11 +99,54 @@ _HUMOUR = {
 }
 
 
+_CHILD_LOGIC_BY_BAND = {
+    "young": "sing the grumpy cloud a lullaby, tickle the stuck door, give the sad clock a hug",
+    "middle": "make the shy volcano laugh so it stops rumbling, read the hatching books a bedtime story",
+    "older": "obey the hat law by wearing a teapot, flatter the sulking map until it shows the way",
+}
+
+_CRAZY_BY_BAND = {
+    "young": "silly-crazy: a cloud that is afraid of heights, a shoe that wants to be a boat, a moon with hiccups",
+    "middle": "funny-crazy: a library where the books hatch, a dragon who collects lost socks, a rain that falls upwards on Tuesdays",
+    "older": "clever-crazy: a law that only applies to people wearing hats, a map that sulks, a town where shadows go on strike",
+}
+
+
+_KID_HUMOUR_BY_BAND = {
+    "young": "things done backwards or wrong (a sock worn as a hat, a cow that says quack), slapstick, funny sounds and made-up names",
+    "middle": "slapstick, silly rules taken literally, upside-down situations, made-up names and sound words",
+    "older": "wordplay, puns and double meanings, sayings taken literally (it really rains cats and dogs), absurd logic followed with a straight face",
+}
+
+
+def imagination_block(age: Any) -> str:
+    """Owner, 12 Nov: 'add something a little crazy... think like a kid' (slides from the top of the palace to the
+    garden, a magic carpet to travel faster, a train that serves only hot chocolate and cornflakes). Grounded in
+    research: children's humour is incongruity (the world turned upside down; slapstick 2-7; puns from about 7, McGhee),
+    young children think animistically and magically (Piaget), and children love wish fulfilment with children in
+    charge (Dahl). One block, sent once to every writer and the planner."""
+    b = band(age)
+    return (
+        "A LITTLE BIT CRAZY (this is what children remember and ask for again):\n"
+        f"- Build the story on ONE wonderfully odd big idea and take it completely seriously ({_CRAZY_BY_BAND[b]}).\n"
+        "- A world a child would design: fill it with wish-come-true details, such as slides instead of stairs from the top\n"
+        "  of the palace to the garden, a magic carpet for when you are late, a train that serves only hot chocolate and\n"
+        "  cornflakes. Invent fresh ones for this story (never copy these examples); use two or three, and let one matter to the plot.\n"
+        "- Think like a child, not an adult: objects, weather and animals have feelings and opinions; wishes and rules work\n"
+        "  literally; small things matter hugely; nothing is simply black and white. The child is in charge of the adventure.\n"
+        f"- Funny the way children of this age find funny: {_KID_HUMOUR_BY_BAND[b]}.\n"
+        f"- The solution makes sense by child logic ({_CHILD_LOGIC_BY_BAND[b]}), not adult practicality,\n"
+        "  and it uses the thing set up earlier, so it still feels fair.\n"
+        "- Surprise the listener at least once with a turn no adult would predict, then make it make sense by the story's own rules.\n"
+        "- Odd, not random: the world keeps its own silly rules, and every crazy detail connects to the want, the problem or the solution."
+    )
+
+
 def design_block(age: Any) -> str:
     b = band(age)
     return (
         f"STORY DESIGN FOR {BAND_LABEL[b]}:\n" + _DESIGN[b] + "\n"
-        f"- Excitement level: {_PERIL[b]}."
+        f"- Excitement level: {_PERIL[b]}.\n\n" + imagination_block(age)
     )
 
 
@@ -130,11 +173,13 @@ def clean_vocabulary(text: str) -> str:
             if line.strip().startswith("-"):
                 continue
             skip = False
-        if line.strip().startswith("- Sentence rhythm:"):
-            continue
+        if line.strip().startswith(("- Sentence rhythm:", "- Word budget:")):
+            continue  # v8 has one rhythm line per age; a percentage quota of rich words made the AI force them in
         out.append(line)
     text = "\n".join(out).strip()
     text = re.sub(r"\b(?:twinkle|sparkle|whisper),\s*", "", text)
+    # Word lists are a guide to the level, not words to use (they were being forced in: "remarkable", "contradiction").
+    text = re.sub(r"^- Use ([^:\n]*vocabulary[^:\n]*): ", r"- Level guide (\1; words this age understands, never words to put in): ", text, flags=re.M)
     return text
 
 
@@ -147,7 +192,10 @@ def language_block(age: Any, vocabulary_block: str = "") -> str:
     vocab = clean_vocabulary(vocabulary_block)
     return (
         f"LANGUAGE LEVEL (reading age {a}; never state the age in the story):\n"
-        f"- {_RHYTHM[band(age)]}\n" + (vocab + "\n" if vocab else "")
+        f"- {_RHYTHM[band(age)]}\n"
+        "- Clear, vivid, everyday words beat impressive ones. Never add a word just to show vocabulary; a harder word is\n"
+        "  welcome only when it is the most fun or exact word and the sentence makes its meaning clear.\n"
+        + (vocab + "\n" if vocab else "")
     )
 
 
@@ -287,6 +335,7 @@ NOT_FINAL_BLOCK = """NOT THE ENDING YET:
 OUTLINE_SCHEMA = {
     "type": "object",
     "properties": {
+        "big_idea": {"type": "string"},
         "want": {"type": "string"},
         "solution_object": {"type": "string"},
         "solution_seen_on_page": {"type": "integer"},
@@ -295,7 +344,7 @@ OUTLINE_SCHEMA = {
         "time_of_day": {"type": "string"},
         "plot_shape": {"type": "string"},
     },
-    "required": ["want", "solution_object", "solution_seen_on_page", "big_moment", "ending", "time_of_day", "plot_shape"],
+    "required": ["big_idea", "want", "solution_object", "solution_seen_on_page", "big_moment", "ending", "time_of_day", "plot_shape"],
 }
 
 
@@ -309,7 +358,7 @@ def clean_outline(outline: Any) -> Optional[Dict[str, Any]]:
     if not isinstance(outline, dict):
         return None
     out = {k: re.sub(r"\s+", " ", str(outline.get(k) or "")).strip()[:300]
-           for k in ("want", "solution_object", "big_moment", "ending", "time_of_day", "plot_shape")}
+           for k in ("big_idea", "want", "solution_object", "big_moment", "ending", "time_of_day", "plot_shape")}
     try:
         seen = int(outline.get("solution_seen_on_page") or 0)
     except Exception:
@@ -321,6 +370,8 @@ def clean_outline(outline: Any) -> Optional[Dict[str, Any]]:
 
 
 OUTLINE_INSTRUCTIONS = """OUTLINE (private; return it with Page 1 so the whole story is designed before it is written):
+- big_idea: the one wonderfully odd idea at the heart of the story, the thing a child would tell a friend about,
+  in one sentence. It must already show on Page 1.
 - want: what the child wants or must do, in one sentence.
 - solution_object: the one object, habit, skill or clue the child will use to solve it. It is seen on Page 1, or
   arrives on Page 2; set solution_seen_on_page to 1 or 2. If it is 1, show it naturally on Page 1 without pointing at it.
@@ -351,7 +402,7 @@ def build_page1_judge_prompt(request: Any, candidates: List[Dict[str, Any]], age
         o = c.get("_outline") or {}
         if not o:
             return "Outline: (none given)"
-        return ("Outline: wants " + o.get("want", "") + " | solves it with " + o.get("solution_object", "")
+        return ("Outline: big idea: " + (o.get("big_idea") or "(none)") + " | wants " + o.get("want", "") + " | solves it with " + o.get("solution_object", "")
                 + f" (seen on Page {o.get('solution_seen_on_page')})" + " | big moment: " + o.get("big_moment", "")
                 + " | ending: " + o.get("ending", "") + " | time: " + o.get("time_of_day", "")
                 + " | shape: " + str(c.get("_shape") or o.get("plot_shape") or ""))
@@ -374,6 +425,10 @@ ask for again tomorrow night. Return only JSON matching the schema:
   specific to this story, none of the overused words, not the moral). Otherwise "".
 
 JUDGE THE WHOLE STORY:
+- The big idea (most important): one wonderfully odd idea a child would tell a friend about, working by child logic,
+  in a world a child would design (wish-come-true details such as slides instead of stairs).
+  Prefer a little bit crazy over sensible; mark down ordinary set-ups (a runaway pet, a contest, a lost item, a rule
+  that needs explaining).
 - Fun and excitement: a hook a child wants to follow, a big moment with real adventure for this age, real laughs.
 - The child has something to want or do and solves it with their own idea, using a thing seen on Page 1 or 2.
 - It hangs together: the ending fits Page 1, its time of day and its plot shape; every set-up pays off.
@@ -424,7 +479,8 @@ def outline_block(outline: Optional[Dict[str, Any]], age: Any) -> str:
     shape = outline.get("plot_shape") or ""
     return (
         "OUTLINE CHOSEN WITH PAGE 1 (expand it; change it only to fix a clear clash with Page 1):\n"
-        f"- The child wants: {outline.get('want')}\n"
+        + (f"- The big idea (keep it at the centre of every page): {outline.get('big_idea')}\n" if outline.get("big_idea") else "")
+        + f"- The child wants: {outline.get('want')}\n"
         f"- Solved with: {outline.get('solution_object')} (seen on Page {outline.get('solution_seen_on_page')})\n"
         f"- Big moment: {outline.get('big_moment')}\n"
         f"- Ending: {outline.get('ending')}\n"
@@ -649,7 +705,9 @@ EDITOR_CHECKLIST_V8 = """- Momentum (most important): flag ANY page where nothin
 - Family: no invented family for the child (mum, dad, grandparents, siblings, aunts, uncles, cousins) unless the parent added them.
 - Continuity: no contradictions; nobody knows a name or fact before learning it; objects and names stay consistent.
 - Age fit: words and sentences match the age standard.
-- Voice and laughs: flag pages with no funny or delightful moment, dialogue that only explains the plot, stacked
+- A little bit crazy: flag a story that has become sensible or ordinary, a world with no wish-come-true details, a big idea that fades after Page 1, or a
+  solution that works by adult practicality instead of the story's own child logic.
+- Voice and laughs: flag pages with no funny or delightful moment, forced "impressive" words, dialogue that only explains the plot, stacked
   adjectives, stock phrases, or a worn-out trope (fading/dimming/going-cold stakes, sneeze/hiccup puffs, a note giving
   the answer, a treasured item given up as the climax).
 - The moral (if any) is shown through action, never stated. The theme and title promise are delivered."""
@@ -662,10 +720,10 @@ SCORE_CRITERIA_V8 = [
     ("coherence", "No confusing contradictions, muddled objects or loose threads; every introduced element matters."),
     ("pacing", "Something NEW happens on every page and the listener always wants the next page. A page that mostly describes scenery, shows getting ready, or repeats the problem from the page before is a serious fault: any such page caps this score at 6, two or more at 5. The ending is not crammed."),
     ("moral_shown_not_told", "The moral (if any) is shown through choices and consequences, never stated or lectured."),
-    ("age_fit_language", "Vocabulary and sentence craft match the listener's age, neither babyish nor too adult."),
+    ("age_fit_language", "Vocabulary and sentence craft match the listener's age, neither babyish nor too adult. Hard words put in to sound impressive lower this score."),
     ("imagery_and_humour", "A distinct read-aloud voice (refrain, narrator personality or wit, by age), specific surprising images rather than stacked adjectives, and real laughs from character on several pages. Generic description with one mild funny moment scores 7 at most; worn-out tropes (fading/dimming stakes, sneeze/hiccup puffs, shimmering) lower it."),
-    ("bedtime_landing", "The ending: the happy result of the child's act, an earned callback and a satisfying final moment (a last laugh, a warm image). Complete, with no cliffhanger. It does not need to be sleepy."),
-    ("originality", "Fresh premise and characters; nothing generic or interchangeable with another story."),
+    ("satisfying_ending", "The ending: the happy result of the child's act, an earned callback and a satisfying final moment (a last laugh, a warm image). Complete, with no cliffhanger. It does not need to be sleepy."),
+    ("originality", "One wonderfully odd big idea, taken seriously and working by child logic, that a child would tell a friend about. A sensible, ordinary premise (a runaway pet, a contest, a lost item) scores 7 at most."),
     ("want_again", "Would a child ask to hear this story again tomorrow night? 10 = they would beg for it; 7 = they would enjoy it once; 5 or less = they would lose interest."),
 ]
 

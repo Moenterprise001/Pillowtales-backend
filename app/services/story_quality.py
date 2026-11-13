@@ -908,7 +908,7 @@ def build_score_prompt(request: Any, title: str, pages: List[str], moral_request
     moral = getattr(request, "moral", "") if moral_requested else "none requested (score moral_shown_not_told as 10)"
     criteria = "\n".join(f"- {key}: {desc}" for key, desc in score_criteria())
     story = "\n\n".join(f"Page {i + 1}: {page}" for i, page in enumerate(pages))
-    kind = "PillowTales story (read at bedtime; adventure and excitement are wanted)" if _v8() else "bedtime story"
+    kind = "PillowTales story (adventure, excitement and a little craziness are wanted; it does not need to be sleepy)" if _v8() else "bedtime story"
     return f"""You are a demanding children's book editor. Score this {kind} for a {age}-year-old listener.
 Return only JSON matching the schema. Score each criterion 0-10 (one decimal allowed).
 
@@ -1790,7 +1790,7 @@ def build_editor_prompt(request: Any, title: str, pages: List[str], plan: Option
     if final_page_number and len(pages) < final_page_number:
         partial += (f"NOTE: this draft stops at Page {len(pages)}; the story continues to Page {final_page_number} afterwards. "
                    "Do not judge the ending or ask for it to be wrapped up; judge only the pages shown.\n")
-    app_kind = "PillowTales, a children's story app read at bedtime" if _v8() else "a children's bedtime story app"
+    app_kind = "PillowTales, a children's story app" if _v8() else "a children's bedtime story app"
     return f"""You are the senior editor of {app_kind}. Read this complete draft as a whole, the way a parent will hear it,
 and decide which pages need rewriting before anyone hears them. Pages 1 and 2 are already published and FIXED; only Pages 3-{len(pages)} may be rewritten.
 Return only JSON matching the schema. List at most {MAX_REWRITE_PAGES} pages, the ones that matter most. For each, name the specific problem and an

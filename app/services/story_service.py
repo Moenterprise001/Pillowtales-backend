@@ -3005,12 +3005,13 @@ FINAL ENDING CHECKLIST — SILENTLY VERIFY ALL:
 
         if self._v8_applies(request):
             moral_v8 = f"- Private moral: {request.moral} (shown through the child's choices, never stated).\n" if self._moral_requested(request) else ""
+            big_idea = str((_quality.get_state(request).get("v8_outline") or {}).get("big_idea") or "").strip()
             return f"""STORY SPINE:
 {moral_v8}- Page 1 is the fixed opening promise:
   {opening_excerpt}
 - Keep Page 1's one central want alive on every page; every event moves toward it. Do not swap it for a different,
   more convenient plot.
-""" + _quality.plan_spine_block(_quality.get_state(request).get("plan"))
+""" + (f"- The big idea (keep it at the centre of every page): {big_idea}\n" if big_idea else "") + _quality.plan_spine_block(_quality.get_state(request).get("plan"))
 
         moral_lines = (
             f"""- Requested moral: {request.moral}
@@ -6689,7 +6690,7 @@ PAGE 1 JOB:
   itself), never with the child's name followed by lived, loved or visited.
 - Show who the story is about, where they are and what makes today different. If the world has an unusual custom,
   show in one short sentence why the child is part of it (their job, their turn, their favourite place).
-- Bring the theme in now, give the child something to want or do, and include one funny or surprising detail.
+- Show the big idea on this page, bring the theme in, and give the child something to want or do.
 - End with a reason to hear Page 2. Do not solve anything yet.
 - Only family the parent added may appear (never invent a mum, dad, grandparent, sibling, aunt or uncle).
 
@@ -6707,7 +6708,7 @@ CHARACTERS:
 
 JSON ONLY:
 {{"title":"<a short, specific title>","pages":["page 1 text"],"outline":{{"want":"...","solution_object":"...","solution_seen_on_page":2,"big_moment":"...","ending":"...","time_of_day":"...","plot_shape":"..."}}}}
-- The title names the specific thing this story is about; never a placeholder such as "Title" or "Story Title".
+- The title is about the child's own adventure and its big idea; never a placeholder such as "Title" or "Story Title".
 - Story text is plain prose only: no Markdown or formatting symbols.
 """
 
