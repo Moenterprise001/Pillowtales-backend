@@ -24,8 +24,11 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from app.services import story_quality as Q
 
-V8_BUILD = "bedtime_v8=20261112"
-RUBRIC_VERSION_V8 = "v8-20261112"
+V8_BUILD = "bedtime_v8c=20261113"
+RUBRIC_VERSION_V8 = "v8c-20261113"
+
+
+print(f"[BUILD] {V8_BUILD} BEDTIME_V8={os.getenv('BEDTIME_V8', '0')}", flush=True)
 
 
 def v8_enabled() -> bool:
@@ -55,6 +58,15 @@ BAND_LABEL = {"young": "AGES 3-4", "middle": "AGES 5-7", "older": "AGES 8+"}
 # Story design, peril and voice by age (one block each)
 # ---------------------------------------------------------------------------
 
+# v8c (13 Nov): owner found "too much going on" in all three v8 stories (Sky-Herder had xenon, telemetry, a
+# gantry, a crane, a reflector dish, a satellite array and four failed tries). A budget of things per age, and
+# new events made from those same things, not from new characters, places or gadgets.
+_BUDGET = {
+    "young": "one place (or a short trip with 2 stops), the child plus at most 2 others, ONE special object",
+    "middle": "at most 2 places, the child plus at most 3 others, at most 2 special objects",
+    "older": "at most 3 places, the child plus at most 4 others, at most 3 special objects",
+}
+
 _DESIGN = {
     "young": (
         "- One want, in one place or a short trip with at most 2 stops.\n"
@@ -64,13 +76,13 @@ _DESIGN = {
         "- The answer is simple and clearly the child's own: they notice, try or use the thing seen earlier."
     ),
     "middle": (
-        "- One want, one comic side character (plus at most one more), and one real setback.\n"
+        "- One want, at most one comic side character, and one real setback.\n"
         "- The answer is a small, clever idea of the child's that uses something seen earlier.\n"
         "- Every set-up pays off."
     ),
     "older": (
         "- One want and a small cast (at most 3 other named characters).\n"
-        "- The child has a small, believable flaw that makes the first try fail; they get past it.\n"
+        "- At most two tries fail before the answer; the child may have a small flaw that causes one of them.\n"
         "- A mystery is welcome, with its true explanation revealed on the page by Page 6.\n"
         "- The answer takes insight or courage: facing a fear, owning up to a mistake, or a clever risk.\n"
         "- Every set-up pays off."
@@ -86,7 +98,7 @@ _PERIL = {
 _RHYTHM = {
     "young": "Short, bouncy sentences (mostly 4-9 words) with sounds to say aloud; one longer sentence now and then.",
     "middle": "Mostly short, lively sentences (6-12 words); now and then a longer build-up before a very short punchline.",
-    "older": "Varied sentences; wit, inference and a real dilemma are welcome. No adult literary or fantasy-novel prose.",
+    "older": "Clear sentences, mostly under 15 words, with variety; wit, inference and a real dilemma are welcome. Easy to read aloud; no adult literary or fantasy-novel prose.",
 }
 
 _HUMOUR = {
@@ -129,9 +141,10 @@ def imagination_block(age: Any) -> str:
     return (
         "A LITTLE BIT CRAZY (this is what children remember and ask for again):\n"
         f"- Build the story on ONE wonderfully odd big idea and take it completely seriously ({_CRAZY_BY_BAND[b]}).\n"
-        "- A world a child would design: fill it with wish-come-true details, such as slides instead of stairs from the top\n"
-        "  of the palace to the garden, a magic carpet for when you are late, a train that serves only hot chocolate and\n"
-        "  cornflakes. Invent fresh ones for this story (never copy these examples); use two or three, and let one matter to the plot.\n"
+        "- The big idea IS the fun: do not add other odd things beside it. Explore that one idea from new angles instead.\n"
+        "- A world a child would design: ONE wish-come-true detail that belongs to the big idea and matters to the plot, like\n"
+        "  slides instead of stairs from the top of the palace to the garden, a magic carpet for when you are late, or a train\n"
+        "  that serves only hot chocolate and cornflakes. Invent a fresh one for this story; never copy these examples.\n"
         "- Think like a child, not an adult: objects, weather and animals have feelings and opinions; wishes and rules work\n"
         "  literally; small things matter hugely; nothing is simply black and white. The child is in charge of the adventure.\n"
         f"- Funny the way children of this age find funny: {_KID_HUMOUR_BY_BAND[b]}.\n"
@@ -142,11 +155,23 @@ def imagination_block(age: Any) -> str:
     )
 
 
+def budget_block(age: Any) -> str:
+    return (
+        "FEW THINGS, USED WELL (the most important rule; children lose the thread when too much is going on):\n"
+        f"- The whole story uses at most {_BUDGET[band(age)]}. Count them; a busy story is a worse story.\n"
+        "- After Page 2 add no new character, place or important object. Every new event comes from what is already\n"
+        "  there doing something new: the same characters, the same object, the same big idea, taken further.\n"
+        "- No gadgets, machines or technical words (no telemetry, xenon, gantries, sluices, calibration). Plain, concrete,\n"
+        "  touchable things a child already knows: a spoon, a kite, a bucket, a ribbon.\n"
+        "- One thing happens at a time: one action per sentence, one problem at a time, so the listener can picture it."
+    )
+
+
 def design_block(age: Any) -> str:
     b = band(age)
     return (
         f"STORY DESIGN FOR {BAND_LABEL[b]}:\n" + _DESIGN[b] + "\n"
-        f"- Excitement level: {_PERIL[b]}.\n\n" + imagination_block(age)
+        f"- Excitement level: {_PERIL[b]}.\n\n" + budget_block(age) + "\n\n" + imagination_block(age)
     )
 
 
@@ -238,7 +263,8 @@ def story_rules_block(request: Any, moral_requested: bool, moral: Any) -> str:
   wrong; no adult, helper, magic, gift or luck solves it for the child.
 - PLANT AND PAY OFF: the thing the child uses to solve it is seen by Page 2. Nothing the child needs at the climax
   appears for the first time there. Every set-up that is made to look important pays off.
-- MOMENTUM: every page has at least one NEW event (an action, discovery, surprise, choice or consequence). At most two
+- MOMENTUM: every page has at least one NEW event (an action, discovery, surprise, choice or consequence), made from the
+  characters and things already in the story, never by adding more. At most two
   sentences of pure scenery per page. Never restate what the listener already knows. The first sentence of each page
   already moves the story; Page 2 opens with something happening.
 - NAMES: introduce the child by name, then use natural pronouns; bring the name back when it helps clarity. Nobody knows
@@ -429,6 +455,8 @@ JUDGE THE WHOLE STORY:
   in a world a child would design (wish-come-true details such as slides instead of stairs).
   Prefer a little bit crazy over sensible; mark down ordinary set-ups (a runaway pet, a contest, a lost item, a rule
   that needs explaining).
+- Few things, used well: prefer the candidate whose outline needs the fewest characters, places and objects. A busy
+  outline (many gadgets, helpers or places) loses to a simpler one, however clever.
 - Fun and excitement: a hook a child wants to follow, a big moment with real adventure for this age, real laughs.
 - The child has something to want or do and solves it with their own idea, using a thing seen on Page 1 or 2.
 - It hangs together: the ending fits Page 1, its time of day and its plot shape; every set-up pays off.
@@ -507,11 +535,8 @@ def build_plan_prompt(request: Any, title: str, page_one: str, moral_requested: 
         f"- Private moral: {moral}. The child's decisive act shows it through action and consequence; nobody names or explains it."
         if moral_requested else "- No moral was requested."
     )
-    none_ok = {
-        "young": "hidden_explanation, child_flaw and comic_trait may be \"none\" at this age.",
-        "middle": "hidden_explanation and child_flaw may be \"none\" if the story does not need them.",
-        "older": "hidden_explanation may be \"none\" if there is no mystery.",
-    }[b]
+    none_ok = ("hidden_explanation, child_flaw, comic_trait and signature_delight may be \"none\"; leave them out "
+               "rather than add things to fill them, and never add a character, place or object just for a field")
     return f"""You are the story editor for a seven-page PillowTales story. Page 1 is written and fixed. Plan Pages 2-7 so the
 finished story is one a child will ask for again tomorrow. Return only JSON matching the schema, written in English.
 
@@ -538,7 +563,8 @@ PLAN FIELDS (each idea once; {none_ok}):
   in words a child feels (a friend left waiting, a promise broken, a party that will not happen). stake_sign: a visible
   sign that the loss is coming closer, seen by Page 3 (not fading, dimming or going cold).
 - beats: exactly six strings, for Pages 2-7, 1-2 sentences each. Each beat starts with a NEW event that changes the
-  situation; no beat only describes, gets ready or repeats the problem. Follow the page map below.
+  situation, made from the characters and things already in the story; no beat only describes, gets ready or repeats
+  the problem, and no beat after Page 2 adds a new character, place or important object. Follow the page map below.
 - setback: the big moment, where it comes closest to going wrong.
 - solution_key: the one object, habit, skill or clue the child uses on Page 6 (the outline's solution);
   solution_planted_page: 1 or 2, where the listener first sees it.
@@ -566,6 +592,7 @@ PLAN RULES:
 {Q.pronoun_block(request)}{(Q.comfort_theme_block(request) + chr(10) + chr(10)) if Q.comfort_theme_block(request) else ""}SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
 1. Does the child's own act on Page 6 solve it?
 2. Is the solution_key seen on Page 1 or in the Page 2 beat?
+2b. Does the story stay within the FEW THINGS budget, with nothing new added after Page 2?
 3. Is every question answered in a Page 2-6 beat?
 4. Is everything consistent with Page 1?
 5. Is Page 7 only the happy result, with nothing new?{(chr(10) + "6. Does the decisive act show the moral without anyone stating it?") if moral_requested else ""}
@@ -656,6 +683,7 @@ PLAN_CHECK_KEYS_V8 = [
     ("solution_planted_early", True, "The solution_key is seen on Page 1 or in the Page 2 (at the latest Page 3) beat, and the Page 6 beat uses it."),
     ("answered_by_page6", True, "The hidden explanation (if any) and every item in threads_to_close is answered inside a specific Page 2-6 beat (check the beat text itself)."),
     ("no_contradictions", True, "Nothing contradicts Page 1 or another part of the plan, and no name or fact is known before it is learned."),
+    ("few_things", True, "The plan stays within the FEW THINGS budget for this age (count characters, places and important objects across Page 1 and all beats) and adds no new character, place or important object after the Page 2 beat."),
     ("page7_result_only", True, "The Page 7 beat shows only the happy result, the callback and the final moment: nothing new arrives, is rescued, revealed, explained or decided."),
 ]
 
@@ -677,6 +705,7 @@ Return only JSON matching the schema. Answer false only when the plan clearly br
 taste or style. For every false answer, add one short, specific issue that says exactly what to change.
 
 STORY FACTS: theme "{theme}"; listener age {age}.
+FEW THINGS BUDGET FOR THIS AGE: at most {_BUDGET[band(age)]}.
 
 PAGE 1 (FIXED):
 {page_one}
@@ -705,7 +734,10 @@ EDITOR_CHECKLIST_V8 = """- Momentum (most important): flag ANY page where nothin
 - Family: no invented family for the child (mum, dad, grandparents, siblings, aunts, uncles, cousins) unless the parent added them.
 - Continuity: no contradictions; nobody knows a name or fact before learning it; objects and names stay consistent.
 - Age fit: words and sentences match the age standard.
-- A little bit crazy: flag a story that has become sensible or ordinary, a world with no wish-come-true details, a big idea that fades after Page 1, or a
+- Too much going on (check this first): flag any page that adds a new character, place or object after Page 2,
+  uses gadgets or technical words, or crams more than one thing happening into a sentence. Its fix must remove things
+  (cut the extra helper, gadget or place and give its job to something already in the story), never add.
+- A little bit crazy: flag a story that has become sensible or ordinary, a big idea that fades after Page 1, or a
   solution that works by adult practicality instead of the story's own child logic.
 - Voice and laughs: flag pages with no funny or delightful moment, forced "impressive" words, dialogue that only explains the plot, stacked
   adjectives, stock phrases, or a worn-out trope (fading/dimming/going-cold stakes, sneeze/hiccup puffs, a note giving
@@ -717,7 +749,7 @@ SCORE_CRITERIA_V8 = [
     ("opening_promise_resolved", "Every question/wish/mystery raised on Page 1 is clearly answered by the end."),
     ("child_drives_climax", "The child's own idea or action causes the resolution; not luck, an accident or a helper."),
     ("stakes_and_tension", "Real excitement and adventure for this age: something concrete is at stake, a big moment where it nearly goes wrong, and a reason to worry. A flat story where nothing is really at risk scores 6 at most. Lower it only for content that is graphic, cruel or leaves the child frightened at the end."),
-    ("coherence", "No confusing contradictions, muddled objects or loose threads; every introduced element matters."),
+    ("coherence", "Easy to follow: few characters, places and objects, each used well, and no confusing contradictions or loose threads. A busy story (many helpers, gadgets, places or technical words) scores 7 at most."),
     ("pacing", "Something NEW happens on every page and the listener always wants the next page. A page that mostly describes scenery, shows getting ready, or repeats the problem from the page before is a serious fault: any such page caps this score at 6, two or more at 5. The ending is not crammed."),
     ("moral_shown_not_told", "The moral (if any) is shown through choices and consequences, never stated or lectured."),
     ("age_fit_language", "Vocabulary and sentence craft match the listener's age, neither babyish nor too adult. Hard words put in to sound impressive lower this score."),
