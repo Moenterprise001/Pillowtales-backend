@@ -17,6 +17,10 @@ class PronunciationRule:
     replacement_text: str
     normalized_key: str
     version: int
+    # True when the respelling belongs to another language (English fallback):
+    # the name keeps its real spelling in the text and the respelling is only
+    # given to the voice as a guide.
+    guide_only: bool = False
 
 
 class StoryWorldPronunciationService:
@@ -39,7 +43,7 @@ class StoryWorldPronunciationService:
         self.repository = repository
         self.cache_ttl_seconds = max(0, int(cache_ttl_seconds))
         self.allow_unverified = bool(allow_unverified)
-        self._cache: dict[tuple[str, str], tuple[float, list[dict[str, Any]]]] = {}
+        self._cache: dict[tuple[str, str], tuple[float, tuple[list[dict[str, Any]], bool]]] = {}
 
     @staticmethod
     def _base_language(language_code: Optional[str]) -> str:
@@ -81,7 +85,7 @@ class StoryWorldPronunciationService:
             if key[0] == world_key:
                 self._cache.pop(key, None)
 
-    def _load_global_rows(self, language_code: str) -> list[dict[str, Any]]:
+    def _load_global_rows(self, language_code: str) -> tuple[list[dict[str, Any]], bool]:
         """Load global pronunciation rows with canonical-English fallback.
 
         Global rows are available to ordinary personalised bedtime stories and
@@ -94,23 +98,26 @@ class StoryWorldPronunciationService:
 
         cached = self._cache.get(cache_key)
         if cached is not None:
-            cached_at, rows = cached
+            cached_at, value = cached
             if self.cache_ttl_seconds == 0 or now - cached_at <= self.cache_ttl_seconds:
-                return rows
+                return value
 
         rows = self.repository.get_global_pronunciations(
             language_code=base_language,
         )
+        is_fallback = False
 
         if not rows and base_language != "en":
             rows = self.repository.get_global_pronunciations(
                 language_code="en",
             )
+            is_fallback = bool(rows)
 
-        self._cache[cache_key] = (now, rows)
-        return rows
+        value = (rows, is_fallback)
+        self._cache[cache_key] = (now, value)
+        return value
 
-    def _load_rows(self, world_id: str, language_code: str) -> list[dict[str, Any]]:
+    def _load_rows(self, world_id: str, language_code: str) -> tuple[list[dict[str, Any]], bool]:
         """Load language-specific pronunciation rows with canonical fallback.
 
         Story World pronunciation is cultural metadata, not narration-language
@@ -126,14 +133,15 @@ class StoryWorldPronunciationService:
 
         cached = self._cache.get(cache_key)
         if cached is not None:
-            cached_at, rows = cached
+            cached_at, value = cached
             if self.cache_ttl_seconds == 0 or now - cached_at <= self.cache_ttl_seconds:
-                return rows
+                return value
 
         rows = self.repository.get_pronunciations(
             world_id=str(world_id),
             language_code=base_language,
         )
+        is_fallback = False
 
         # Global Story Worlds fallback: existing canonical pronunciation sets are
         # stored under English. A narration-language-specific set, when present,
@@ -144,15 +152,22 @@ class StoryWorldPronunciationService:
                 world_id=str(world_id),
                 language_code="en",
             )
+            is_fallback = bool(rows)
 
-        self._cache[cache_key] = (now, rows)
-        return rows
+        # is_fallback=True means these are English respellings being used for
+        # another narration language. They are NOT pasted into the text (an
+        # English respelling read by a French or Japanese voice is wrong); they
+        # become a pronunciation guide in the TTS instructions instead.
+        value = (rows, is_fallback)
+        self._cache[cache_key] = (now, value)
+        return value
 
     @staticmethod
     def _provider_replacement(
         row: dict[str, Any],
         provider: str,
         voice: Optional[str],
+        language: Optional[str] = None,
     ) -> Optional[str]:
         overrides = row.get("provider_overrides") or {}
         if not isinstance(overrides, dict):
@@ -177,6 +192,14 @@ class StoryWorldPronunciationService:
                         or voice_value.get("text")
                     )
 
+            # Language-specific respelling, e.g.
+            # {"openai": {"audio_text_by_lang": {"fr": "...", "es": "..."}}}
+            by_lang = provider_config.get("audio_text_by_lang")
+            if not replacement and language and isinstance(by_lang, dict):
+                lang_value = by_lang.get(language)
+                if isinstance(lang_value, str) and lang_value.strip():
+                    replacement = lang_value
+
             if not replacement:
                 replacement = (
                     provider_config.get("audio_text")
@@ -198,6 +221,7 @@ class StoryWorldPronunciationService:
         *,
         provider: str,
         voice: Optional[str],
+        language: Optional[str] = None,
     ) -> list[PronunciationRule]:
         rules: list[PronunciationRule] = []
 
@@ -213,7 +237,23 @@ class StoryWorldPronunciationService:
             if not display_text:
                 continue
 
-            replacement = self._provider_replacement(row, provider, voice)
+            is_fallback = bool(row.get("_pt_fallback"))
+            lang_replacement = None
+            if is_fallback:
+                # Only a respelling written for this narration language may be
+                # pasted into the text; otherwise the English one is a guide.
+                lang_replacement = self._provider_replacement(
+                    {**row, "phonetic_hint": None}, provider, voice, language
+                )
+                english = self._provider_replacement(row, provider, voice, None)
+                if lang_replacement and lang_replacement != english:
+                    replacement, guide_only = lang_replacement, False
+                else:
+                    replacement, guide_only = english, True
+            else:
+                replacement = self._provider_replacement(row, provider, voice, language)
+                guide_only = False
+
             if not replacement or replacement.casefold() == display_text.casefold():
                 continue
 
@@ -223,6 +263,7 @@ class StoryWorldPronunciationService:
                     replacement_text=replacement,
                     normalized_key=str(row.get("normalized_key") or display_text.casefold()).strip(),
                     version=int(row.get("version") or 1),
+                    guide_only=guide_only,
                 )
             )
 
@@ -237,6 +278,10 @@ class StoryWorldPronunciationService:
         pattern = rf"(?i)(?<!\w){escaped}(?!\w)"
         return re.sub(pattern, lambda _match: target, text)
 
+    @staticmethod
+    def _contains_phrase(text: str, source: str) -> bool:
+        return re.search(rf"(?i)(?<!\w){re.escape(source)}(?!\w)", text) is not None
+
     def apply(
         self,
         *,
@@ -246,6 +291,24 @@ class StoryWorldPronunciationService:
         provider: str,
         voice: Optional[str] = None,
     ) -> str:
+        """Backwards-compatible wrapper: narration text only (no guide)."""
+        return self.prepare(
+            text=text,
+            world_id=world_id,
+            language_code=language_code,
+            provider=provider,
+            voice=voice,
+        )[0]
+
+    def prepare(
+        self,
+        *,
+        text: str,
+        world_id: Optional[str],
+        language_code: str,
+        provider: str,
+        voice: Optional[str] = None,
+    ) -> tuple[str, list[tuple[str, str]]]:
         """Return narration-only text with shared verified pronunciation rules.
 
         Resolution order:
@@ -260,14 +323,17 @@ class StoryWorldPronunciationService:
         Stored/displayed story text is never changed.
         """
         if not text:
-            return text
+            return text, []
 
         normalised_provider = self._normalise_provider(provider)
+        base_language = self._base_language(language_code)
 
-        global_rows = self._load_global_rows(language_code)
+        global_rows, global_fallback = self._load_global_rows(language_code)
         merged_rows: dict[str, dict[str, Any]] = {}
 
         for row in global_rows:
+            if global_fallback:
+                row = {**row, "_pt_fallback": True}
             key = str(
                 row.get("normalized_key")
                 or row.get("display_text")
@@ -277,8 +343,10 @@ class StoryWorldPronunciationService:
                 merged_rows[key] = row
 
         if world_id:
-            world_rows = self._load_rows(str(world_id), language_code)
+            world_rows, world_fallback = self._load_rows(str(world_id), language_code)
             for row in world_rows:
+                if world_fallback:
+                    row = {**row, "_pt_fallback": True}
                 key = str(
                     row.get("normalized_key")
                     or row.get("display_text")
@@ -293,14 +361,20 @@ class StoryWorldPronunciationService:
             list(merged_rows.values()),
             provider=normalised_provider,
             voice=voice,
+            language=base_language,
         )
 
         narration_text = text
+        guide: list[tuple[str, str]] = []
         for rule in rules:
+            if rule.guide_only:
+                if self._contains_phrase(narration_text, rule.display_text):
+                    guide.append((rule.display_text, rule.replacement_text))
+                continue
             narration_text = self._replace_phrase(
                 narration_text,
                 rule.display_text,
                 rule.replacement_text,
             )
 
-        return narration_text
+        return narration_text, guide
