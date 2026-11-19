@@ -214,6 +214,11 @@ async def get_story_artwork(
     if not story:
         raise HTTPException(status_code=404, detail='Story not found')
 
+    # Seasonal Stories keep their pictures in the ss_ tables (theme 'seasonal:<celebration>:<story>').
+    if str(story.get('theme') or '').startswith('seasonal:'):
+        from app.seasonal.routes import seasonal_artwork_for_saved_story
+        return {'artwork': seasonal_artwork_for_saved_story(story)}
+
     artwork = story_service.get_story_world_artwork_for_saved_story(story)
     return {'artwork': artwork}
 

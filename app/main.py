@@ -5,6 +5,7 @@ from starlette.middleware.cors import CORSMiddleware
 
 from app.api.deps import get_story_repo
 from app.api.routes import admin, auth, catalog, narration, parent_voice, revenuecat, stories, story_worlds, subscription, system, user
+from app.seasonal.routes import router as seasonal_router
 from app.core.config import settings
 from app.core.logging import configure_logging
 from app.repositories.story_repository import StoryRepository
@@ -29,6 +30,7 @@ app.include_router(user.router, prefix=settings.api_prefix)
 app.include_router(parent_voice.router, prefix=settings.api_prefix)
 app.include_router(stories.router, prefix=settings.api_prefix)
 app.include_router(story_worlds.router, prefix=settings.api_prefix)
+app.include_router(seasonal_router, prefix=settings.api_prefix)
 app.include_router(narration.router, prefix=settings.api_prefix)
 app.include_router(revenuecat.router, prefix=settings.api_prefix)
 app.include_router(admin.router, prefix=settings.api_prefix)
