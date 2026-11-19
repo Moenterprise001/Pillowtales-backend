@@ -153,9 +153,14 @@ def add_soft_chunk_leadin(text: str) -> str:
 
 
 def _replace_phrases(text: str, replacements: dict[str, str]) -> str:
-    """Case-sensitive phrase replacement used by narration polish only."""
+    """Case-sensitive whole-word phrase replacement used by narration polish only.
+
+    Whole words only, so "auto" never changes "autor" or "autoridad",
+    "carro" never changes "carroza" and "linda" never changes "Belinda".
+    """
     for source, target in replacements.items():
-        text = text.replace(source, target)
+        pattern = rf"(?<!\w){re.escape(source)}(?!\w)"
+        text = re.sub(pattern, lambda _m, t=target: t, text)
     return text
 
 
@@ -300,11 +305,15 @@ def adapt_spanish_castellano(text: str) -> str:
     return text
 
 
-def soften_bedtime_narration_text(text: str, language_code: str) -> str:
+def soften_bedtime_narration_text(text: str, language_code: str, keep_words: bool = False) -> str:
     """Light language-specific spoken-flow shaping before TTS.
 
     This must stay a text-only polish layer. It must not affect narration job
     ownership, chunking, playback, page status, or cache logic.
+
+    keep_words=True (Story Worlds): only punctuation and pauses are shaped.
+    No word is swapped, so the audio says exactly what the page says
+    ("suddenly" stays "suddenly") and read-along keeps working.
     """
     if not text:
         return text
@@ -316,7 +325,8 @@ def soften_bedtime_narration_text(text: str, language_code: str) -> str:
     text = text.replace(" — ", ". ").replace(" – ", ". ")
 
     if lang == "es":
-        text = adapt_spanish_castellano(text)
+        if not keep_words:
+            text = adapt_spanish_castellano(text)
         # Spain bedtime speech benefits from short, clear breaths. Keep commas
         # light and sentence pauses soft; avoid adding words or instructions.
         text = re.sub(r"([.!?])\s+", r"\1  ", text)
@@ -329,28 +339,31 @@ def soften_bedtime_narration_text(text: str, language_code: str) -> str:
         # without altering meaning or adding unspoken directions.
         text = re.sub(r"([.!?])\s+", r"\1  ", text)
         text = re.sub(r"(;|:)\s+", r".  ", text)
-        text = re.sub(r"\btrès très\b", "très", text, flags=re.IGNORECASE)
-        text = text.replace(" tout doucement ", " doucement ")
-        text = text.replace(" petite petite ", " petite ")
-        text = text.replace(" petit petit ", " petit ")
-        text = text.replace("d’un seul coup", "doucement")
-        text = text.replace("tout à coup", "alors")
+        if not keep_words:
+            text = re.sub(r"\btrès très\b", "très", text, flags=re.IGNORECASE)
+            text = text.replace(" tout doucement ", " doucement ")
+            text = text.replace(" petite petite ", " petite ")
+            text = text.replace(" petit petit ", " petit ")
+            text = text.replace("d’un seul coup", "doucement")
+            text = text.replace("tout à coup", "alors")
         return text.strip()
 
     if lang == "de":
         text = re.sub(r"([.!?])\s+", r"\1  ", text)
         text = re.sub(r"(;|:)\s+", r".  ", text)
-        text = text.replace("ganz ganz", "ganz")
-        text = text.replace("plötzlich", "leise")
-        text = text.replace("auf einmal", "dann")
+        if not keep_words:
+            text = text.replace("ganz ganz", "ganz")
+            text = text.replace("plötzlich", "leise")
+            text = text.replace("auf einmal", "dann")
         return text.strip()
 
     if lang == "it":
         text = re.sub(r"([.!?])\s+", r"\1  ", text)
         text = re.sub(r"(;|:)\s+", r".  ", text)
-        text = re.sub(r"\bmolto molto\b", "molto", text, flags=re.IGNORECASE)
-        text = text.replace("all’improvviso", "piano piano")
-        text = text.replace("tutto a un tratto", "poi")
+        if not keep_words:
+            text = re.sub(r"\bmolto molto\b", "molto", text, flags=re.IGNORECASE)
+            text = text.replace("all’improvviso", "piano piano")
+            text = text.replace("tutto a un tratto", "poi")
         return text.strip()
 
     if lang == "ja":
@@ -745,18 +758,18 @@ class NarrationService:
 
         if requested_lang == "en-GB":
             return (
-                "Read as a gentle British mother reading a continuous bedtime story."
-		"Use a soft, warm British accent."
-		"Treat every page as part of the exact same bedtime reading session."
-		"Narrator identity, accent, pacing, energy level, warmth and emotional tone must remain identical throughout the story."
-		"Never reinterpret the narrator."
-		"Never change voice character."
-		"Never change energy level."
-		"Never sound like a different speaker."
-		"Never switch between storyteller styles."
-		"Speak softly and naturally as though reading to one sleepy child."
-		"Avoid theatrical, audiobook, presenter, commercial, stage-performance or dramatic delivery."
-    	    )  
+                "Read as a gentle British mother reading a continuous bedtime story. "
+                "Use a soft, warm British accent. "
+                "Treat every page as part of the exact same bedtime reading session. "
+                "Narrator identity, accent, pacing, energy level, warmth and emotional tone must remain identical throughout the story. "
+                "Never reinterpret the narrator. "
+                "Never change voice character. "
+                "Never change energy level. "
+                "Never sound like a different speaker. "
+                "Never switch between storyteller styles. "
+                "Speak softly and naturally as though reading to one sleepy child. "
+                "Avoid theatrical, audiobook, presenter, commercial, stage-performance or dramatic delivery."
+            )
 
         if requested_lang == "en-US":
             return (
@@ -835,13 +848,46 @@ class NarrationService:
             "Avoid robotic, theatrical, commercial, audiobook-announcer, cartoon-granny, or overly energetic delivery."
         )
 
-    async def _generate_openai_tts(self, text: str, voice: str, language_code: Optional[str] = None) -> bytes:
+    @staticmethod
+    def _pronunciation_guide_instructions(guide: Optional[list[tuple[str, str]]]) -> str:
+        """Per-page name guide for gpt-4o-mini-tts (it follows `instructions`).
+
+        The name keeps its real spelling in the text; the voice is told how it
+        sounds. Used where an English respelling must not be pasted into the
+        text (narration in another language).
+        """
+        if not guide:
+            return ""
+        seen: set[str] = set()
+        parts: list[str] = []
+        for name, sound in guide:
+            key = name.casefold()
+            if key in seen:
+                continue
+            seen.add(key)
+            parts.append(f'{name} sounds like the English "{sound}"')
+        if not parts:
+            return ""
+        return (
+            " Names on this page: " + "; ".join(parts) + ". "
+            "Say each of these names with that sound every time it appears, "
+            "keeping the narrator's own accent for every other word."
+        )
+
+    async def _generate_openai_tts(
+        self,
+        text: str,
+        voice: str,
+        language_code: Optional[str] = None,
+        pronunciation_guide: Optional[list[tuple[str, str]]] = None,
+    ) -> bytes:
         api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key:
             raise RuntimeError("OPENAI_API_KEY not configured")
 
         provider_voice = VOICE_PRESETS.get(voice, {}).get("voice_id") or "shimmer"
         instructions = self._openai_tts_instructions(voice, language_code)
+        instructions += self._pronunciation_guide_instructions(pronunciation_guide)
 
         retries = 2
 
@@ -1090,8 +1136,13 @@ class NarrationService:
         language_code: str,
         voice: str,
         voice_mode: str,
-    ) -> str:
+    ) -> tuple[str, list[tuple[str, str]]]:
         """Apply the shared verified pronunciation layer to narration-only text.
+
+        Returns (narration_text, guide). guide lists (name, English respelling)
+        pairs for names on this page that keep their spelling because the
+        respelling belongs to another language; they go into the TTS
+        instructions.
 
         Despite the legacy method name, this now serves both ordinary PillowTales
         bedtime stories and Story Worlds:
@@ -1104,11 +1155,11 @@ class NarrationService:
         Pronunciation quality must never block Page 1 narration startup.
         """
         if not text or not self.story_world_pronunciation_service:
-            return text
+            return text, []
 
         provider = self._story_world_pronunciation_provider(voice_mode=voice_mode)
         try:
-            adjusted = self.story_world_pronunciation_service.apply(
+            adjusted, guide = self.story_world_pronunciation_service.prepare(
                 text=text,
                 world_id=(str(story_world_id) if story_world_id else None),
                 language_code=language_code,
@@ -1122,7 +1173,12 @@ class NarrationService:
                     f"scope={scope} provider={provider} voice={voice} "
                     f"language={language_code}"
                 )
-            return adjusted
+            if guide:
+                print(
+                    f"[NARRATION] Pronunciation guide names={[n for n, _ in guide]} "
+                    f"provider={provider} language={language_code}"
+                )
+            return adjusted, guide
         except Exception as exc:
             # Non-blocking by design: never delay or fail Page 1 because a
             # pronunciation lookup/override is unavailable.
@@ -1130,7 +1186,7 @@ class NarrationService:
                 f"[NARRATION] Shared pronunciation skipped after error "
                 f"world_id={story_world_id} provider={provider} voice={voice}: {repr(exc)}"
             )
-            return text
+            return text, []
 
     async def _generate_page_audio(
         self,
@@ -1194,32 +1250,13 @@ class NarrationService:
                     f"slug={story_world_slug}: {repr(exc)}"
                 )
 
-        pronunciation_input_text = tts_text
-        tts_text = self._apply_story_world_pronunciation(
+        tts_text, pronunciation_guide = self._apply_story_world_pronunciation(
             text=tts_text,
             story_world_id=resolved_story_world_id,
             language_code=language_code,
             voice=voice,
             voice_mode=voice_mode,
         )
-
-        # TEMPORARY PRONUNCIATION QA DIAGNOSTIC:
-        # Keep this narrow and cheap. It proves whether the Ireland Fionn rules
-        # were applied before OpenAI/ElevenLabs receives the page.
-        fionn_before = len(re.findall(r"(?i)(?<!\\w)Fionn(?!\\w)", pronunciation_input_text))
-        fionn_after = len(re.findall(r"(?i)(?<!\\w)Fionn(?!\\w)", tts_text))
-        fyunn_after = len(re.findall(r"(?i)(?<!\\w)fyunn(?!\\w)", tts_text))
-        full_before = len(re.findall(r"(?i)(?<!\\w)Fionn\\s+mac\\s+Cumhaill(?!\\w)", pronunciation_input_text))
-        full_after = len(re.findall(r"(?i)(?<!\\w)fyunn\\s+mak\\s+koo['’]l(?!\\w)", tts_text))
-        if fionn_before or fionn_after or fyunn_after or full_before or full_after:
-            print(
-                f"[PRONUNCIATION_QA] page={page} world_id={resolved_story_world_id} "
-                f"provider={self._story_world_pronunciation_provider(voice_mode=voice_mode)} "
-                f"voice={voice} "
-                f"Fionn_before={fionn_before} Fionn_after={fionn_after} "
-                f"fyunn_after={fyunn_after} "
-                f"full_name_before={full_before} full_name_after={full_after}"
-            )
 
         if voice_mode == "parent":
             # Parent Voice uses ElevenLabs and previously had good natural timing.
@@ -1230,7 +1267,10 @@ class NarrationService:
         else:
             # Standard OpenAI narrators keep the bedtime/accent shaping added for
             # smoother page transitions and improved non-English delivery.
-            tts_text = soften_bedtime_narration_text(tts_text, language_code)
+            is_story_world = bool(resolved_story_world_id or story_world_slug)
+            tts_text = soften_bedtime_narration_text(
+                tts_text, language_code, keep_words=is_story_world
+            )
             tts_text = prepare_narration_text(tts_text)
 
             # Keep page 1 as fast as possible for bedtime startup speed.
@@ -1259,9 +1299,13 @@ class NarrationService:
                 # Bulletproof fallback: keep the whole job alive with standard narration.
                 used_mode = "fallback_tts"
                 fallback_voice = self.default_voice_for_language(language_code)
-                audio = await self._generate_openai_tts(tts_text, fallback_voice, language_code)
+                audio = await self._generate_openai_tts(
+                    tts_text, fallback_voice, language_code, pronunciation_guide
+                )
         else:
-            audio = await self._generate_openai_tts(tts_text, voice, language_code)
+            audio = await self._generate_openai_tts(
+                tts_text, voice, language_code, pronunciation_guide
+            )
 
         storage_path = self._storage_path(user_id, story_id, voice, language_code, page)
         await self._upload_audio(storage_path, audio)
