@@ -849,28 +849,40 @@ class NarrationService:
         )
 
     @staticmethod
-    def _pronunciation_guide_instructions(guide: Optional[list[tuple[str, str]]]) -> str:
+    @staticmethod
+    def _pronunciation_guide_instructions(guide) -> str:
         """Per-page name guide for gpt-4o-mini-tts (it follows `instructions`).
 
-        The name keeps its real spelling in the text; the voice is told how it
-        sounds. Used where an English respelling must not be pasted into the
-        text (narration in another language).
+        Entries are (text_on_page, english_sound, hint, original_name):
+        - other languages: the real name is on the page; the voice is told the
+          English sound-alike and the hint.
+        - English: the page already carries the respelling; the voice is told
+          it is one name and how to say it (hint), so it reads it smoothly.
+        Older 2-tuples (name, sound) are still accepted.
         """
         if not guide:
             return ""
         seen: set[str] = set()
         parts: list[str] = []
-        for name, sound in guide:
-            key = name.casefold()
+        for entry in guide:
+            entry = tuple(entry) + (None, None, None)
+            shown, sound, hint, original = entry[0], entry[1], entry[2], entry[3]
+            if not shown:
+                continue
+            key = str(shown).casefold()
             if key in seen:
                 continue
             seen.add(key)
-            parts.append(f'{name} sounds like the English "{sound}"')
+            hint_text = f" ({hint})" if hint else ""
+            if original:
+                parts.append(f'"{shown}" is the Irish name {original}, said as one smooth name{hint_text}')
+            elif sound:
+                parts.append(f'{shown} sounds like the English "{sound}"{hint_text}')
         if not parts:
             return ""
         return (
             " Names on this page: " + "; ".join(parts) + ". "
-            "Say each of these names with that sound every time it appears, "
+            "Say each of these names the same way every time it appears, "
             "keeping the narrator's own accent for every other word."
         )
 
@@ -879,7 +891,7 @@ class NarrationService:
         text: str,
         voice: str,
         language_code: Optional[str] = None,
-        pronunciation_guide: Optional[list[tuple[str, str]]] = None,
+        pronunciation_guide: Optional[list] = None,
     ) -> bytes:
         api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key:
@@ -1136,7 +1148,7 @@ class NarrationService:
         language_code: str,
         voice: str,
         voice_mode: str,
-    ) -> tuple[str, list[tuple[str, str]]]:
+    ) -> tuple[str, list]:
         """Apply the shared verified pronunciation layer to narration-only text.
 
         Returns (narration_text, guide). guide lists (name, English respelling)
@@ -1175,7 +1187,7 @@ class NarrationService:
                 )
             if guide:
                 print(
-                    f"[NARRATION] Pronunciation guide names={[n for n, _ in guide]} "
+                    f"[NARRATION] Pronunciation guide names={[g[0] for g in guide]} "
                     f"provider={provider} language={language_code}"
                 )
             return adjusted, guide

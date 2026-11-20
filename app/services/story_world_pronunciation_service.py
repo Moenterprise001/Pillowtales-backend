@@ -21,6 +21,9 @@ class PronunciationRule:
     # the name keeps its real spelling in the text and the respelling is only
     # given to the voice as a guide.
     guide_only: bool = False
+    # Optional plain-English hint for the voice, e.g. "rhymes with day" or
+    # "stress on NOO". Stored as provider_overrides.<provider>.say_hint.
+    hint: str = ""
 
 
 class StoryWorldPronunciationService:
@@ -257,6 +260,12 @@ class StoryWorldPronunciationService:
             if not replacement or replacement.casefold() == display_text.casefold():
                 continue
 
+            hint = ""
+            overrides = row.get("provider_overrides") or {}
+            provider_config = overrides.get(provider) if isinstance(overrides, dict) else None
+            if isinstance(provider_config, dict):
+                hint = str(provider_config.get("say_hint") or "").strip()
+
             rules.append(
                 PronunciationRule(
                     display_text=display_text,
@@ -264,6 +273,7 @@ class StoryWorldPronunciationService:
                     normalized_key=str(row.get("normalized_key") or display_text.casefold()).strip(),
                     version=int(row.get("version") or 1),
                     guide_only=guide_only,
+                    hint=hint,
                 )
             )
 
@@ -308,7 +318,7 @@ class StoryWorldPronunciationService:
         language_code: str,
         provider: str,
         voice: Optional[str] = None,
-    ) -> tuple[str, list[tuple[str, str]]]:
+    ) -> tuple[str, list[tuple[str, Optional[str], str, Optional[str]]]]:
         """Return narration-only text with shared verified pronunciation rules.
 
         Resolution order:
@@ -364,13 +374,18 @@ class StoryWorldPronunciationService:
             language=base_language,
         )
 
+        # Guide entries: (text_the_voice_sees, english_sound_or_None, hint, original_name_or_None)
+        #   guide_only (other languages): (name, respelling, hint, None)
+        #   replaced (English):           (respelling, None, hint, name)  only when a hint exists
         narration_text = text
-        guide: list[tuple[str, str]] = []
+        guide: list[tuple[str, Optional[str], str, Optional[str]]] = []
         for rule in rules:
             if rule.guide_only:
                 if self._contains_phrase(narration_text, rule.display_text):
-                    guide.append((rule.display_text, rule.replacement_text))
+                    guide.append((rule.display_text, rule.replacement_text, rule.hint, None))
                 continue
+            if rule.hint and self._contains_phrase(narration_text, rule.display_text):
+                guide.append((rule.replacement_text, None, rule.hint, rule.display_text))
             narration_text = self._replace_phrase(
                 narration_text,
                 rule.display_text,
