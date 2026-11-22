@@ -1420,11 +1420,11 @@ PLAN_CHECK_SCHEMA = {
 
 
 def plan_check_keys() -> list:
-    return _v8().PLAN_CHECK_KEYS_V8 if _v8() else PLAN_CHECK_KEYS
+    return _v8().plan_check_keys() if _v8() else PLAN_CHECK_KEYS
 
 
 def plan_check_schema() -> dict:
-    return _v8().PLAN_CHECK_SCHEMA_V8 if _v8() else PLAN_CHECK_SCHEMA
+    return _v8().plan_check_schema() if _v8() else PLAN_CHECK_SCHEMA
 
 
 def build_plan_check_prompt(request: Any, page_one: str, plan: dict, age: int) -> str:

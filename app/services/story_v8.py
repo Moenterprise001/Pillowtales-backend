@@ -35,12 +35,44 @@ def v8d_enabled() -> bool:
     return os.getenv("BEDTIME_V8D", "1").strip().lower() not in {"0", "false", "no", "off"}
 
 
+V8E_BUILD = "bedtime_v8e=20261122"
+V8E_RUBRIC = "v8e-20261122"
+
+
+def v8e_enabled() -> bool:
+    """v8e (22 Nov 2026): the solution must really work, the child is in charge, the ending fits its time and place.
+    Builds on v8d. BEDTIME_V8E=0 gives back v8d exactly (and BEDTIME_V8D=0 gives back v8c)."""
+    return v8d_enabled() and os.getenv("BEDTIME_V8E", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
 def current_build() -> str:
-    return V8D_BUILD if v8d_enabled() else V8C_BUILD
+    return V8E_BUILD if v8e_enabled() else V8D_BUILD if v8d_enabled() else V8C_BUILD
 
 
 def current_rubric() -> str:
-    return V8D_RUBRIC if v8d_enabled() else V8C_RUBRIC
+    return V8E_RUBRIC if v8e_enabled() else V8D_RUBRIC if v8d_enabled() else V8C_RUBRIC
+
+
+# v8e (22 Nov 2026), from the first live v8d stories: in The Moon Picnic Rocket (age 6) sharing a sandwich "made" a
+# too-wide lunch box fit the hatch, a robot sidekick did all the action on Pages 2-5 while Emily watched, and a sunny
+# afternoon ended "among the stars".
+V8E_CHILD_IN_CHARGE = (
+    "\n- THE CHILD IS IN CHARGE: from Page 2 on, the child does something on every page: tries, chooses, notices, makes or\n"
+    "  says something that matters. A sidekick may help or make things funnily worse, but never does the main action for a\n"
+    "  whole page while the child watches."
+)
+V8E_SOLUTION_WORKS = (
+    " It must really fix the actual\n  problem by the story's own rules: if the problem is that something is too big, too far,\n"
+    "  stuck or lost, the act changes exactly that. A kind or brave gesture alone never fixes a physical problem."
+)
+V8E_BEATS = (" From the Page 2 beat on, the child does\n  something that matters in every beat; a sidekick never carries a beat alone.")
+V8E_SELF_CHECK = (
+    "1b. Would the decisive act really fix the actual problem, by the story's own rules? (A gesture alone fixes nothing physical.)\n"
+    "1c. Does the child do something that matters in every beat from Page 2?\n"
+)
+V8E_ENDING = (
+    "\n- The last page matches the story's own time and place: a sunny afternoon ends in sunshine, not among the stars."
+)
 
 
 # Kept for anything that reads the old names.
@@ -363,7 +395,7 @@ def story_rules_block(request: Any, moral_requested: bool, moral: Any) -> str:
     return f"""STORY RULES (each stated once):
 - THEME: "{theme}" is a real promise. Its central subject is literally in the story, affects the plot and meets the child early.
 - THE CHILD SOLVES IT: the child's own idea or action causes the solution on Page 6. Helpers may help or get it funnily
-  wrong; no adult, helper, magic, gift or luck solves it for the child.
+  wrong; no adult, helper, magic, gift or luck solves it for the child.{V8E_CHILD_IN_CHARGE if v8e_enabled() else ""}
 - PLANT AND PAY OFF: the thing the child uses to solve it is seen by Page 2. Nothing the child needs at the climax
   appears for the first time there. Every set-up that is made to look important pays off.
 - MOMENTUM: every page has at least one NEW event (an action, discovery, surprise, choice or consequence), made from the
@@ -449,7 +481,7 @@ def ending_block(final_page: int = 7) -> str:
 - The story is complete: no cliffhanger and no "another adventure was waiting". It should be an ending a child loves
   enough to ask for PillowTales again tomorrow.
 - Never end on a summary of feelings ("felt very proud", "was ready for anything") and never explain the lesson.
-- The final sentence is a concrete image, action, sound or line of dialogue from this story. Then write exactly: The End."""
+- The final sentence is a concrete image, action, sound or line of dialogue from this story. Then write exactly: The End.{V8E_ENDING if v8e_enabled() else ""}"""
 
 
 NOT_FINAL_BLOCK = """NOT THE ENDING YET:
@@ -672,11 +704,11 @@ PLAN FIELDS (each idea once; {none_ok}):
   sign that the loss is coming closer, seen by Page 3 (not fading, dimming or going cold).
 - beats: exactly six strings, for Pages 2-7, 1-2 sentences each. Each beat starts with a NEW event that changes the
   situation, made from the characters and things already in the story; no beat only describes, gets ready or repeats
-  the problem, and no beat after Page 2 adds a new character, place or important object.{V8D_BEATS if v8d_enabled() else ""} Follow the page map below.
+  the problem, and no beat after Page 2 adds a new character, place or important object.{V8D_BEATS if v8d_enabled() else ""}{V8E_BEATS if v8e_enabled() else ""} Follow the page map below.
 - setback: the big moment, where it comes closest to going wrong.
 - solution_key: the one object, habit, skill or clue the child uses on Page 6 (the outline's solution);
   solution_planted_page: 1 or 2, where the listener first sees it.
-- childs_decisive_act: what the child does on Page 6 with the solution_key; the child's own idea. {_ACT_BY_BAND[b]}
+- childs_decisive_act: what the child does on Page 6 with the solution_key; the child's own idea. {_ACT_BY_BAND[b]}{V8E_SOLUTION_WORKS if v8e_enabled() else ""}
 - callback_detail: a Page 1 detail that returns on Page 7.
 - final_image: the last image: happy and satisfying, at the story's own time of day.
 - threads_to_close: every open question; each is answered in a specific Page 2-6 beat.
@@ -699,7 +731,7 @@ PLAN RULES:
 
 {Q.pronoun_block(request)}{(Q.comfort_theme_block(request) + chr(10) + chr(10)) if Q.comfort_theme_block(request) else ""}SELF-CHECK BEFORE ANSWERING (fix the plan if any answer is "no"):
 1. Does the child's own act on Page 6 solve it?
-2. Is the solution_key seen on Page 1 or in the Page 2 beat?
+{V8E_SELF_CHECK if v8e_enabled() else ""}2. Is the solution_key seen on Page 1 or in the Page 2 beat?
 2b. Does the story stay within the FEW THINGS budget, with nothing new added after Page 2?
 3. Is every question answered in a Page 2-6 beat?
 4. Is everything consistent with Page 1?
@@ -795,6 +827,25 @@ PLAN_CHECK_KEYS_V8 = [
     ("page7_result_only", True, "The Page 7 beat shows only the happy result, the callback and the final moment: nothing new arrives, is rescued, revealed, explained or decided."),
 ]
 
+PLAN_CHECK_KEYS_V8E_EXTRA = [
+    ("solution_really_works", True, "The childs_decisive_act would really fix the actual problem by the story's own rules (if the problem is that something is too big, too far, stuck or lost, the act changes exactly that). A kind or brave gesture alone does not fix a physical problem."),
+    ("child_in_charge", True, "From the Page 2 beat on, the child does something that matters in every beat (tries, chooses, notices, makes); no beat is carried by a sidekick while the child only watches."),
+]
+
+
+def plan_check_keys() -> list:
+    return PLAN_CHECK_KEYS_V8 + (PLAN_CHECK_KEYS_V8E_EXTRA if v8e_enabled() else [])
+
+
+def plan_check_schema() -> dict:
+    keys = plan_check_keys()
+    return {
+        "type": "object",
+        "properties": {**{key: {"type": "boolean"} for key, _, _ in keys}, "issues": {"type": "array", "items": {"type": "string"}}},
+        "required": [*[key for key, _, _ in keys], "issues"],
+    }
+
+
 PLAN_CHECK_SCHEMA_V8 = {
     "type": "object",
     "properties": {
@@ -807,7 +858,7 @@ PLAN_CHECK_SCHEMA_V8 = {
 
 def build_plan_check_prompt(request: Any, page_one: str, plan: dict, age: int) -> str:
     theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
-    checks = "\n".join(f"- {key}: {desc}" for key, _, desc in PLAN_CHECK_KEYS_V8)
+    checks = "\n".join(f"- {key}: {desc}" for key, _, desc in plan_check_keys())
     return f"""You are a strict children's book editor checking a story plan before any page is written.
 Return only JSON matching the schema. Answer false only when the plan clearly breaks a check; do not fail a plan for
 taste or style. For every false answer, add one short, specific issue that says exactly what to change.
@@ -878,11 +929,27 @@ SCORE_CRITERIA_V8D = SCORE_CRITERIA_V8 + [
 ]
 
 
+EDITOR_V8E = """- Story logic (check right after reading aloud): flag a solution that would not really work by the story's own rules
+  (a gesture "fixing" a physical problem), any page from Page 2 where the child only watches while a sidekick acts, and
+  an ending that does not match the story's time and place. Fix by changing what the child does, never by adding things.
+"""
+
+SCORE_CRITERIA_V8E = [
+    (key, desc + (" The child also acts on every page from Page 2; a sidekick doing the action while the child watches lowers this score." if key == "child_drives_climax"
+                  else " A solution that would not really work by the story's own rules scores 7 at most." if key == "coherence" else ""))
+    for key, desc in SCORE_CRITERIA_V8D
+]
+
+
 def editor_checklist() -> str:
+    if v8e_enabled():
+        return EDITOR_READ_ALOUD_V8D + EDITOR_V8E + EDITOR_CHECKLIST_V8
     return (EDITOR_READ_ALOUD_V8D + EDITOR_CHECKLIST_V8) if v8d_enabled() else EDITOR_CHECKLIST_V8
 
 
 def score_criteria() -> list:
+    if v8e_enabled():
+        return SCORE_CRITERIA_V8E
     return SCORE_CRITERIA_V8D if v8d_enabled() else SCORE_CRITERIA_V8
 
 
