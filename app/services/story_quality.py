@@ -895,11 +895,11 @@ SCORE_RESPONSE_SCHEMA = {
 
 
 def score_criteria() -> list:
-    return _v8().SCORE_CRITERIA_V8 if _v8() else SCORE_CRITERIA
+    return _v8().score_criteria() if _v8() else SCORE_CRITERIA
 
 
 def score_response_schema() -> dict:
-    return _v8().SCORE_RESPONSE_SCHEMA_V8 if _v8() else SCORE_RESPONSE_SCHEMA
+    return _v8().score_schema() if _v8() else SCORE_RESPONSE_SCHEMA
 
 
 def build_score_prompt(request: Any, title: str, pages: List[str], moral_requested: bool, age: int,
@@ -945,7 +945,7 @@ def summarise_score(result: Dict[str, Any]) -> Dict[str, Any]:
         "criteria": scores,
         "weakest_page": result.get("weakest_page"),
         "top_issues": [str(i)[:200] for i in (result.get("top_issues") or [])][:4],
-        "rubric_version": _v8().RUBRIC_VERSION_V8 if _v8() else "20261112",
+        "rubric_version": _v8().current_rubric() if _v8() else "20261112",
     }
 
 
@@ -1801,7 +1801,7 @@ PLAN THE STORY WAS WRITTEN FROM:
 {plan_text(plan) if plan else "(none)"}
 
 CHECKLIST:
-{_v8().EDITOR_CHECKLIST_V8 if _v8() else EDITOR_CHECKLIST}
+{_v8().editor_checklist() if _v8() else EDITOR_CHECKLIST}
 {("AGE STANDARD:" + chr(10) + age_standard.strip()) if age_standard else ""}
 
 DRAFT:

@@ -4370,6 +4370,9 @@ OUTPUT RULES:
             first = (25, 42, 55)
             middle = (30, 50, 62)
             final = (30, 55, 68)
+        elif _v8mod.page_budget_override(child_age):
+            # 21 Nov 2026 (v8d): shorter, clearer read-aloud pages for ages 5-8; switch off with BEDTIME_V8D=0.
+            first, middle, final = _v8mod.page_budget_override(child_age)
         elif _quality.prompts_v5_enabled() and child_age in _quality.AGE_PAGE_BUDGETS:
             # 11 Nov 2026: length now grows with age (picture-book and bedtime
             # read-aloud guidance); see story_quality.AGE_PAGE_BUDGETS.
@@ -6648,7 +6651,7 @@ JSON ONLY:
         shapes = _v8mod.choose_shapes(child_age, history.get("plot_shapes") or [], count=max(1, _quality.page1_candidate_count()))
         state["v8_shape_options"] = shapes
         _quality.trace_set(request, "prompt_version", "v8")
-        _quality.trace_set(request, "v8_build", _v8mod.V8_BUILD)
+        _quality.trace_set(request, "v8_build", _v8mod.current_build())
         self._record_rule_fingerprints(request)
         custom_theme_text = str(request.customTheme or "").strip()
         if custom_theme_text:
@@ -8826,6 +8829,14 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
             final_ok, final_reason = self._validate_final_page(pages[-1], pages[:-1], request.storyLanguageCode, request=request)
             if not final_ok and expected_pages not in leaks:
                 forced.append({"page": expected_pages, "problem": final_reason, "fix": "Rewrite the final page as a complete, settled ending with no new events."})
+        if self._v8_applies(request) and _v8mod.v8d_enabled():
+            # v8d: a measured read-aloud check (no AI). Overlong pages and breath-busting sentences are always rewritten.
+            for n in range(max(first_new, 3), len(pages) + 1):
+                issue = _v8mod.read_aloud_issue(pages[n - 1], self._safe_child_age(request.age))
+                if issue and n not in {t["page"] for t in forced} and len(record.get("read_aloud_pages", [])) < 3:
+                    forced.append({"page": n, "problem": "Hard to read aloud: " + issue + ".",
+                                   "fix": "Keep the same events but make it easy to read aloud: fewer, shorter sentences, one clear picture, nothing new added."})
+                    record.setdefault("read_aloud_pages", []).append(n)
         forced_pages = {t["page"] for t in forced}
         editor_extra = [t for t in targets if t["page"] not in forced_pages]
         targets = sorted(forced + editor_extra[:max(0, _quality.MAX_REWRITE_PAGES + 1 - len(forced))], key=lambda t: t["page"])

@@ -24,11 +24,37 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from app.services import story_quality as Q
 
-V8_BUILD = "bedtime_v8c=20261113"
-RUBRIC_VERSION_V8 = "v8c-20261113"
+V8C_BUILD = "bedtime_v8c=20261113"
+V8D_BUILD = "bedtime_v8d=20261121"
+V8C_RUBRIC = "v8c-20261113"
+V8D_RUBRIC = "v8d-20261121"
 
 
-print(f"[BUILD] {V8_BUILD} BEDTIME_V8={os.getenv('BEDTIME_V8', '0')}", flush=True)
+def v8d_enabled() -> bool:
+    """v8d (21 Nov 2026): read-aloud excellence. On by default with v8; BEDTIME_V8D=0 gives back v8c exactly."""
+    return os.getenv("BEDTIME_V8D", "1").strip().lower() not in {"0", "false", "no", "off"}
+
+
+def current_build() -> str:
+    return V8D_BUILD if v8d_enabled() else V8C_BUILD
+
+
+def current_rubric() -> str:
+    return V8D_RUBRIC if v8d_enabled() else V8C_RUBRIC
+
+
+# Kept for anything that reads the old names.
+V8_BUILD = V8C_BUILD
+RUBRIC_VERSION_V8 = V8C_RUBRIC
+
+
+print(f"[BUILD] {current_build()} BEDTIME_V8={os.getenv('BEDTIME_V8', '0')} BEDTIME_V8D={os.getenv('BEDTIME_V8D', '1')}", flush=True)
+# 21 Nov 2026: one story (The Comet in the Pond, 21 Nov 12:58 UTC) was written with the old rules and Flash because
+# these settings were missing. Say so loudly at startup instead of falling back silently.
+if os.getenv("BEDTIME_V8", "0").strip().lower() not in {"1", "true", "yes", "on"}:
+    print("[BUILD] WARNING: BEDTIME_V8 is not 1, so Bedtime Stories use the OLD v7b rules, not the signed-off ones.", flush=True)
+if not os.getenv("GEMINI_DRAFT_MODEL", "").strip():
+    print("[BUILD] WARNING: GEMINI_DRAFT_MODEL is not set, so Pages 3-7 are written by Flash instead of Pro.", flush=True)
 
 
 def v8_enabled() -> bool:
@@ -156,7 +182,7 @@ def imagination_block(age: Any) -> str:
 
 
 def budget_block(age: Any) -> str:
-    return (
+    text = (
         "FEW THINGS, USED WELL (the most important rule; children lose the thread when too much is going on):\n"
         f"- The whole story uses at most {_BUDGET[band(age)]}. Count them; a busy story is a worse story.\n"
         "- After Page 2 add no new character, place or important object. Every new event comes from what is already\n"
@@ -165,6 +191,41 @@ def budget_block(age: Any) -> str:
         "  touchable things a child already knows: a spoon, a kite, a bucket, a ribbon.\n"
         "- One thing happens at a time: one action per sentence, one problem at a time, so the listener can picture it."
     )
+    if v8d_enabled():
+        # v8d: fix the doubled "at most at most", and leave "one thing at a time" to the read-aloud standard (said once).
+        text = text.replace("uses at most at most", "uses at most").replace(
+            "\n- One thing happens at a time: one action per sentence, one problem at a time, so the listener can picture it.", "")
+    return text
+
+
+# v8d (21 Nov 2026): owner found The Runaway Zebra Crossing (age 6) "hard to read for a 6 year old": 9-11 sentences a
+# page, tangled action (a pelican's beak pouch stuck to a stripe's tail while holding hands), the same trip-and-shout on
+# three pages, and a painted stripe that became paper. A professional read-aloud standard, by age.
+READ_ALOUD = {
+    #        sentences per page, most sentences up to N words, never more than M words
+    "young": (7, 10, 14),
+    "middle": (7, 12, 16),
+    "older": (8, 15, 20),
+}
+
+
+def read_aloud_block(age: Any) -> str:
+    sentences, usual, longest = READ_ALOUD[band(age)]
+    return (
+        "READ-ALOUD STANDARD (a parent reads this aloud at bedtime; write so it is a joy to read and easy to follow):\n"
+        f"- At most {sentences} sentences a page. Most sentences {usual} words or fewer; never more than {longest}. One idea per sentence,\n"
+        "  short enough to say in one breath. Put the important word at the end of the sentence.\n"
+        "- ONE CLEAR PICTURE PER PAGE: every page is one scene a child could draw: who is there, where they are, and the one thing\n"
+        "  that happens. Never chain more than two physical actions; never describe tangled movement (who is holding whom, what\n"
+        "  is stuck to what). If something moves, say plainly where it goes.\n"
+        "- REPETITION THAT BUILDS: a refrain or running joke may come back, but the event around it is new every time and a\n"
+        "  little bigger than before. Never use the same action (the same fall, trip, chase or mistake) on two pages.\n"
+        "- ONE CRAZY THING THAT STAYS THE SAME: on Page 1 decide exactly what the crazy thing is, what it is made of and how it\n"
+        "  moves, and never change it (a painted stripe never becomes paper).\n"
+        "- Every sentence makes plain sense the first time it is heard. Use simple speech tags (said, called, asked). When two\n"
+        "  characters could be he or she, use the name. No tongue-twisters, no strings of names or adjectives.\n"
+        "- End each page before the last with a small reason to turn the page: a surprise, a question, a funny problem."
+    )
 
 
 def design_block(age: Any) -> str:
@@ -172,7 +233,49 @@ def design_block(age: Any) -> str:
     return (
         f"STORY DESIGN FOR {BAND_LABEL[b]}:\n" + _DESIGN[b] + "\n"
         f"- Excitement level: {_PERIL[b]}.\n\n" + budget_block(age) + "\n\n" + imagination_block(age)
+        + (("\n\n" + read_aloud_block(age)) if v8d_enabled() else "")
     )
+
+
+# v8d page sizes: shorter, clearer pages for 5-8 (still growing with age). 3-4 and 9-12 unchanged.
+V8D_PAGE_BUDGETS = {
+    5: ((55, 70, 90), (65, 85, 110), (65, 85, 110)),      # about 560 words
+    6: ((55, 70, 90), (65, 85, 110), (65, 85, 110)),
+    7: ((65, 85, 110), (80, 100, 130), (80, 100, 130)),   # about 680 words
+    8: ((75, 95, 125), (90, 115, 150), (90, 115, 150)),   # about 790 words
+}
+
+
+def page_budget_override(age: int):
+    return V8D_PAGE_BUDGETS.get(age) if (v8_enabled() and v8d_enabled()) else None
+
+
+_SENTENCE_SPLIT = re.compile(r"(?<=[.!?])[\"\u201d\u2019']?\s+(?=[\"\u201c\u2018']?[A-Z0-9])")
+
+
+def sentences_of(text: str) -> List[str]:
+    text = re.sub(r"\s+", " ", str(text or "").replace("The End", "").strip())
+    return [s for s in _SENTENCE_SPLIT.split(text) if s.strip()] if text else []
+
+
+def read_aloud_issue(text: str, age: Any) -> Optional[str]:
+    """A measured read-aloud check (no AI): too many sentences on a page, or a sentence too long to say in one breath."""
+    max_sentences, usual, longest = READ_ALOUD[band(age)]
+    parts = sentences_of(text)
+    if not parts:
+        return None
+    lengths = [len(p.split()) for p in parts]
+    problems = []
+    # The writer is asked for the standard; the check allows a little over it (calibrated 21 Nov on the owner's
+    # favourite, Jess and the Crown with Paws, which passes, and The Runaway Zebra Crossing, which does not).
+    if len(parts) > max_sentences + 2:
+        problems.append(f"{len(parts)} sentences (at most {max_sentences})")
+    too_long = [n for n in lengths if n > longest + 2]
+    if too_long:
+        problems.append(f"{len(too_long)} sentence(s) over {longest} words (longest {max(too_long)})")
+    if sum(1 for n in lengths if n > usual + 2) > max(2, len(lengths) // 2):
+        problems.append(f"most sentences are longer than {usual} words")
+    return "; ".join(problems) or None
 
 
 def peril_block(age: Any) -> str:
@@ -421,6 +524,11 @@ def inject_hook(prompt: str, hook: str) -> str:
     return prompt.replace(marker, block + marker, 1) if marker in prompt else prompt + "\n" + block
 
 
+V8D_BEATS = (" Each beat is one clear picture,\n  and no two beats use the same action (the same fall, trip, chase or mistake).")
+V8D_JUDGE = ("- Easy to picture and read aloud: prefer the candidate a parent could read aloud smoothly and a child could see in their\n"
+             "  head, page by page.\n")
+
+
 def build_page1_judge_prompt(request: Any, candidates: List[Dict[str, Any]], age: int, age_standard: str = "") -> str:
     theme = getattr(request, "customTheme", None) or getattr(request, "theme", "")
 
@@ -455,7 +563,7 @@ JUDGE THE WHOLE STORY:
   in a world a child would design (wish-come-true details such as slides instead of stairs).
   Prefer a little bit crazy over sensible; mark down ordinary set-ups (a runaway pet, a contest, a lost item, a rule
   that needs explaining).
-- Few things, used well: prefer the candidate whose outline needs the fewest characters, places and objects. A busy
+{V8D_JUDGE if v8d_enabled() else ""}- Few things, used well: prefer the candidate whose outline needs the fewest characters, places and objects. A busy
   outline (many gadgets, helpers or places) loses to a simpler one, however clever.
 - Fun and excitement: a hook a child wants to follow, a big moment with real adventure for this age, real laughs.
 - The child has something to want or do and solves it with their own idea, using a thing seen on Page 1 or 2.
@@ -564,7 +672,7 @@ PLAN FIELDS (each idea once; {none_ok}):
   sign that the loss is coming closer, seen by Page 3 (not fading, dimming or going cold).
 - beats: exactly six strings, for Pages 2-7, 1-2 sentences each. Each beat starts with a NEW event that changes the
   situation, made from the characters and things already in the story; no beat only describes, gets ready or repeats
-  the problem, and no beat after Page 2 adds a new character, place or important object. Follow the page map below.
+  the problem, and no beat after Page 2 adds a new character, place or important object.{V8D_BEATS if v8d_enabled() else ""} Follow the page map below.
 - setback: the big moment, where it comes closest to going wrong.
 - solution_key: the one object, habit, skill or clue the child uses on Page 6 (the outline's solution);
   solution_planted_page: 1 or 2, where the listener first sees it.
@@ -722,6 +830,12 @@ CHECKS:
 # Editor and scorer: check what the writer was told
 # ---------------------------------------------------------------------------
 
+EDITOR_READ_ALOUD_V8D = """- Read every page aloud as a parent would, at bedtime (check this first): flag any sentence you stumble on or must
+  read twice, a page a child could not picture, tangled action (who is holding whom, what is stuck to what), too many
+  sentences, the same action repeated on two pages, or the crazy thing changing what it is. The fix shortens, splits and
+  simplifies: one clear picture, short sentences, nothing new added.
+"""
+
 EDITOR_CHECKLIST_V8 = """- Momentum (most important): flag ANY page where nothing new happens, that mostly describes scenery or getting ready,
   or that repeats the previous page in new words. Its fix must name the new event that should happen there.
 - The child's own idea or action solves it on Page 6, using something seen by Page 2; nothing needed at the climax
@@ -758,6 +872,29 @@ SCORE_CRITERIA_V8 = [
     ("originality", "One wonderfully odd big idea, taken seriously and working by child logic, that a child would tell a friend about. A sensible, ordinary premise (a runaway pet, a contest, a lost item) scores 7 at most."),
     ("want_again", "Would a child ask to hear this story again tomorrow night? 10 = they would beg for it; 7 = they would enjoy it once; 5 or less = they would lose interest."),
 ]
+
+SCORE_CRITERIA_V8D = SCORE_CRITERIA_V8 + [
+    ("easy_to_read_aloud", "A parent can read it aloud smoothly the first time, and a child of this age can picture every page: short clear sentences, one picture per page, no tangled action, no repeated events, the crazy thing never changing what it is. Long, crowded pages score 6 at most."),
+]
+
+
+def editor_checklist() -> str:
+    return (EDITOR_READ_ALOUD_V8D + EDITOR_CHECKLIST_V8) if v8d_enabled() else EDITOR_CHECKLIST_V8
+
+
+def score_criteria() -> list:
+    return SCORE_CRITERIA_V8D if v8d_enabled() else SCORE_CRITERIA_V8
+
+
+def score_schema() -> dict:
+    crit = score_criteria()
+    return {
+        "type": "object",
+        "properties": {**{key: {"type": "number"} for key, _ in crit},
+                       "weakest_page": {"type": "integer"}, "top_issues": {"type": "array", "items": {"type": "string"}}},
+        "required": [*[key for key, _ in crit], "weakest_page", "top_issues"],
+    }
+
 
 SCORE_RESPONSE_SCHEMA_V8 = {
     "type": "object",
