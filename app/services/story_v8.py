@@ -1,8 +1,8 @@
 """Bedtime Stories v8 (12 Nov 2026): fix causes, not symptoms.
 
-Switch: BEDTIME_V8=1 turns v8 on (default off, so deploying this changes nothing
-until the switch is set). v8 also needs v5 (BEDTIME_PROMPTS_V5 on); with
-BEDTIME_PROMPTS_V5=0 the v4 prompts are used exactly, as before.
+LOCKED (24 Nov 2026): Bedtime always runs the signed-off version (v8 + v8d + v8e). The old
+switches (BEDTIME_V8, BEDTIME_V8D, BEDTIME_V8E, BEDTIME_PROMPTS_V5 and the quality switches) are
+ignored on servers; only the offline tests can still reach the old paths, to prove nothing else moved.
 
 What v8 changes (see the project doc "v8-rule-review"):
 1. Outline first. Each Page 1 candidate also returns a short outline of the whole
@@ -32,7 +32,7 @@ V8D_RUBRIC = "v8d-20261121"
 
 def v8d_enabled() -> bool:
     """v8d (21 Nov 2026): read-aloud excellence. On by default with v8; BEDTIME_V8D=0 gives back v8c exactly."""
-    return os.getenv("BEDTIME_V8D", "1").strip().lower() not in {"0", "false", "no", "off"}
+    return Q.bedtime_switch_on("BEDTIME_V8D")
 
 
 V8E_BUILD = "bedtime_v8e=20261122"
@@ -42,7 +42,7 @@ V8E_RUBRIC = "v8e-20261122"
 def v8e_enabled() -> bool:
     """v8e (22 Nov 2026): the solution must really work, the child is in charge, the ending fits its time and place.
     Builds on v8d. BEDTIME_V8E=0 gives back v8d exactly (and BEDTIME_V8D=0 gives back v8c)."""
-    return v8d_enabled() and os.getenv("BEDTIME_V8E", "1").strip().lower() not in {"0", "false", "no", "off"}
+    return v8d_enabled() and Q.bedtime_switch_on("BEDTIME_V8E")
 
 
 def current_build() -> str:
@@ -80,21 +80,19 @@ V8_BUILD = V8C_BUILD
 RUBRIC_VERSION_V8 = V8C_RUBRIC
 
 
-print(f"[BUILD] {current_build()} BEDTIME_V8={os.getenv('BEDTIME_V8', '0')} BEDTIME_V8D={os.getenv('BEDTIME_V8D', '1')}", flush=True)
-# 21 Nov 2026: one story (The Comet in the Pond, 21 Nov 12:58 UTC) was written with the old rules and Flash because
-# these settings were missing. Say so loudly at startup instead of falling back silently.
-if os.getenv("BEDTIME_V8", "0").strip().lower() not in {"1", "true", "yes", "on"}:
-    print("[BUILD] WARNING: BEDTIME_V8 is not 1, so Bedtime Stories use the OLD v7b rules, not the signed-off ones.", flush=True)
-if not os.getenv("GEMINI_DRAFT_MODEL", "").strip():
-    print("[BUILD] WARNING: GEMINI_DRAFT_MODEL is not set, so Pages 3-7 are written by Flash instead of Pro.", flush=True)
-
-
 def v8_enabled() -> bool:
-    """BEDTIME_V8=1 (and v5 not switched off)."""
-    return (
-        os.getenv("BEDTIME_V8", "0").strip().lower() in {"1", "true", "yes", "on"}
-        and Q.prompts_v5_enabled()
-    )
+    """Always on (locked 24 Nov 2026). Only the offline tests can still switch it with BEDTIME_V8."""
+    if Q.bedtime_locked():
+        return True
+    return os.getenv("BEDTIME_V8", "0").strip().lower() in {"1", "true", "yes", "on"} and Q.prompts_v5_enabled()
+
+
+# 24 Nov 2026: Bedtime is locked to the signed-off version; the old settings can no longer switch it back.
+print(f"[BUILD] {current_build()} {Q.BEDTIME_LOCK_BUILD} (Bedtime locked: old versions cannot be switched on) "
+      f"draft_model={Q.role_model('draft')}", flush=True)
+for _name in Q.ignored_bedtime_switches():
+    print(f"[BUILD] NOTE: {_name} is set to off in this server's settings; it is IGNORED (Bedtime is locked to "
+          f"{current_build()}). You can delete it from Render.", flush=True)
 
 
 def band(age: Any) -> str:

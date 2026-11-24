@@ -8407,7 +8407,7 @@ MORAL LEAK REPAIR — NON-NEGOTIABLE:
         state = _quality.get_state(request)
         if state.get("plan") or not current_pages or len(current_pages) > 1:
             return
-        if os.getenv("BEDTIME_STORY_PLAN_ENABLED", "1").strip().lower() in {"0", "false", "no", "off"}:
+        if not _quality.bedtime_switch_on("BEDTIME_STORY_PLAN_ENABLED"):
             _quality.trace_set(request, "plan_status", "disabled")
             return
         if not self._quality_layer_applies(request, _quality.PLAN_MIN_AGE):
@@ -8943,7 +8943,7 @@ Plain prose only. {"The final page must end with exactly: The End." if ending el
 
     async def _score_story(self, request: GenerateStoryRequest, title: str, pages: list[str]) -> None:
         """Fix 2: score the finished story (score only; pages are already live)."""
-        if os.getenv("BEDTIME_STORY_SCORE_ENABLED", "1").strip().lower() in {"0", "false", "no", "off"}:
+        if not _quality.bedtime_switch_on("BEDTIME_STORY_SCORE_ENABLED"):
             _quality.trace_set(request, "score_status", "disabled")
             return
         if not self._quality_layer_applies(request, _quality.SCORE_MIN_AGE):

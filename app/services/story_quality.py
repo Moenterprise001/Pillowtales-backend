@@ -1060,12 +1060,41 @@ def _env_on(name: str, default: str = "1") -> bool:
     return os.getenv(name, default).strip().lower() not in {"0", "false", "no", "off"}
 
 
+# 24 Nov 2026 (owner): "v8e needs to be on. Old versions cannot be used." Stories for Emily aged 8 were being written
+# with the old v7b rules and Flash by a backend that did not have the Render settings. Bedtime is now LOCKED to the
+# signed-off version: these settings can no longer switch any part of it off, and a backend with no settings at all
+# still runs it. Only the offline tests may unlock the old paths (the test harness sets this; Render cannot).
+BEDTIME_LOCKED_SWITCHES = (
+    "BEDTIME_V8", "BEDTIME_V8D", "BEDTIME_V8E", "BEDTIME_PROMPTS_V5", "BEDTIME_PLAN_CHECK_ENABLED",
+    "BEDTIME_DRAFT_REVISE", "BEDTIME_STORY_PLAN_ENABLED", "BEDTIME_STORY_SCORE_ENABLED",
+)
+BEDTIME_LOCK_BUILD = "bedtime_locked=20261124"
+BEDTIME_DEFAULT_DRAFT_MODEL = "gemini-3.1-pro-preview"  # what production uses for Pages 3-7 (since 12 Nov)
+_ALLOW_OLD_VERSIONS = False  # offline tests only
+
+
+def bedtime_locked() -> bool:
+    return not _ALLOW_OLD_VERSIONS
+
+
+def bedtime_switch_on(name: str, default: str = "1") -> bool:
+    """A Bedtime version/quality switch: always on when locked; only the offline tests can turn it off."""
+    return True if bedtime_locked() else _env_on(name, default)
+
+
+def ignored_bedtime_switches() -> list:
+    """Settings someone set to off that the lock now ignores (reported loudly at startup)."""
+    import os
+    return [n for n in BEDTIME_LOCKED_SWITCHES
+            if os.getenv(n) is not None and os.getenv(n, "").strip().lower() in {"0", "false", "no", "off"}]
+
+
 def prompts_v5_enabled() -> bool:
-    return _env_on("BEDTIME_PROMPTS_V5")
+    return bedtime_switch_on("BEDTIME_PROMPTS_V5")
 
 
 def plan_check_enabled() -> bool:
-    return _env_on("BEDTIME_PLAN_CHECK_ENABLED")
+    return bedtime_switch_on("BEDTIME_PLAN_CHECK_ENABLED")
 
 
 def v5_age_block(age: int) -> str:
@@ -1510,7 +1539,8 @@ def role_model(role: Optional[str]) -> str:
     env = _ROLE_ENV.get(role or "")
     value = (os.getenv(env, "") if env else "").strip()
     if not value and role == "draft":
-        return role_model("pages")  # no draft model set: exactly as before
+        # 24 Nov 2026: a backend without GEMINI_DRAFT_MODEL wrote Pages 3-7 with Flash. Locked: Pro, as signed off.
+        return BEDTIME_DEFAULT_DRAFT_MODEL if bedtime_locked() else role_model("pages")
     return value
 
 
@@ -1611,7 +1641,7 @@ def page1_candidate_count() -> int:
 
 
 def draft_revise_enabled() -> bool:
-    return _env_on("BEDTIME_DRAFT_REVISE")
+    return bedtime_switch_on("BEDTIME_DRAFT_REVISE")
 
 
 def choose_hooks(count: int, recent_hooks: Iterable[str] = ()) -> List[str]:
