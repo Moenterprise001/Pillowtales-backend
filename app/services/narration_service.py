@@ -60,9 +60,15 @@ def normalize_language_code(language_code: Optional[str], *, preserve_english_lo
 def base_language_code(language_code: Optional[str]) -> str:
     return normalize_language_code(language_code, preserve_english_locale=False)
 
-def prepare_narration_text(text: str) -> str:
+def prepare_narration_text(text: str, keep_paragraphs: bool = False) -> str:
     if not text:
         return text
+
+    if keep_paragraphs:
+        # Bedtime (25 Nov 2026): keep the story's paragraph breaks so the voice pauses there,
+        # instead of reading the whole page as one block.
+        parts = [prepare_narration_text(p) for p in re.split(r"\n\s*\n", text.strip())]
+        return "\n\n".join(p for p in parts if p)
 
     text = text.strip()
 
@@ -380,6 +386,109 @@ def soften_bedtime_narration_text(text: str, language_code: str, keep_words: boo
         return text.strip()
 
     return text
+
+# ---------------------------------------------------------------------------
+# Bedtime narration pace (25 Nov 2026). Listeners: "a bedtime story should be like pouring a good
+# wine"; the standard narrators ran sentences and pages together. Bedtime Stories only: Story Worlds
+# (story_world_slug), seasonal stories (theme "seasonal:...") and Parent Voice are untouched.
+#   1. paragraph breaks are kept (prepare_narration_text(keep_paragraphs=True)),
+#   2. the voice is asked for an unhurried pace with a clear pause after every sentence,
+#   3. about a second of real silence is added to the end of every page, so page changes breathe.
+# ---------------------------------------------------------------------------
+BEDTIME_NARRATION_PACE_BUILD = "bedtime_narration_pace=20261125"
+BEDTIME_PAGE_END_PAUSE_SECONDS = 1.0
+BEDTIME_PACING_DIRECTION = (
+    " PACE (most important of all): this is a bedtime story read aloud by a parent who is in no hurry. "
+    "Read a little slower than everyday conversation. After every sentence, pause before starting the next "
+    "one: a short, relaxed pause that the listener can clearly hear. Never run sentences together. After a "
+    "question, an exclamation or a funny line, let it land for a moment before going on. Where a new "
+    "paragraph starts, pause a little longer, as if turning to the next part of the story. Pause gently at "
+    "commas. Keep this same unhurried pace from the first word to the last: the pauses are part of the "
+    "story, so never rush through them."
+)
+
+def tidy_bedtime_dialogue(text: str) -> str:
+    """Dialogue dashes reach this point as commas (clean_text_for_tts turns "—" into ","), so Spanish
+    "Roque. —¡Arriba! —dijo." arrives as "Roque.,¡Arriba!,dijo.". Give the voice clean punctuation:
+    "Roque. ¡Arriba! dijo." Bedtime only; the words are unchanged."""
+    if not text:
+        return text
+    text = re.sub(r"([.!?…])[ \t]*,[ \t]*", r"\1 ", text)   # ".," "!," "?,"  ->  ". " "! " "? "
+    text = re.sub(r"^[ \t]*,[ \t]*", "", text, flags=re.M)    # a line that starts with a stray comma
+    text = re.sub(r",(?=[^\s\d])", ", ", text)                 # ",dijo" -> ", dijo"
+    return text
+
+
+_MP3_BITRATES = {  # Layer III only, kbit/s
+    "1": [0, 32, 40, 48, 56, 64, 80, 96, 112, 128, 160, 192, 224, 256, 320],
+    "2": [0, 8, 16, 24, 32, 40, 48, 56, 64, 80, 96, 112, 128, 144, 160],
+}
+_MP3_SAMPLE_RATES = {3: [44100, 48000, 32000], 2: [22050, 24000, 16000], 0: [11025, 12000, 8000]}
+
+
+def add_mp3_silence(audio: bytes, seconds: float) -> bytes:
+    """Append `seconds` of digital silence to an MP3 (Layer III) without any audio library.
+
+    Silent frames copy the format of the file's first frame (sample rate, channels, bitrate) and carry
+    no audio data, which every decoder plays as silence. A Xing/Info or VBRI header, if present, is
+    updated so players show the right length. Any problem returns the audio unchanged.
+    """
+    try:
+        if not audio or seconds <= 0:
+            return audio
+        data = bytearray(audio)
+        pos = 0
+        if data[:3] == b"ID3" and len(data) > 10:
+            size = (data[6] << 21) | (data[7] << 14) | (data[8] << 7) | data[9]
+            pos = 10 + size + (10 if data[5] & 0x10 else 0)
+        while pos + 4 <= len(data) and not (data[pos] == 0xFF and (data[pos + 1] & 0xE0) == 0xE0):
+            pos += 1
+        if pos + 4 > len(data):
+            return audio
+        b1, b2, b3 = data[pos + 1], data[pos + 2], data[pos + 3]
+        version, layer = (b1 >> 3) & 3, (b1 >> 1) & 3
+        bitrate_index, rate_index = b2 >> 4, (b2 >> 2) & 3
+        if layer != 1 or version == 1 or bitrate_index in (0, 15) or rate_index == 3:
+            return audio
+        mpeg1 = version == 3
+        bitrate = _MP3_BITRATES["1" if mpeg1 else "2"][bitrate_index] * 1000
+        rate = _MP3_SAMPLE_RATES[version][rate_index]
+        mono = (b3 >> 6) == 3
+        frame_len = (144 if mpeg1 else 72) * bitrate // rate
+        samples = 1152 if mpeg1 else 576
+        side_info = (17 if mono else 32) if mpeg1 else (9 if mono else 17)
+        if frame_len < 4 + side_info:
+            return audio
+        frame = bytes([0xFF, b1 | 0x01, b2 & 0xFC, b3]) + bytes(frame_len - 4)  # no CRC, no padding, no data
+        count = max(1, int(round(seconds * rate / samples)))
+        silence = frame * count
+
+        # Keep the length shown by players right (Xing/Info or VBRI header in the first frame).
+        tag_at = pos + 4 + side_info
+        if data[tag_at:tag_at + 4] in (b"Xing", b"Info"):
+            flags = int.from_bytes(data[tag_at + 4:tag_at + 8], "big")
+            field = tag_at + 8
+            if flags & 1:
+                frames = int.from_bytes(data[field:field + 4], "big") + count
+                data[field:field + 4] = frames.to_bytes(4, "big"); field += 4
+            if flags & 2:
+                total = int.from_bytes(data[field:field + 4], "big") + len(silence)
+                data[field:field + 4] = total.to_bytes(4, "big")
+        elif data[pos + 36:pos + 40] == b"VBRI":
+            v = pos + 36
+            total = int.from_bytes(data[v + 10:v + 14], "big") + len(silence)
+            frames = int.from_bytes(data[v + 14:v + 18], "big") + count
+            data[v + 10:v + 14] = total.to_bytes(4, "big")
+            data[v + 14:v + 18] = frames.to_bytes(4, "big")
+
+        end = len(data)
+        if end >= 128 and data[end - 128:end - 125] == b"TAG":  # keep an ID3v1 tag last
+            end -= 128
+        return bytes(data[:end]) + silence + bytes(data[end:])
+    except Exception as exc:
+        print(f"[NARRATION] page-end pause skipped: {exc!r}")
+        return audio
+
 
 class NarrationService:
     def __init__(
@@ -892,6 +1001,7 @@ class NarrationService:
         voice: str,
         language_code: Optional[str] = None,
         pronunciation_guide: Optional[list] = None,
+        bedtime_pacing: bool = False,
     ) -> bytes:
         api_key = os.getenv("OPENAI_API_KEY", "")
         if not api_key:
@@ -900,6 +1010,8 @@ class NarrationService:
         provider_voice = VOICE_PRESETS.get(voice, {}).get("voice_id") or "shimmer"
         instructions = self._openai_tts_instructions(voice, language_code)
         instructions += self._pronunciation_guide_instructions(pronunciation_guide)
+        if bedtime_pacing:
+            instructions += BEDTIME_PACING_DIRECTION
 
         retries = 2
 
@@ -1216,8 +1328,11 @@ class NarrationService:
         story_language_code: Optional[str] = None,
         story_world_id: Optional[str] = None,
         story_world_slug: Optional[str] = None,
+        story_theme: Optional[str] = None,
     ) -> tuple[str, str]:
         page_text = self._clean_page_text(page_text)
+        # Seasonal stories saved to a library carry no Story World, only a theme "seasonal:<celebration>:<story>".
+        is_seasonal = str(story_theme or "").strip().lower().startswith("seasonal:")
 
         # PERFORMANCE SAFETY:
         # Same-language narration must stay on the fast path.
@@ -1280,10 +1395,20 @@ class NarrationService:
             # Standard OpenAI narrators keep the bedtime/accent shaping added for
             # smoother page transitions and improved non-English delivery.
             is_story_world = bool(resolved_story_world_id or story_world_slug)
-            tts_text = soften_bedtime_narration_text(
-                tts_text, language_code, keep_words=is_story_world
-            )
-            tts_text = prepare_narration_text(tts_text)
+            if is_story_world or is_seasonal:  # Story Worlds and seasonal stories: exactly as before
+                tts_text = soften_bedtime_narration_text(
+                    tts_text, language_code, keep_words=is_story_world
+                )
+                tts_text = prepare_narration_text(tts_text)
+            else:
+                # Bedtime (25 Nov 2026): shape each paragraph on its own so the breaks survive,
+                # and tidy dialogue dashes that earlier cleaning turned into ".," / "!," muddles.
+                tts_text = tidy_bedtime_dialogue(tts_text)
+                tts_text = "\n\n".join(
+                    soften_bedtime_narration_text(part, language_code, keep_words=False)
+                    for part in re.split(r"\n\s*\n", tts_text) if part.strip()
+                )
+                tts_text = prepare_narration_text(tts_text, keep_paragraphs=True)
 
             # Keep page 1 as fast as possible for bedtime startup speed.
             # Apply the soft anti-gulp lead-in only for later pages where
@@ -1315,9 +1440,13 @@ class NarrationService:
                     tts_text, fallback_voice, language_code, pronunciation_guide
                 )
         else:
+            bedtime = not (resolved_story_world_id or story_world_slug or is_seasonal)
             audio = await self._generate_openai_tts(
-                tts_text, voice, language_code, pronunciation_guide
+                tts_text, voice, language_code, pronunciation_guide, bedtime_pacing=bedtime
             )
+            if bedtime:
+                # A real pause at every page end, so the next page doesn't start straight away.
+                audio = add_mp3_silence(audio, BEDTIME_PAGE_END_PAUSE_SECONDS)
 
         storage_path = self._storage_path(user_id, story_id, voice, language_code, page)
         await self._upload_audio(storage_path, audio)
@@ -1504,6 +1633,7 @@ class NarrationService:
                             fresh_story.get("story_world_slug")
                             or fresh_story.get("storyWorldSlug")
                         ),
+                        story_theme=fresh_story.get("theme"),
                     )
                     await mark_ready(idx, storage_path, actual_mode)
                     job["status"] = "page_ready" if len(job.get("pages_ready", [])) < expected_total_pages else "all_ready"

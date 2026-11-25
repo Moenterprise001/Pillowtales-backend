@@ -39,22 +39,26 @@ LANG_OF_VOICE = {"night_owl_english": "en-US", "night_owl_spanish": "es", "night
                  "night_owl_french": "fr", "night_owl_italian": "it", "night_owl_japanese": "ja",
                  "night_owl_arabic": "ar"}
 CALLS = []
+# Ten silent MP3 frames (MPEG-2 Layer III, 24 kHz mono, 160 kbit/s), standing in for the voice's audio.
+FAKE_MP3 = (bytes([0xFF, 0xF3, 0xE4, 0xC0]) + bytes(476)) * 10
 
 
 def recorder():
     svc = N.NarrationService(story_repo=None, user_repo=None, subscription_service=None,
                              story_world_pronunciation_service=None)
 
-    async def openai(text, voice, language_code=None, pronunciation_guide=None):
+    async def openai(text, voice, language_code=None, pronunciation_guide=None, bedtime_pacing=False):
         CALLS.append(("openai", voice, language_code, text, svc._openai_tts_instructions(voice, language_code)
-                      + svc._pronunciation_guide_instructions(pronunciation_guide)))
-        return b"mp3"
+                      + svc._pronunciation_guide_instructions(pronunciation_guide)
+                      + (getattr(N, "BEDTIME_PACING_DIRECTION", "") if bedtime_pacing else "")))
+        return FAKE_MP3
 
     async def eleven(text, voice_id, language_code):
         CALLS.append(("parent", voice_id, language_code, text, ""))
-        return b"mp3"
+        return FAKE_MP3
 
     async def upload(path, audio):
+        CALLS.append(("audio_bytes", len(audio)))  # catches the page-end pause
         return None
 
     async def translate(text, target, source=None):
@@ -65,7 +69,7 @@ def recorder():
     return svc
 
 
-def fingerprints():
+def fingerprints(story_world=False):
     svc = recorder(); out = {}
     cases = []
     for voice, lang in LANG_OF_VOICE.items():
@@ -84,11 +88,13 @@ def fingerprints():
         asyncio.run(svc._generate_page_audio(user_id="u1", story_id="s1", page_text=PAGES[lang],
                                              child_name="Emily", child_name_pronunciation=None,
                                              story_language_code=lang, story_world_id=None,
-                                             story_world_slug=None, **kw))
+                                             story_world_slug="irish-legends" if story_world else None, **kw))
         out[name] = [hashlib.sha1(json.dumps(c, ensure_ascii=False).encode()).hexdigest()[:16] for c in CALLS]
     return out
 
 
+if "--story-worlds" in sys.argv:  # parity helper: the same pages as a Story World
+    print("JSON" + json.dumps(fingerprints(story_world=True))); sys.exit(0)
 now = fingerprints()
 if "--update" in sys.argv:
     json.dump(now, open(GOLDEN, "w"), indent=1); print("UPDATED bedtime_narration_golden.json"); sys.exit(0)
@@ -98,6 +104,23 @@ for key in gold:
     same = gold[key] == now.get(key)
     failures += 0 if same else 1
     print(("PASS " if same else "FAIL ") + f"Bedtime narration unchanged for {key}")
+# The Bedtime pace must stay out of Story Worlds and seasonal stories (owner, 25 Nov 2026).
+svc = recorder()
+for label, extra in [("Story Worlds", dict(story_world_slug="irish-legends")),
+                     ("seasonal stories", dict(story_world_slug=None, story_theme="seasonal:christmas:the-little-fir"))]:
+    leaked = False
+    for voice, lang in LANG_OF_VOICE.items():
+        CALLS.clear()
+        asyncio.run(svc._generate_page_audio(user_id="u1", story_id="s1", page=3, page_text=PAGES[lang[:2]],
+                                             voice=voice, language_code=lang, voice_mode="standard",
+                                             parent_voice_id=None, child_name=None, child_name_pronunciation=None,
+                                             story_language_code=lang[:2], story_world_id=None, **extra))
+        direction = CALLS[0][4]
+        pause_added = any(c[0] == "audio_bytes" and c[1] != len(FAKE_MP3) for c in CALLS)
+        leaked = leaked or getattr(N, "BEDTIME_PACING_DIRECTION", "@@") in direction or pause_added
+    failures += 1 if leaked else 0
+    print(("FAIL " if leaked else "PASS ") + f"the Bedtime narration pace stays out of {label}")
+
 if failures:
     print(f"\nBEDTIME NARRATION LOCK FAILED ({failures} check(s)). This change would alter how Bedtime Stories sound.")
     print("STOP: do not deploy. Tell the owner what changed and wait for sign-off.")
