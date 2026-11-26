@@ -415,7 +415,7 @@ def tidy_bedtime_dialogue(text: str) -> str:
         return text
     text = re.sub(r"([.!?…])[ \t]*,[ \t]*", r"\1 ", text)   # ".," "!," "?,"  ->  ". " "! " "? "
     text = re.sub(r"^[ \t]*,[ \t]*", "", text, flags=re.M)    # a line that starts with a stray comma
-    text = re.sub(r",(?=[^\s\d])", ", ", text)                 # ",dijo" -> ", dijo"
+    text = re.sub(r",(?=[^\s\d\"'”’»)\]])", ", ", text)       # ",dijo" -> ", dijo" (never ',"' -> ', "')
     return text
 
 

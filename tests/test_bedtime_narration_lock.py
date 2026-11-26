@@ -104,6 +104,18 @@ for key in gold:
     same = gold[key] == now.get(key)
     failures += 0 if same else 1
     print(("PASS " if same else "FAIL ") + f"Bedtime narration unchanged for {key}")
+# Dialogue must reach the voice intact: a closing quote stays on its comma (bug seen live 25 Nov 2026:
+# '"Please leave the paper behind," Emily' was sent as '"Please leave the paper behind, " Emily').
+svc = recorder(); CALLS.clear()
+asyncio.run(svc._generate_page_audio(user_id="u1", story_id="s1", page=3,
+                                     page_text='"Please leave the paper behind," Emily told the badger. \'Stop,\' she said.',
+                                     voice="night_owl_english", language_code="en-US", voice_mode="standard",
+                                     parent_voice_id=None, child_name=None, child_name_pronunciation=None,
+                                     story_language_code="en", story_world_id=None, story_world_slug=None))
+intact = 'behind," Emily' in CALLS[0][3] and "'Stop,' she" in CALLS[0][3]
+failures += 0 if intact else 1
+print(("PASS " if intact else "FAIL ") + "dialogue quotes reach the voice intact")
+
 # The Bedtime pace must stay out of Story Worlds and seasonal stories (owner, 25 Nov 2026).
 svc = recorder()
 for label, extra in [("Story Worlds", dict(story_world_slug="irish-legends")),
