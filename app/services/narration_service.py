@@ -17,6 +17,7 @@ from app.repositories.user_repository import UserRepository
 from app.services.subscription_service import SubscriptionService
 from app.services.story_world_pronunciation_service import StoryWorldPronunciationService
 from app.services.text_cleaner import clean_text_for_tts, apply_pronunciation
+from app.services import shared_narration
 
 # In-memory job state for active chunked narration generation.
 # Good enough for a single Render instance launch setup.
@@ -1083,6 +1084,13 @@ class NarrationService:
 
         return response.content
 
+    def _storage_client(self):
+        """Supabase storage client, or None (offline tests, misconfiguration)."""
+        try:
+            return self.story_repo.client.storage
+        except Exception:
+            return None
+
     async def _upload_audio(self, storage_path: str, audio_bytes: bytes) -> None:
         self.story_repo.client.storage.from_("story-audio").upload(
             storage_path,
@@ -1441,9 +1449,41 @@ class NarrationService:
                 )
         else:
             bedtime = not (resolved_story_world_id or story_world_slug or is_seasonal)
-            audio = await self._generate_openai_tts(
-                tts_text, voice, language_code, pronunciation_guide, bedtime_pacing=bedtime
-            )
+            # Seasonal stories only (26 Nov 2026): reuse the identical standard-voice audio
+            # another family already paid for. Bedtime and Story Worlds never reach this.
+            shared_path = None
+            audio = None
+            if is_seasonal and not bedtime and shared_narration.is_shareable(
+                story_theme=story_theme,
+                voice=voice,
+                voice_mode=voice_mode,
+                story_language=story_lang,
+                narration_language=narration_lang,
+            ):
+                shared_path = shared_narration.shared_audio_path(
+                    story_theme=story_theme,
+                    voice=voice,
+                    language_code=language_code,
+                    cache_version=self._audio_cache_version(voice, language_code),
+                    tts_text=tts_text,
+                    instructions=(
+                        self._openai_tts_instructions(voice, language_code)
+                        + self._pronunciation_guide_instructions(pronunciation_guide)
+                    ),
+                )
+                storage = self._storage_client()
+                if shared_path and storage is not None:
+                    audio = shared_narration.download_shared_audio(storage, shared_path)
+                    if audio is not None:
+                        print(f"[NARRATION] Reused shared seasonal audio page={page} path={shared_path}")
+            if audio is None:
+                audio = await self._generate_openai_tts(
+                    tts_text, voice, language_code, pronunciation_guide, bedtime_pacing=bedtime
+                )
+                if shared_path:
+                    storage = self._storage_client()
+                    if storage is not None and shared_narration.upload_shared_audio(storage, shared_path, audio):
+                        print(f"[NARRATION] Saved shared seasonal audio page={page} path={shared_path}")
             if bedtime:
                 # A real pause at every page end, so the next page doesn't start straight away.
                 audio = add_mp3_silence(audio, BEDTIME_PAGE_END_PAUSE_SECONDS)
